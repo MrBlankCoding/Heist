@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Error - The Heist{% endblock %}
+
+{% block head %}
+<style>
+    .error-container {
+        min-height: 60vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+    }
+    
+    .error-card {
+        background-color: rgba(26, 32, 44, 0.8);
+        border: 1px solid rgba(113, 128, 150, 0.2);
+        backdrop-filter: blur(8px);
+    }
+    
+    .alarm-light {
+        animation: alarm-pulse 1.5s infinite;
+    }
+    
+    @keyframes alarm-pulse {
+        0% { opacity: 0.5; box-shadow: 0 0 5px rgba(245, 101, 101, 0.5); }
+        50% { opacity: 1; box-shadow: 0 0 20px rgba(245, 101, 101, 0.8); }
+        100% { opacity: 0.5; box-shadow: 0 0 5px rgba(245, 101, 101, 0.5); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="error-container text-center my-16">
+    <div class="error-card max-w-lg mx-auto rounded-lg shadow-lg p-8 md:p-10">
+        <div class="mb-6">
+            <div class="alarm-light w-16 h-16 mx-auto bg-red-500 rounded-full mb-4"></div>
+            <h1 class="text-3xl md:text-4xl font-bold text-red-400 mb-2">Security Alert</h1>
+        </div>
+        
+        <div class="mb-8">
+            <p class="text-xl text-gray-300 mb-4">{{ message|default("An unexpected error has occurred.") }}</p>
+            <p class="text-gray-400">Error Code: {{ status_code|default("404") }}</p>
+            <p class="text-sm text-gray-500 mt-4">The security system has detected unusual activity. The operation cannot proceed.</p>
+        </div>
+        
+        <div class="mt-8">
+            <a href="/" class="inline-block bg-indigo-700 hover:bg-indigo-600 text-white font-medium py-2 px-6 rounded-md transition duration-200 mr-2">
+                Return to Base
+            </a>
+            <button onclick="window.history.back()" class="inline-block bg-gray-700 hover:bg-gray-600 text-white font-medium py-2 px-6 rounded-md transition duration-200">
+                Go Back
+            </button>
+        </div>
+    </div>
+    
+    {% if debug and error_details %}
+    <div class="mt-8 max-w-lg mx-auto p-4 rounded bg-gray-800 text-left">
+        <h3 class="text-lg font-semibold text-gray-300 mb-2">Error Details</h3>
+        <pre class="text-sm text-gray-400 overflow-auto p-2">{{ error_details }}</pre>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Track error for analytics
+    document.addEventListener('DOMContentLoaded', function() {
+        if (window.errorTracking) {
+            window.errorTracking.logError({
+                message: "{{ message|default('Unknown error') }}",
+                code: "{{ status_code|default('404') }}",
+                path: window.location.pathname
+            });
+        }
+    });
+</script>
+{% endblock %}

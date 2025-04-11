@@ -1,7 +1,12 @@
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket, WebSocketDisconnect, status
 import json
 import asyncio
-from typing import Dict
+import logging
+import os
+from typing import Dict, Set, Optional
+from collections import defaultdict
+from asyncio import Lock
+from dotenv import load_dotenv
 
 # Use absolute imports
 import app.models
@@ -18,197 +23,294 @@ from app.redis_client import (
     associate_player_with_room,
     get_player_room,
     delete_player_data,
-    delete_room_data
+    delete_room_data,
+    mark_player_connection_status,
+    get_players_in_room,
+    get_connected_players_in_room,
+    SUCCESS,
+    FAILURE
 )
 
-# Get references to shared resources - still needed for WebSocket connections
-game_rooms = app.utils.game_rooms
-connected_players = app.utils.connected_players
-broadcast_to_room = app.utils.broadcast_to_room
+# Import utils
+from app.utils import (
+    store_connection,
+    get_connection,
+    remove_connection,
+    broadcast_to_room,
+    get_environment_variable,
+    get_boolean_env,
+    connected_players,
+    game_rooms  # For compatibility only
+)
 
 # Import functions from game_logic
-generate_puzzles = app.game_logic.generate_puzzles
-validate_puzzle_solution = app.game_logic.validate_puzzle_solution
-handle_power_usage = app.game_logic.handle_power_usage
-run_game_timer = app.game_logic.run_game_timer
-process_timer_vote_result = app.game_logic.process_timer_vote_result
-run_vote_timer = app.game_logic.run_vote_timer
+from app.game_logic import (
+    generate_puzzles,
+    validate_puzzle_solution,
+    handle_power_usage,
+    run_game_timer,
+    process_timer_vote_result,
+    run_vote_timer
+)
 
 # Import models
-Player = app.models.Player
-GameRoom = app.models.GameRoom
+from app.models import Player, GameRoom
 
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("app.websocket")
+
+# Connection limits and rate limiting
+MAX_CONNECTIONS_PER_ROOM = int(get_environment_variable("MAX_CONNECTIONS_PER_ROOM", "10"))
+MAX_CONNECTIONS_PER_IP = int(get_environment_variable("MAX_CONNECTIONS_PER_IP", "20"))
+CONNECTION_RATE_LIMIT = int(get_environment_variable("CONNECTION_RATE_LIMIT", "5"))
+
+# Track connection data
+connections_by_ip = defaultdict(int)
+connections_by_room = defaultdict(int)
+connection_times_by_ip = defaultdict(list)
+connection_lock = Lock()
 
 async def websocket_endpoint(websocket: WebSocket, room_code: str, player_id: str):
-    await websocket.accept()
-
-    # Get room data from Redis
-    room_data = get_room_data(room_code)
-    if not room_data:
-        await websocket.send_json({"error": "Room not found"})
-        await websocket.close()
-        return
-
-    # Convert to GameRoom object
-    room = GameRoom(**room_data)
+    client_ip = websocket.client.host
     
-    # Check if player exists in the room
-    if player_id not in room.players:
-        await websocket.send_json({"error": "Player not found"})
-        await websocket.close()
-        return
-
-    # Store the WebSocket connection
-    connected_players[player_id] = websocket
-
-    # Mark player as connected
-    if isinstance(room.players[player_id], dict):
-        room.players[player_id]["connected"] = True
-        player = Player(**room.players[player_id])
-    else:
-        room.players[player_id].connected = True
-        player = room.players[player_id]
-    
-    # Update player data in Redis
-    player_data = get_player_data(player_id)
-    if player_data:
-        player_data["connected"] = True
-        store_player_data(player_id, player_data)
-        
-    # Update room data in Redis
-    store_room_data(room_code, room.dict())
-    
-    # Also update in-memory GameRoom for compatibility
-    if room_code in game_rooms:
-        if player_id in game_rooms[room_code].players:
-            game_rooms[room_code].players[player_id].connected = True
-    else:
-        game_rooms[room_code] = room
-
-    # Prepare player data for sending
-    all_players = {}
-    for pid, p_data in room.players.items():
-        if isinstance(p_data, dict):
-            p = Player(**p_data)
-        else:
-            p = p_data
+    # Check rate limiting and connection limits
+    async with connection_lock:
+        # Check connections per IP
+        if connections_by_ip[client_ip] >= MAX_CONNECTIONS_PER_IP:
+            logger.warning(f"Connection limit exceeded for IP {client_ip}")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
             
-        all_players[pid] = {
-            "id": pid,
-            "name": p.name,
-            "role": p.role,
-            "connected": p.connected,
-            "is_host": p.is_host,
-        }
+        # Check connections per room
+        if connections_by_room[room_code] >= MAX_CONNECTIONS_PER_ROOM:
+            logger.warning(f"Connection limit exceeded for room {room_code}")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+            
+        # Check rate limiting
+        current_time = asyncio.get_event_loop().time()
+        # Remove old connection timestamps (older than 1 second)
+        connection_times_by_ip[client_ip] = [
+            t for t in connection_times_by_ip[client_ip] 
+            if current_time - t < 1.0
+        ]
+        
+        # Check if too many connections in the last second
+        if len(connection_times_by_ip[client_ip]) >= CONNECTION_RATE_LIMIT:
+            logger.warning(f"Rate limit exceeded for IP {client_ip}")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+            
+        # Record this connection
+        connection_times_by_ip[client_ip].append(current_time)
+        connections_by_ip[client_ip] += 1
+        connections_by_room[room_code] += 1
+        
+    try:
+        await websocket.accept()
 
-    # Send initial game state to the new player
-    await websocket.send_json(
-        {
-            "type": "game_state",
-            "room": room_code,
-            "stage": room.stage,
-            "status": room.status,
-            "timer": room.timer,
-            "alert_level": room.alert_level,
-            "players": all_players,
-        }
-    )
+        # Get room data from Redis
+        room_data = get_room_data(room_code)
+        if not room_data:
+            logger.warning(f"Room {room_code} not found for player {player_id}")
+            await websocket.send_json({"error": "Room not found"})
+            await websocket.close()
+            return
 
-    # Broadcast player connected to all other players
-    await broadcast_to_room(
-        room_code,
-        {
-            "type": "player_connected",
-            "player": {
-                "id": player_id,
-                "name": player.name,
-                "role": player.role,
-                "connected": True,
-                "is_host": player.is_host,
-            },
-        },
-    )
+        # Convert to GameRoom object
+        room = GameRoom(**room_data)
+        
+        # Check if player exists in the room
+        if player_id not in room.players:
+            logger.warning(f"Player {player_id} not found in room {room_code}")
+            await websocket.send_json({"error": "Player not found"})
+            await websocket.close()
+            return
 
-    if room.status == "in_progress":
-        # Send puzzle data
-        if "puzzles" in room_data and player_id in room_data["puzzles"]:
+        # Store the WebSocket connection
+        store_connection(player_id, websocket)
+        logger.info(f"Player {player_id} connected to room {room_code}")
+
+        # Mark player as connected
+        player_connected_before = False
+        if isinstance(room.players[player_id], dict):
+            player_connected_before = room.players[player_id].get("connected", False)
+            room.players[player_id]["connected"] = True
+            player = Player(**room.players[player_id])
+        else:
+            player_connected_before = room.players[player_id].connected
+            room.players[player_id].connected = True
+            player = room.players[player_id]
+        
+        # Update connection status in Redis
+        mark_player_connection_status(player_id, True)
+            
+        # Update room data in Redis
+        store_room_data(room_code, room.dict())
+        
+        # Also update in-memory GameRoom for compatibility
+        if room_code in game_rooms:
+            if player_id in game_rooms[room_code].players:
+                game_rooms[room_code].players[player_id].connected = True
+        else:
+            game_rooms[room_code] = room
+
+        # Send initial game state only if this player wasn't already connected
+        if not player_connected_before:
+            # Prepare player data for sending
+            all_players = {}
+            for pid, p_data in room.players.items():
+                if isinstance(p_data, dict):
+                    p = Player(**p_data)
+                else:
+                    p = p_data
+                    
+                all_players[pid] = {
+                    "id": pid,
+                    "name": p.name,
+                    "role": p.role,
+                    "connected": p.connected,
+                    "is_host": p.is_host,
+                }
+
+            # Send initial game state to the new player
             await websocket.send_json(
-                {"type": "puzzle_data", "puzzle": room_data["puzzles"][player_id]}
+                {
+                    "type": "game_state",
+                    "room": room_code,
+                    "stage": room.stage,
+                    "status": room.status,
+                    "timer": room.timer,
+                    "alert_level": room.alert_level,
+                    "players": all_players,
+                }
             )
 
-    try:
-        # Main WebSocket message loop
-        while True:
-            data = await websocket.receive_text()
-            await process_websocket_message(room_code, player_id, json.loads(data))
-    except WebSocketDisconnect:
-        # Get updated room data from Redis
-        room_data = get_room_data(room_code)
-        if room_data:
-            room = GameRoom(**room_data)
-            
-            # Mark player as disconnected
-            if player_id in room.players:
-                if isinstance(room.players[player_id], dict):
-                    room.players[player_id]["connected"] = False
-                else:
-                    room.players[player_id].connected = False
-                
-                # Update Redis
-                store_room_data(room_code, room.dict())
-                
-                # Update player data
-                player_data = get_player_data(player_id)
-                if player_data:
-                    player_data["connected"] = False
-                    store_player_data(player_id, player_data)
-        
-        # Also update in-memory room
-        if room_code in game_rooms and player_id in game_rooms[room_code].players:
-            game_rooms[room_code].players[player_id].connected = False
-            
-        if player_id in connected_players:
-            del connected_players[player_id]
+            # Broadcast player connected to all other players
+            await broadcast_to_room(
+                room_code,
+                {
+                    "type": "player_connected",
+                    "player": {
+                        "id": player_id,
+                        "name": player.name,
+                        "role": player.role,
+                        "connected": True,
+                        "is_host": player.is_host,
+                    },
+                },
+            )
 
-        # Notify other players
-        await broadcast_to_room(
-            room_code, {"type": "player_disconnected", "player_id": player_id}
-        )
+        # If game is in progress, send puzzle data
+        if room.status == "in_progress":
+            if "puzzles" in room_data and player_id in room_data["puzzles"]:
+                await websocket.send_json(
+                    {"type": "puzzle_data", "puzzle": room_data["puzzles"][player_id]}
+                )
+
+        try:
+            # Main WebSocket message loop
+            while True:
+                data = await websocket.receive_text()
+                try:
+                    # Parse the message as JSON
+                    parsed_data = json.loads(data)
+                    await process_websocket_message(room_code, player_id, parsed_data)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON from player {player_id}: {e}")
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid message format"
+                    })
+                    
+        except WebSocketDisconnect:
+            # Handle disconnect
+            logger.info(f"Player {player_id} disconnected from room {room_code}")
+            await handle_player_disconnect(player_id, room_code)
         
-        # Check if the game has ended and clean up if needed
-        if room_data:
-            game_status = room_data.get("status", "")
-            if game_status in ["completed", "failed"]:
-                # Check if all players are now disconnected
-                all_disconnected = True
-                for pid, p_data in room_data.get("players", {}).items():
-                    if pid == player_id:
-                        continue  # Skip the player who just disconnected
-                    
-                    is_connected = False
-                    if isinstance(p_data, dict):
-                        is_connected = p_data.get("connected", False)
-                    else:
-                        is_connected = getattr(p_data, "connected", False)
-                    
-                    if is_connected:
-                        all_disconnected = False
-                        break
+    except Exception as e:
+        logger.error(f"Error in websocket connection: {e}", exc_info=True)
+        try:
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        except:
+            # Already closed or other error
+            pass
+        
+    finally:
+        # Clean up connection tracking
+        async with connection_lock:
+            connections_by_ip[client_ip] -= 1
+            connections_by_room[room_code] -= 1
+            
+            # Remove tracking data if zero connections
+            if connections_by_ip[client_ip] <= 0:
+                del connections_by_ip[client_ip]
+                del connection_times_by_ip[client_ip]
                 
-                if all_disconnected:
-                    # All players disconnected and game is over, clean up
-                    print(f"All players disconnected from finished game {room_code}, cleaning up")
-                    
-                    # Clean up all player data for this room
-                    for pid in room_data.get("players", {}).keys():
-                        delete_player_data(pid)
-                    
-                    # Delete the room
-                    delete_room_data(room_code)
-                    
-                    # Remove from in-memory storage
-                    if room_code in game_rooms:
-                        del game_rooms[room_code]
+            if connections_by_room[room_code] <= 0:
+                del connections_by_room[room_code]
+
+
+async def handle_player_disconnect(player_id: str, room_code: str):
+    """Handle a player disconnecting from the game"""
+    # Get updated room data from Redis
+    room_data = get_room_data(room_code)
+    if room_data:
+        room = GameRoom(**room_data)
+        
+        # Mark player as disconnected
+        if player_id in room.players:
+            if isinstance(room.players[player_id], dict):
+                room.players[player_id]["connected"] = False
+            else:
+                room.players[player_id].connected = False
+            
+            # Update Redis
+            store_room_data(room_code, room.dict())
+            
+            # Update connection status in Redis
+            mark_player_connection_status(player_id, False)
+    
+    # Also update in-memory room for compatibility
+    if room_code in game_rooms and player_id in game_rooms[room_code].players:
+        game_rooms[room_code].players[player_id].connected = False
+        
+    # Remove the WebSocket connection
+    remove_connection(player_id)
+
+    # Notify other players
+    await broadcast_to_room(
+        room_code, {"type": "player_disconnected", "player_id": player_id}
+    )
+    
+    # Check if the game has ended and clean up if needed
+    if room_data:
+        game_status = room_data.get("status", "")
+        if game_status in ["completed", "failed"]:
+            # Check if all players are now disconnected
+            connected_players = get_connected_players_in_room(room_code)
+            if not connected_players or (len(connected_players) == 0):
+                # All players disconnected and game is over, clean up
+                logger.info(f"All players disconnected from finished game {room_code}, cleaning up")
+                
+                # Clean up all player data for this room
+                player_ids = get_players_in_room(room_code)
+                for pid in player_ids:
+                    delete_player_data(pid)
+                
+                # Delete the room
+                delete_room_data(room_code)
+                
+                # Remove from in-memory storage
+                if room_code in game_rooms:
+                    del game_rooms[room_code]
 
 
 async def process_websocket_message(room_code: str, player_id: str, message: Dict):
