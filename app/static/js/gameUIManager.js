@@ -1,6 +1,11 @@
 // gameUIManager.js - Handles all UI updates and DOM interactions
 
 import playerStateManager from "./playerStateManager.js";
+import HackerPuzzleController from "./puzzles/hackerPuzzleController.js";
+import SafeCrackerPuzzleController from "./puzzles/safeCrackerPuzzleController.js";
+import DemolitionsPuzzleController from "./puzzles/demolitionsPuzzleController.js";
+import LookoutPuzzleController from "./puzzles/lookoutPuzzleController.js";
+import TeamPuzzleController from "./puzzles/teamPuzzleController.js";
 
 class GameUIManager {
   constructor() {
@@ -208,10 +213,10 @@ class GameUIManager {
   }
 
   /**
-   * Set up puzzle UI based on player's role and puzzle data
-   * @param {Object} puzzle - Puzzle data
-   * @param {Function} getActivePuzzleController - Function to get the active puzzle controller
-   * @returns {Object|null} - The created puzzle controller or null if role is unknown
+   * Set up the puzzle UI for the current player
+   * @param {Object} puzzle - The puzzle data
+   * @param {Function} getActivePuzzleController - Function to get active puzzle controller
+   * @returns {Object|null} - The created puzzle controller or null
    */
   setupPuzzleUI(puzzle, getActivePuzzleController) {
     if (!this.elements.puzzleContent || !this.elements.roleInstruction)
@@ -220,8 +225,11 @@ class GameUIManager {
     const role = playerStateManager.gameState.playerRole;
     if (!role) return null;
 
-    // Clear puzzle area
+    // Clear puzzle area and ensure proper styling
     this.elements.puzzleContent.innerHTML = "";
+    this.elements.puzzleContent.style.minHeight = "200px"; // Ensure minimum height for content
+    this.elements.puzzleContent.style.backgroundColor = ""; // Reset any debugging background color
+    this.elements.puzzleContent.style.padding = ""; // Reset any debugging padding
 
     // Set role instruction
     const roleInfo = playerStateManager.getRoleInfo(role);
@@ -230,32 +238,47 @@ class GameUIManager {
       this.elements.roleInstruction.classList.remove("text-gray-400", "italic");
     }
 
+    // Add a loading indicator while puzzle initializes
+    const loading = document.createElement("div");
+    loading.className = "text-center p-4";
+    loading.innerHTML = `<p class="text-blue-400">Loading puzzle...</p>`;
+    this.elements.puzzleContent.appendChild(loading);
+
     let puzzleController = null;
     let PuzzleControllerClass = null;
 
-    // Dynamic import for the appropriate puzzle controller
+    // Determine appropriate puzzle controller based on role
     try {
-      // Create appropriate puzzle controller based on role
-      switch (role) {
-        case "Hacker":
-          PuzzleControllerClass = HackerPuzzleController;
-          break;
-        case "Safe Cracker":
-          PuzzleControllerClass = SafeCrackerPuzzleController;
-          break;
-        case "Demolitions":
-          PuzzleControllerClass = DemolitionsPuzzleController;
-          break;
-        case "Lookout":
-          PuzzleControllerClass = LookoutPuzzleController;
-          break;
-        default:
-          console.error("Unknown role:", role);
-          return null;
+      // Check if this is a team puzzle
+      if (puzzle.type && puzzle.type.includes("team_puzzle")) {
+        puzzle.playerRole = role; // Add player's role to puzzle data
+        PuzzleControllerClass = TeamPuzzleController;
+      } else {
+        // Handle role-specific puzzles
+        switch (role) {
+          case "Hacker":
+            PuzzleControllerClass = HackerPuzzleController;
+            break;
+          case "Safe Cracker":
+            PuzzleControllerClass = SafeCrackerPuzzleController;
+            break;
+          case "Demolitions":
+            PuzzleControllerClass = DemolitionsPuzzleController;
+            break;
+          case "Lookout":
+            PuzzleControllerClass = LookoutPuzzleController;
+            break;
+          default:
+            console.error("Unknown role:", role);
+            return null;
+        }
       }
 
       // Create and initialize the puzzle controller
       if (PuzzleControllerClass) {
+        // Clear the loading indicator
+        this.elements.puzzleContent.innerHTML = "";
+
         puzzleController = new PuzzleControllerClass(
           this.elements.puzzleContent,
           puzzle,
@@ -269,6 +292,16 @@ class GameUIManager {
         `Error creating puzzle controller for role ${role}:`,
         error
       );
+
+      // Show error message in puzzle content area
+      this.elements.puzzleContent.innerHTML = "";
+      const errorEl = document.createElement("div");
+      errorEl.className = "text-center p-4";
+      errorEl.innerHTML = `
+        <p class="text-red-400 mb-2">Error loading puzzle</p>
+        <p class="text-sm text-gray-400">Please try refreshing the page</p>
+      `;
+      this.elements.puzzleContent.appendChild(errorEl);
     }
 
     return puzzleController;

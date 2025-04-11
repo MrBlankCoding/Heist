@@ -18,13 +18,15 @@ class PlayerStateManager {
       playerId: null,
       playerName: null,
       playerRole: null,
-      stage: 0,
+      stage: 1,
       status: this.GAME_STATUS.WAITING,
       timer: 300,
       alertLevel: 0,
       players: {},
       puzzles: {},
       timerExtendVotes: new Set(),
+      lastServerSync: null,
+      lastSyncTimer: null,
     };
 
     // Define role information
@@ -92,90 +94,67 @@ class PlayerStateManager {
   }
 
   /**
-   * Set player's selected role
-   * @param {string} role - Role name
-   * @returns {Promise} - Resolves when role is confirmed
+   * Select a role for the player
+   * @param {string} role - Role to select
+   * @returns {Promise} - Resolves when role selection is confirmed
    */
   selectRole(role) {
+    // Validate role
+    if (!VALID_ROLES.includes(role)) {
+      console.error("PlayerStateManager: Invalid role:", role);
+      return Promise.reject(new Error(`Invalid role: ${role}`));
+    }
+
+    // Check websocket connection
+    if (!websocketManager.isConnected()) {
+      console.error("PlayerStateManager: WebSocket not connected");
+      return Promise.reject(new Error("WebSocket not connected"));
+    }
+
     return new Promise((resolve, reject) => {
-      console.log("PlayerStateManager: Selecting role:", role);
-
-      if (!this.roleDescriptions[role]) {
-        console.error("PlayerStateManager: Invalid role:", role);
-        reject(new Error(`Invalid role: ${role}`));
-        return;
-      }
-
-      if (!websocketManager.isConnected()) {
-        console.error("PlayerStateManager: WebSocket not connected");
-        reject(new Error("WebSocket not connected"));
-        return;
-      }
-
-      // Generate a unique handler ID
+      // Create a temporary message handler
       const handlerId = this._getNextHandlerId();
-      console.log("PlayerStateManager: Using handler ID:", handlerId);
 
-      // Define the message handler
+      // Set up handler for role confirmation
       const handleResponse = (data) => {
-        console.log("PlayerStateManager: Received response:", data);
-
-        if (data.type === "role_confirmed" && data.role === role) {
-          // Update the player's role in the game state
+        if (data.success) {
+          // Update local game state
           this.gameState.playerRole = role;
-          console.log("PlayerStateManager: Updated playerRole to", role);
 
-          if (this.gameState.playerId in this.gameState.players) {
-            this.gameState.players[this.gameState.playerId].role = role;
-            console.log(
-              "PlayerStateManager: Updated player object role to",
-              role
-            );
-          }
-
-          // Trigger events
-          this.trigger("roleChanged", role);
+          // Trigger event for role selection
           this.trigger("playerRoleSelected", {
             playerId: this.gameState.playerId,
             role: role,
+            player: data.player,
           });
 
-          resolve(role);
-          this._cleanupTemporaryHandler(handlerId);
-        } else if (data.type === "error" && data.context === "role_selection") {
-          console.error(
-            "PlayerStateManager: Role selection error:",
-            data.message
-          );
-          reject(new Error(data.message));
-          this._cleanupTemporaryHandler(handlerId);
+          resolve(data);
+        } else {
+          // Role selection failed
+          reject(new Error(data.message || "Role selection failed"));
         }
+
+        // Clean up temporary handler
+        this._cleanupTemporaryHandler(handlerId);
       };
 
-      // Store the handler references
-      this.temporaryHandlers.set(handlerId, {
-        roleConfirmed: handleResponse,
-        error: handleResponse,
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("role_confirmed", handleResponse);
+
+      websocketManager.registerMessageHandler("error", (data) => {
+        console.error(
+          "PlayerStateManager: Error selecting role:",
+          data.message
+        );
+        reject(new Error(data.message || "Error selecting role"));
+        this._cleanupTemporaryHandler(handlerId);
       });
 
-      // Register the temporary handlers
-      websocketManager.registerMessageHandler(
-        "role_confirmed",
-        this.temporaryHandlers.get(handlerId).roleConfirmed
-      );
-      websocketManager.registerMessageHandler(
-        "error",
-        this.temporaryHandlers.get(handlerId).error
-      );
-
-      // Send role selection to server
-      console.log(
-        "PlayerStateManager: Sending role selection to server:",
-        role
-      );
+      // Send role selection message
       websocketManager
         .send({
           type: "select_role",
+          player_id: this.gameState.playerId,
           role: role,
         })
         .catch((error) => {
@@ -205,10 +184,10 @@ class PlayerStateManager {
         return;
       }
 
-      // Generate a unique handler ID
+      // Create a temporary message handler
       const handlerId = this._getNextHandlerId();
 
-      // Define the message handler
+      // Set up handler for game start confirmation
       const handleResponse = (data) => {
         if (data.type === "game_started") {
           resolve();
@@ -219,21 +198,10 @@ class PlayerStateManager {
         }
       };
 
-      // Store the handler references
-      this.temporaryHandlers.set(handlerId, {
-        gameStarted: handleResponse,
-        error: handleResponse,
-      });
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("game_started", handleResponse);
 
-      // Register the temporary handlers
-      websocketManager.registerMessageHandler(
-        "game_started",
-        this.temporaryHandlers.get(handlerId).gameStarted
-      );
-      websocketManager.registerMessageHandler(
-        "error",
-        this.temporaryHandlers.get(handlerId).error
-      );
+      websocketManager.registerMessageHandler("error", handleResponse);
 
       // Send game start request
       websocketManager
@@ -264,10 +232,10 @@ class PlayerStateManager {
         return;
       }
 
-      // Generate a unique handler ID
+      // Create a temporary message handler
       const handlerId = this._getNextHandlerId();
 
-      // Define the message handler
+      // Set up handler for power use confirmation
       const handleResponse = (data) => {
         if (
           data.type === "power_used" &&
@@ -281,21 +249,10 @@ class PlayerStateManager {
         }
       };
 
-      // Store the handler references
-      this.temporaryHandlers.set(handlerId, {
-        powerUsed: handleResponse,
-        error: handleResponse,
-      });
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("power_used", handleResponse);
 
-      // Register the temporary handlers
-      websocketManager.registerMessageHandler(
-        "power_used",
-        this.temporaryHandlers.get(handlerId).powerUsed
-      );
-      websocketManager.registerMessageHandler(
-        "error",
-        this.temporaryHandlers.get(handlerId).error
-      );
+      websocketManager.registerMessageHandler("error", handleResponse);
 
       // Send power use request
       websocketManager
@@ -509,38 +466,16 @@ class PlayerStateManager {
    * @param {any} data - Event data
    */
   trigger(event, data) {
-    // Special case for playerRoleSelected event - always log it
-    if (event === "playerRoleSelected") {
-      console.log("TRIGGER: playerRoleSelected event with data:", data);
+    if (!this.eventListeners[event]) return;
 
-      // Make sure the player ID is consistent
-      if (data.playerId && !data.player) {
-        // For backward compatibility, create a player object if it doesn't exist
-        const playerId = data.playerId;
-        if (this.gameState.players[playerId]) {
-          data.player = {
-            ...this.gameState.players[playerId],
-            id: playerId,
-            role: data.role,
-          };
-          console.log("Constructed player object for event:", data.player);
-        }
-      }
-    }
-
-    if (!this.eventListeners[event]) {
-      return;
-    }
-
-    // Create a copy to prevent issues during iteration
-    const callbacks = [...this.eventListeners[event]];
-    callbacks.forEach((callback) => {
+    const handlers = [...this.eventListeners[event]];
+    for (const handler of handlers) {
       try {
-        callback(data);
+        handler(data);
       } catch (error) {
         console.error(`Error in event listener for ${event}:`, error);
       }
-    });
+    }
   }
 
   /**
@@ -692,6 +627,13 @@ class PlayerStateManager {
     websocketManager.registerMessageHandler("timer_update", (data) => {
       // Sync our local timer with the server time
       this.gameState.timer = data.timer;
+      this.gameState.lastServerSync = Date.now();
+      this.gameState.lastSyncTimer = data.timer;
+
+      // Only log syncs when explicitly requested
+      if (data.sync) {
+        console.log("Timer synced with server:", data.timer);
+      }
 
       // Make sure local timer is running if not already
       if (!this.localTimerInterval && this.gameState.status === "in_progress") {
@@ -707,6 +649,10 @@ class PlayerStateManager {
       this.gameState.alertLevel = data.alert_level;
       this.gameState.timerExtendVotes.clear();
 
+      // Update synchronization timestamps
+      this.gameState.lastServerSync = Date.now();
+      this.gameState.lastSyncTimer = data.new_timer;
+
       this.trigger("timerExtended", {
         timer: data.new_timer,
         alertLevel: data.alert_level,
@@ -721,6 +667,7 @@ class PlayerStateManager {
 
     // Puzzle data
     websocketManager.registerMessageHandler("puzzle_data", (data) => {
+      console.log("Puzzle data received:", data.puzzle);
       if (!this.gameState.puzzles[this.gameState.playerId]) {
         this.gameState.puzzles[this.gameState.playerId] = {};
       }
@@ -730,6 +677,7 @@ class PlayerStateManager {
 
     // Puzzle completed
     websocketManager.registerMessageHandler("puzzle_completed", (data) => {
+      console.log("Puzzle completed event:", data);
       this.trigger("puzzleCompleted", {
         playerId: data.player_id,
         role: data.role,
@@ -904,10 +852,28 @@ class PlayerStateManager {
     // Clear any existing timer first
     this._stopLocalTimer();
 
+    // Store the last sync time
+    if (!this.gameState.lastServerSync) {
+      this.gameState.lastServerSync = Date.now();
+    }
+
     // Start a new timer that decrements each second
     this.localTimerInterval = setInterval(() => {
       // Only decrement if the game is in progress
       if (this.gameState.status === this.GAME_STATUS.IN_PROGRESS) {
+        // Check if we've drifted too far from expected time
+        const timeSinceSync = Date.now() - this.gameState.lastServerSync;
+        const expectedSeconds = Math.floor(timeSinceSync / 1000);
+        const drift = Math.abs(
+          expectedSeconds -
+            (this.gameState.lastSyncTimer - this.gameState.timer)
+        );
+
+        // If drift is more than 2 seconds, log a warning but continue (server will correct us)
+        if (drift > 2) {
+          console.warn(`Timer drift detected: ${drift}s`);
+        }
+
         // Decrement the timer by 1 second
         if (this.gameState.timer > 0) {
           this.gameState.timer -= 1;

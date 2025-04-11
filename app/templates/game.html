@@ -297,8 +297,14 @@
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
-<script type="module" src="/static/js/game.js"></script>
+<!-- Additional game scripts -->
+<script src="{{ url_for('static', path='js/websocketManager.js') }}" type="module"></script>
+<script src="{{ url_for('static', path='js/playerStateManager.js') }}" type="module"></script>
+<script src="{{ url_for('static', path='js/gameStartScreen.js') }}" type="module"></script>
+<script src="{{ url_for('static', path='js/gameUIManager.js') }}" type="module"></script>
+<script src="{{ url_for('static', path='js/gameEventHandler.js') }}" type="module"></script>
+<script src="{{ url_for('static', path='js/notificationSystem.js') }}" type="module"></script>
+<script src="{{ url_for('static', path='js/chatManager.js') }}" type="module"></script>
+<script src="{{ url_for('static', path='js/game.js') }}" type="module"></script>
 {% endblock %}

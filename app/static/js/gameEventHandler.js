@@ -99,7 +99,7 @@ class GameEventHandler {
     if (puzzle.type && puzzle.type.includes("team_puzzle")) {
       puzzle.playerRole = playerRole; // Add player's role to puzzle data
       puzzleController = new TeamPuzzleController(
-        this.uiManager.puzzleContentElement,
+        this.uiManager.elements.puzzleContent,
         puzzle,
         (solution) => playerStateManager.submitPuzzleSolution(solution)
       );
@@ -108,28 +108,28 @@ class GameEventHandler {
       switch (playerRole) {
         case "Hacker":
           puzzleController = new HackerPuzzleController(
-            this.uiManager.puzzleContentElement,
+            this.uiManager.elements.puzzleContent,
             puzzle,
             (solution) => playerStateManager.submitPuzzleSolution(solution)
           );
           break;
         case "Safe Cracker":
           puzzleController = new SafeCrackerPuzzleController(
-            this.uiManager.puzzleContentElement,
+            this.uiManager.elements.puzzleContent,
             puzzle,
             (solution) => playerStateManager.submitPuzzleSolution(solution)
           );
           break;
         case "Demolitions":
           puzzleController = new DemolitionsPuzzleController(
-            this.uiManager.puzzleContentElement,
+            this.uiManager.elements.puzzleContent,
             puzzle,
             (solution) => playerStateManager.submitPuzzleSolution(solution)
           );
           break;
         case "Lookout":
           puzzleController = new LookoutPuzzleController(
-            this.uiManager.puzzleContentElement,
+            this.uiManager.elements.puzzleContent,
             puzzle,
             (solution) => playerStateManager.submitPuzzleSolution(solution)
           );
@@ -144,6 +144,8 @@ class GameEventHandler {
     if (puzzleController) {
       puzzleController.initialize();
       this.setActivePuzzleController(puzzleController);
+    } else {
+      console.error("Failed to create puzzle controller");
     }
   }
 

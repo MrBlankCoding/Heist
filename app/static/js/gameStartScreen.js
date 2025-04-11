@@ -16,7 +16,6 @@ class GameStartScreen {
     this.selectedRole = null;
     this.roleCards = document.querySelectorAll(".role-card");
     this.playerElements = {};
-    this.pollIntervalId = null;
 
     // Initialize
     this._setupEventListeners();
@@ -56,19 +55,11 @@ class GameStartScreen {
     });
 
     playerStateManager.on("playerRoleSelected", (data) => {
-      console.log("EVENT: playerRoleSelected received", data);
-
       // If we have full player data, use it
       if (data.player) {
-        console.log("Rendering player with full data:", data.player);
         this._renderPlayer(data.player);
       } else {
         // Otherwise use the playerId and role
-        console.log(
-          "Updating player role with limited data:",
-          data.playerId,
-          data.role
-        );
         this._updatePlayerRole(data.playerId, data.role);
       }
 
@@ -90,9 +81,6 @@ class GameStartScreen {
 
     // Initial refresh
     this._refreshAllPlayers();
-
-    // Set up polling for state updates (every 2 seconds)
-    this._startPolling();
   }
 
   /**
@@ -102,7 +90,6 @@ class GameStartScreen {
     this.lobbyElement.classList.remove("hidden");
     this.gameAreaElement.classList.add("hidden");
     this._refreshAllPlayers();
-    this._startPolling();
   }
 
   /**
@@ -110,7 +97,6 @@ class GameStartScreen {
    */
   hideLobby() {
     this.lobbyElement.classList.add("hidden");
-    this._stopPolling();
   }
 
   /**
@@ -285,18 +271,22 @@ class GameStartScreen {
    * Private: Handle start game button click
    */
   _handleStartGame() {
-    if (!this.startGameButton.disabled) {
-      playerStateManager
-        .startGame()
-        .then(() => {
-          console.log("Game started");
-          this._showGameArea();
-        })
-        .catch((error) => {
-          console.error("Error starting game:", error);
-          this._showErrorMessage(error.message);
-        });
+    // Check if player is host
+    if (!playerStateManager.isHost()) {
+      this._showErrorMessage("Only the host can start the game");
+      return;
     }
+
+    // Start the game
+    playerStateManager
+      .startGame()
+      .then(() => {
+        // Game started via server event handler
+      })
+      .catch((error) => {
+        this._showErrorMessage(error.message);
+        console.error("Error starting game:", error);
+      });
   }
 
   /**
@@ -385,59 +375,77 @@ class GameStartScreen {
   }
 
   /**
-   * Private: Update player role
-   * @param {string} playerId - Player ID
-   * @param {string} role - Role name
+   * Private: Update player's role in the UI
+   * @param {string} playerId - The player ID
+   * @param {string|null} role - The role to set (or null to clear)
+   * @private
    */
   _updatePlayerRole(playerId, role) {
-    console.log("_updatePlayerRole called:", playerId, role);
-    console.log(
-      "Current players:",
-      Object.keys(playerStateManager.gameState.players)
-    );
-
-    // Ensure player exists in game state
-    if (
-      playerStateManager.gameState.players &&
-      playerId in playerStateManager.gameState.players
-    ) {
-      const player = playerStateManager.gameState.players[playerId];
-      console.log("Found player to update:", player);
-      player.role = role;
-
-      // Update the player's UI element
-      if (this.playerElements[playerId]) {
-        console.log("Updating UI for player:", playerId);
-        this._renderPlayer(player);
-      } else {
-        console.warn("No player element found for:", playerId);
-      }
-
-      // Update role cards if it's the current player
-      if (playerId === playerStateManager.gameState.playerId) {
-        console.log("Updating role cards for current player");
-        this.selectedRole = role;
-
-        this.roleCards.forEach((card) => {
-          // Reset all cards first
-          card.classList.remove("selected", "opacity-50", "cursor-not-allowed");
-          card.style.pointerEvents = "auto";
-
-          // Select and disable the chosen role
-          if (card.dataset.role === role) {
-            card.classList.add("selected", "opacity-50", "cursor-not-allowed");
-            card.style.pointerEvents = "none";
-          }
-        });
-      }
-
-      this._refreshStartButton();
-    } else {
-      console.warn(
-        `Player ${playerId} not found in game state for role update. Players:`,
-        playerStateManager.gameState.players
-      );
+    // Get the player object
+    const player = playerStateManager.getPlayer(playerId);
+    if (!player) {
+      return; // Player not found
     }
+
+    // Find the player element in the DOM
+    const playerElement = document.getElementById(`player-${playerId}`);
+    if (!playerElement) {
+      console.warn("No player element found for:", playerId);
+      return;
+    }
+
+    // Update the role in the player element
+    const roleElement = playerElement.querySelector(".player-role");
+    if (roleElement) {
+      roleElement.textContent = role || "No role selected";
+      roleElement.className = `player-role ${
+        role
+          ? "text-" + this._getRoleColor(role) + "-400"
+          : "text-gray-400 italic"
+      }`;
+    }
+
+    // Update role cards (only for current player)
+    if (playerId === playerStateManager.gameState.playerId) {
+      this._updateRoleCards();
+    }
+  }
+
+  /**
+   * Update role cards based on selected and taken roles
+   * @private
+   */
+  _updateRoleCards() {
+    // Get all role cards
+    const roleCards = document.querySelectorAll(".role-card");
+
+    // Get taken roles (roles selected by other players)
+    const takenRoles = new Set();
+    const players = playerStateManager.getAllPlayers();
+    Object.values(players).forEach((player) => {
+      if (player.role && player.id !== playerStateManager.gameState.playerId) {
+        takenRoles.add(player.role);
+      }
+    });
+
+    // Update each role card's state
+    roleCards.forEach((card) => {
+      const role = card.getAttribute("data-role");
+      if (!role) return;
+
+      // Reset the card's state
+      card.classList.remove("selected", "disabled");
+
+      // Mark the card as selected if it's the current player's role
+      if (role === playerStateManager.gameState.playerRole) {
+        card.classList.add("selected");
+      }
+
+      // Mark the card as disabled if taken by another player
+      if (takenRoles.has(role)) {
+        card.classList.add("disabled");
+      }
+    });
   }
 
   /**
@@ -639,24 +647,126 @@ class GameStartScreen {
   }
 
   /**
-   * Start polling for updates
+   * Handle the playerRoleSelected event
+   * @param {Object} data - The player role selected event data
    * @private
    */
-  _startPolling() {
-    // Don't use polling - we'll use WebSocket events instead
-    console.log("Polling disabled - using WebSocket events instead");
+  _handlePlayerRoleSelected(data) {
+    // Skip if no data or missing playerId
+    if (!data || !data.playerId) {
+      return;
+    }
+
+    // Get player object
+    const player = data.player || playerStateManager.getPlayer(data.playerId);
+    if (!player) {
+      console.error("Received invalid player data:", player);
+      return;
+    }
+
+    // Update player UI
+    this._renderPlayer(player);
+
+    // Update role cards
+    this._updateRoleCards();
   }
 
   /**
-   * Stop polling for updates
+   * Initialize role selection by adding click handlers to role cards
    * @private
    */
-  _stopPolling() {
-    if (this.pollIntervalId) {
-      clearInterval(this.pollIntervalId);
-      this.pollIntervalId = null;
-      console.log("Stopped polling for updates");
+  _initRoleSelection() {
+    const roleCards = document.querySelectorAll(".role-card");
+    roleCards.forEach((card) => {
+      card.addEventListener("click", (e) => {
+        e.preventDefault();
+
+        // Get role from data attribute
+        const role = card.getAttribute("data-role");
+        if (!role) return;
+
+        // Check if game already started
+        if (playerStateManager.gameState.status === "in_progress") {
+          this._showRoleSelectionError("Game has already started");
+          return;
+        }
+
+        // Check if role card is disabled
+        if (card.classList.contains("disabled")) {
+          this._showRoleSelectionError("This role is not available");
+          return;
+        }
+
+        // Check if role is already taken by another player
+        const takenRoles = new Set();
+        const players = playerStateManager.getAllPlayers();
+        Object.values(players).forEach((player) => {
+          if (
+            player.role &&
+            player.id !== playerStateManager.gameState.playerId
+          ) {
+            takenRoles.add(player.role);
+          }
+        });
+
+        if (takenRoles.has(role)) {
+          this._showRoleSelectionError("This role is already taken");
+          return;
+        }
+
+        // All checks passed, select role
+        this._selectRole(role);
+      });
+    });
+  }
+
+  /**
+   * Select a role for the current player
+   * @param {string} role - The role to select
+   * @private
+   */
+  _selectRole(role) {
+    // Check for valid player ID
+    const currentPlayerId = playerStateManager.gameState.playerId;
+    if (!currentPlayerId) {
+      this._showRoleSelectionError("Player ID not found");
+      return;
     }
+
+    // Optimistically update UI
+    this._updatePlayerRole(currentPlayerId, role);
+
+    // Send role selection to server
+    playerStateManager
+      .selectRole(role)
+      .then(() => {
+        // Role selection successful
+        // UI already updated optimistically
+      })
+      .catch((error) => {
+        // Role selection failed, revert UI
+        this._updatePlayerRole(currentPlayerId, null);
+        this._showRoleSelectionError(error.message || "Failed to select role");
+        console.error("Error selecting role:", error);
+      });
+  }
+
+  /**
+   * Start the game when the start button is clicked
+   * @private
+   */
+  _startGame() {
+    playerStateManager
+      .startGame()
+      .then(() => {
+        // Game started successfully
+        this.startButton.disabled = true;
+        this.hideLobby();
+      })
+      .catch((error) => {
+        this._showStartGameError(error.message);
+        console.error("Error starting game:", error);
+      });
   }
 }
 

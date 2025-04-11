@@ -109,7 +109,6 @@ class WebSocketManager {
       }
 
       try {
-        console.log("WebSocketManager: Sending message:", data);
         this.socket.send(JSON.stringify(data));
         resolve(true);
       } catch (error) {
@@ -212,12 +211,10 @@ class WebSocketManager {
   _handleMessage(event) {
     try {
       const data = JSON.parse(event.data);
-      console.log("WebSocketManager: Received message:", data);
       this._triggerCallbacks("onMessage", data);
 
       // Route to specific handlers if registered
       if (data.type && this.messageHandlers[data.type]) {
-        console.log(`WebSocketManager: Processing message type: ${data.type}`);
         for (const handler of this.messageHandlers[data.type]) {
           try {
             handler(data);
@@ -277,7 +274,6 @@ class WebSocketManager {
     );
 
     this.reconnectTimer = setTimeout(() => {
-      console.log("Reconnecting...");
       this._triggerCallbacks("onReconnect", this.reconnectAttempts);
 
       const { roomCode, playerId } = this.connectionDetails;
