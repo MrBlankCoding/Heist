@@ -118,23 +118,27 @@ class PlayerStateManager {
   get roleDescriptions() {
     return Object.freeze({
       Hacker: {
-        description: "Circuit puzzles, code breaking, matching patterns",
-        power: "Temporarily slow a timer",
+        description:
+          "Circuits, passwords, firewalls, encryption, and system overrides",
+        power: "Slow security systems and reduce alert level",
         color: "blue",
       },
       "Safe Cracker": {
-        description: "Audio cues, memory games, tactile lock puzzles",
-        power: "Skip one lock with a rare tool",
+        description:
+          "Lock combinations, patterns, multi-locks, audio sequences, and timed challenges",
+        power: "Reveal solution hints and bypass locks",
         color: "yellow",
       },
       Demolitions: {
-        description: "Timing puzzles, fuse wiring, spatial challenges",
-        power: "Break weak walls for shortcuts",
+        description:
+          "Wire cutting, time bombs, circuits, explosive sequences, and detonation",
+        power: "Create shortcuts and reduce event probability",
         color: "red",
       },
       Lookout: {
-        description: "Pattern recognition, surveillance puzzles",
-        power: "Warn team of events or traps",
+        description:
+          "Surveillance, patrol patterns, security systems, alarms, and escape routes",
+        power: "Predict upcoming events and detect weaknesses",
         color: "green",
       },
     });
@@ -775,6 +779,16 @@ class PlayerStateManager {
       console.error("Server error:", data);
       this.trigger("error", data);
     });
+
+    // Team puzzle updates for real-time collaboration
+    websocketManager.registerMessageHandler("team_puzzle_update", (data) => {
+      // Forward the team puzzle update to any listeners
+      this.trigger("teamPuzzleUpdate", {
+        playerId: data.player_id,
+        puzzleType: data.puzzle_type,
+        updateData: data.update_data,
+      });
+    });
   }
 
   /**
@@ -1155,6 +1169,89 @@ class PlayerStateManager {
         websocketManager.removeMessageHandler("error", handleError);
         reject(error);
       });
+    });
+  }
+
+  /**
+   * Submit a puzzle solution to the server
+   * @param {*} solution - Solution data
+   * @returns {Promise<boolean>} - Resolves to true if solution is correct
+   */
+  submitPuzzleSolution(solution) {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      // Request to submit solution
+      const data = {
+        type: "puzzle_solution",
+        solution: solution,
+      };
+
+      const handleResponse = (data) => {
+        // Check if the puzzle completion is for this player
+        if (data.player_id === this.gameState.playerId) {
+          // Clean up handlers
+          websocketManager.removeMessageHandler(
+            "puzzle_completed",
+            handleResponse
+          );
+          websocketManager.removeMessageHandler("error", handleError);
+
+          // Resolve with success
+          resolve(true);
+        }
+      };
+
+      const handleError = (data) => {
+        if (data.context === "puzzle_solution") {
+          // Clean up handlers
+          websocketManager.removeMessageHandler(
+            "puzzle_completed",
+            handleResponse
+          );
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler(
+        "puzzle_completed",
+        handleResponse
+      );
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Set up a timeout to reject the promise if no response received
+      const timeout = setTimeout(() => {
+        // Clean up handlers
+        websocketManager.removeMessageHandler(
+          "puzzle_completed",
+          handleResponse
+        );
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(new Error("Timeout waiting for solution response"));
+      }, 10000); // 10 second timeout
+
+      // Send solution submission
+      websocketManager
+        .send(data)
+        .then(() => {
+          // Solution submitted successfully, but we'll wait for the response
+          // from the server before resolving the promise
+        })
+        .catch((error) => {
+          // Clean up handlers and timeout
+          clearTimeout(timeout);
+          websocketManager.removeMessageHandler(
+            "puzzle_completed",
+            handleResponse
+          );
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(error);
+        });
     });
   }
 }

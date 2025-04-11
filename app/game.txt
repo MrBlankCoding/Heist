@@ -46,3 +46,8 @@ Each role feels essential & has unique puzzles.
 - Clean, blueprint-style UI with heist music  
 - Neon cyberpunk bank?  
 - Silhouette-style characters with subtle animations  
+
+##
+Randomly have team puzzles
+update backend for real time
+get sound and pgotos 

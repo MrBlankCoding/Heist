@@ -47,8 +47,14 @@ def remove_connection(player_id: str) -> None:
     if player_id in connected_players:
         del connected_players[player_id]
 
-async def broadcast_to_room(room_code: str, message: Dict) -> None:
-    """Broadcast a message to all players in a room"""
+async def broadcast_to_room(room_code: str, message: Dict, exclude_player_id: str = None) -> None:
+    """Broadcast a message to all players in a room
+    
+    Args:
+        room_code: Room code to broadcast to
+        message: Message to broadcast
+        exclude_player_id: Optional player ID to exclude from broadcast
+    """
     from app.redis_client import get_players_in_room
     
     # Get all player IDs in the room from Redis
@@ -64,6 +70,10 @@ async def broadcast_to_room(room_code: str, message: Dict) -> None:
     # Send to all connected players
     sent_count = 0
     for player_id in player_ids:
+        # Skip excluded player
+        if exclude_player_id and player_id == exclude_player_id:
+            continue
+            
         if player_id in connected_players:
             try:
                 await connected_players[player_id].send_text(message_json)

@@ -1,10 +1,10 @@
 // lookoutPuzzleController.js - Controls puzzles for the Lookout role
 
-import SurveillancePuzzle from "./lookout/SurveillancePuzzle.js";
-import PatrolPatternPuzzle from "./lookout/PatrolPatternPuzzle.js";
-import SecuritySystemPuzzle from "./lookout/SecuritySystemPuzzle.js";
-import AlarmPuzzle from "./lookout/AlarmPuzzle.js";
-import EscapeRoutePuzzle from "./lookout/EscapeRoutePuzzle.js";
+import SurveillancePuzzle from "./SurveillancePuzzle.js";
+import PatrolPatternPuzzle from "./PatrolPatternPuzzle.js";
+import SecuritySystemPuzzle from "./SecuritySystemPuzzle.js";
+import AlarmPuzzle from "./AlarmPuzzle.js";
+import EscapeRoutePuzzle from "./EscapeRoutePuzzle.js";
 
 class LookoutPuzzleController {
   constructor(containerElement, puzzleData, submitSolutionCallback) {

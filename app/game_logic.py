@@ -30,7 +30,13 @@ def generate_puzzles(room, stage: int) -> Dict:
     """Generate puzzles for the given stage and room"""
     puzzles = {}
 
-    # Generate role-specific puzzles
+    # For stages 4 and 5, there's a 25% chance to generate only a team puzzle
+    if stage > 3 and random.random() < 0.25:
+        # Generate only a team puzzle with special flag to indicate it counts as completing the stage
+        puzzles["team"] = generate_team_puzzle(stage, is_stage_completion=True)
+        return puzzles
+
+    # Otherwise, generate regular role-specific puzzles
     for player_id, player_data in room.players.items():
         # Handle player data being either a dict or Player object
         role = ""
@@ -48,16 +54,15 @@ def generate_puzzles(room, stage: int) -> Dict:
         elif role == "Lookout":
             puzzles[player_id] = generate_lookout_puzzle(stage)
 
-    # Add team puzzles if needed
+    # Add team puzzles if needed for standard progression
     if stage >= 3:
-        puzzles["team"] = generate_team_puzzle(stage)
+        puzzles["team"] = generate_team_puzzle(stage, is_stage_completion=False)
 
     return puzzles
 
 
 def generate_hacker_puzzle(stage: int) -> Dict:
     """Generate a puzzle for the Hacker role"""
-    # Simplified example - in a real game, this would be more complex
     puzzle_types = {
         1: "circuit",
         2: "password_crack",
@@ -66,64 +71,120 @@ def generate_hacker_puzzle(stage: int) -> Dict:
         5: "system_override",
     }
 
+    # Return a properly structured puzzle object
     return {
         "type": puzzle_types[stage],
         "difficulty": stage,
-        "data": generate_circuit_puzzle(stage) if stage == 1 else {},
-    }
-
-
-def generate_circuit_puzzle(stage: int) -> Dict:
-    """Generate a circuit puzzle for stage 1"""
-    # Simple example - would be more complex in production
-    return {
-        "grid_size": 5,
-        "start_point": [0, 2],
-        "end_point": [4, 2],
-        "barriers": [[1, 1], [2, 3], [3, 1]],
-        "switches": [[1, 3], [3, 3]],
-        "solution": [[0, 2], [0, 3], [1, 3], [2, 3], [2, 2], [3, 2], [4, 2]],
+        "data": {}, # Puzzle-specific data will be generated on the frontend
     }
 
 
 def generate_safe_cracker_puzzle(stage: int) -> Dict:
-    # Simplified example
-    return {"type": f"safe_puzzle_{stage}", "difficulty": stage, "data": {}}
+    """Generate a puzzle for the Safe Cracker role"""
+    puzzle_types = {
+        1: "lock_combination",
+        2: "pattern_recognition",
+        3: "multi_lock",
+        4: "audio_sequence",
+        5: "timed_lock",
+    }
+    
+    return {
+        "type": puzzle_types[stage],
+        "difficulty": stage,
+        "data": {}, # Puzzle-specific data will be generated on the frontend
+    }
 
 
 def generate_demolitions_puzzle(stage: int) -> Dict:
-    # Simplified example
-    return {"type": f"demo_puzzle_{stage}", "difficulty": stage, "data": {}}
+    """Generate a puzzle for the Demolitions role"""
+    puzzle_types = {
+        1: "wire_cutting",
+        2: "time_bomb",
+        3: "circuit_board",
+        4: "explosive_sequence",
+        5: "final_detonation",
+    }
+    
+    return {
+        "type": puzzle_types[stage],
+        "difficulty": stage,
+        "data": {}, # Puzzle-specific data will be generated on the frontend
+    }
 
 
 def generate_lookout_puzzle(stage: int) -> Dict:
-    # Simplified example
-    return {"type": f"lookout_puzzle_{stage}", "difficulty": stage, "data": {}}
-
-
-def generate_team_puzzle(stage: int) -> Dict:
-    # Simplified example
+    """Generate a puzzle for the Lookout role"""
+    puzzle_types = {
+        1: "surveillance",
+        2: "patrol_pattern",
+        3: "security_system",
+        4: "alarm",
+        5: "escape_route",
+    }
+    
     return {
-        "type": f"team_puzzle_{stage}",
+        "type": puzzle_types[stage],
         "difficulty": stage,
-        "required_roles": ["Hacker", "Safe Cracker"]
-        if stage == 3
-        else ["Hacker", "Safe Cracker", "Demolitions", "Lookout"],
-        "data": {},
+        "data": {}, # Puzzle-specific data will be generated on the frontend
+    }
+
+
+def generate_team_puzzle(stage: int, is_stage_completion=False) -> Dict:
+    """Generate a team puzzle with option to mark it as stage completion puzzle"""
+    # Default to stage-based puzzle type
+    puzzle_type = f"team_puzzle_{stage}"
+    
+    # For specific stages, select from available team puzzles
+    if stage == 3:
+        puzzle_type = "team_puzzle_code_relay"
+    elif stage == 4:
+        puzzle_type = "team_puzzle_power_grid"
+    elif stage == 5:
+        # Randomly select one of the three advanced team puzzles
+        advanced_puzzles = [
+            "team_puzzle_pressure_plate",
+            "team_puzzle_signal_frequency",
+            "team_puzzle_data_chain"
+        ]
+        puzzle_type = random.choice(advanced_puzzles)
+    
+    return {
+        "type": puzzle_type,
+        "difficulty": stage,
+        "required_roles": ["Hacker", "Safe Cracker"] if stage == 3 
+                          else ["Hacker", "Safe Cracker", "Demolitions", "Lookout"],
+        "completes_stage": is_stage_completion,  # Flag to indicate if this puzzle completes the stage
+        "data": {}, # Team puzzle data will be generated on the frontend
     }
 
 
 def validate_puzzle_solution(puzzle: Dict, solution) -> bool:
     """Validate a puzzle solution"""
-    # In a real game, this would have more sophisticated validation
     puzzle_type = puzzle.get("type", "")
 
-    # Example for circuit puzzle
-    if puzzle_type == "circuit":
-        return solution == puzzle["data"]["solution"]
-
-    # Simple placeholder for other puzzle types
-    return False
+    # For most puzzle types, the frontend sends a boolean or a dict with success=True
+    # The validation is done on the frontend, so we just need to check the solution status
+    
+    # If solution is a simple boolean (commonly used in frontend validation)
+    if isinstance(solution, bool):
+        return solution
+    
+    # If solution is a dict with a success field (common pattern in newer puzzles)
+    if isinstance(solution, dict) and "success" in solution:
+        return solution["success"]
+    
+    # For specific puzzle types that might need server-side validation
+    if puzzle_type == "circuit" and "solution" in puzzle.get("data", {}):
+        # Circuit puzzle specific validation logic
+        expected_solution = puzzle["data"]["solution"]
+        return solution == expected_solution
+    
+    # Generic solution check for any puzzle type
+    # For most puzzles, we'll trust the client-side validation
+    # In a production environment, you would want more server-side validation
+    # to prevent cheating
+    return True
 
 
 def handle_power_usage(room, player_id: str, role: str) -> bool:

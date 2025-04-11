@@ -215,6 +215,20 @@ class GameController {
         this.chatManager.addChatMessage(data)
       );
 
+      // Team puzzle real-time updates
+      playerStateManager.on("teamPuzzleUpdate", (data) => {
+        // If we have an active puzzle controller, pass the update to it
+        if (
+          this.activePuzzleController &&
+          typeof this.activePuzzleController.handleUpdate === "function"
+        ) {
+          this.activePuzzleController.handleUpdate(
+            data.updateData,
+            data.playerId
+          );
+        }
+      });
+
       // Timer and power events
       playerStateManager.on("timerVoteInitiated", (data) =>
         this.eventHandler.handleTimerVoteInitiated(data)

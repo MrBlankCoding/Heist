@@ -228,10 +228,12 @@ class GameEventHandler {
       if (puzzle.type && puzzle.type.includes("team_puzzle")) {
         console.log("Creating team puzzle controller");
         puzzle.playerRole = playerRole; // Add player's role to puzzle data
+        puzzle.room_code = playerStateManager.gameState.roomCode; // Add room code for WebSocket messages
         puzzleController = new TeamPuzzleController(
           this.uiManager.elements.puzzleContent,
           puzzle,
-          (solution) => playerStateManager.submitPuzzleSolution(solution)
+          (solution) => playerStateManager.submitPuzzleSolution(solution),
+          websocketManager
         );
       } else {
         // Create role-specific puzzle controller

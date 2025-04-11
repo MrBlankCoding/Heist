@@ -494,10 +494,135 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
                                 game_rooms[room_code].timer = room.timer
                                 game_rooms[room_code].stage = room.stage
 
-                            await broadcast_to_room(
-                                room_code,
+                            await broadcast_to_room(room_code, 
                                 {"type": "stage_completed", "next_stage": room.stage},
                             )
+        # Handle team puzzle solution
+        elif "puzzles" in room_data and "team" in room_data["puzzles"]:
+            team_puzzle = room_data["puzzles"]["team"]
+            solution_data = message.get("solution", {})
+            
+            # Check if solution is in new format (with completesStage flag)
+            is_stage_completion_puzzle = False
+            if isinstance(solution_data, dict) and "completesStage" in solution_data:
+                is_stage_completion_puzzle = solution_data.get("completesStage", False)
+                solution_success = solution_data.get("success", False)
+            else:
+                # Legacy format - just a boolean value
+                solution_success = solution_data
+            
+            if solution_success:
+                # Mark team puzzle as completed
+                room_data["puzzles"]["team"]["completed"] = True
+                room.puzzles = room_data["puzzles"]
+                
+                # Update Redis
+                store_room_data(room_code, room.dict())
+                
+                # Update in-memory for compatibility
+                if room_code in game_rooms:
+                    game_rooms[room_code].puzzles = room.puzzles
+
+                # Get player role
+                player_role = ""
+                if player_id in room.players:
+                    player = room.players[player_id]
+                    if isinstance(player, dict):
+                        player_role = player.get("role", "")
+                    else:
+                        player_role = player.role
+
+                # Notify all players
+                await broadcast_to_room(
+                    room_code,
+                    {
+                        "type": "puzzle_completed",
+                        "player_id": player_id,
+                        "role": player_role,
+                        "team_puzzle": True,
+                    },
+                )
+                
+                # If this is a special team puzzle that completes the stage directly
+                if is_stage_completion_puzzle or team_puzzle.get("completes_stage", False):
+                    # Advance to next stage
+                    room.stage += 1
+                    if room.stage > 5:
+                        # Game completed!
+                        room.status = "completed"
+                        
+                        # Update Redis
+                        store_room_data(room_code, room.dict())
+                        
+                        # Update in-memory
+                        if room_code in game_rooms:
+                            game_rooms[room_code].status = "completed"
+                            game_rooms[room_code].stage = room.stage
+                            
+                        await broadcast_to_room(room_code, {"type": "game_completed"})
+                        
+                        # Check if all players are disconnected to clean up the game
+                        # Use asyncio to run the cleanup check after a delay
+                        asyncio.create_task(app.game_logic.cleanup_if_no_players_connected(room_code))
+                    else:
+                        # Set up next stage
+                        room.puzzles = generate_puzzles(room, room.stage)
+                        room.timer += 240  # Add 4 minutes per stage
+                        
+                        # Update Redis
+                        store_room_data(room_code, room.dict())
+                        
+                        # Update in-memory
+                        if room_code in game_rooms:
+                            game_rooms[room_code].puzzles = room.puzzles
+                            game_rooms[room_code].timer = room.timer
+                            game_rooms[room_code].stage = room.stage
+
+                        await broadcast_to_room(room_code, 
+                            {"type": "stage_completed", "next_stage": room.stage},
+                        )
+                # Otherwise check if we need to check for all player puzzles completed
+                elif all(
+                    p.get("completed", False)
+                    for p_id, p in room.puzzles.items()
+                    if isinstance(p, dict)
+                ):
+                    # All puzzles completed, advance to next stage
+                    room.stage += 1
+                    if room.stage > 5:
+                        # Game completed!
+                        room.status = "completed"
+                        
+                        # Update Redis
+                        store_room_data(room_code, room.dict())
+                        
+                        # Update in-memory
+                        if room_code in game_rooms:
+                            game_rooms[room_code].status = "completed"
+                            game_rooms[room_code].stage = room.stage
+                            
+                        await broadcast_to_room(room_code, {"type": "game_completed"})
+                        
+                        # Check if all players are disconnected to clean up the game
+                        # Use asyncio to run the cleanup check after a delay
+                        asyncio.create_task(app.game_logic.cleanup_if_no_players_connected(room_code))
+                    else:
+                        # Set up next stage
+                        room.puzzles = generate_puzzles(room, room.stage)
+                        room.timer += 240  # Add 4 minutes per stage
+                        
+                        # Update Redis
+                        store_room_data(room_code, room.dict())
+                        
+                        # Update in-memory
+                        if room_code in game_rooms:
+                            game_rooms[room_code].puzzles = room.puzzles
+                            game_rooms[room_code].timer = room.timer
+                            game_rooms[room_code].stage = room.stage
+
+                        await broadcast_to_room(room_code, 
+                            {"type": "stage_completed", "next_stage": room.stage},
+                        )
 
     elif msg_type == "use_power":
         # Get player role
@@ -896,3 +1021,23 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
                 "type": "puzzle_data", 
                 "puzzle": room.puzzles[player_id]
             })
+
+    elif msg_type == "team_puzzle_update":
+        # This handles real-time updates for collaborative team puzzles
+        if "room_code" in message and "update_data" in message:
+            # Simply relay the update to all other players in the room
+            update_data = message.get("update_data", {})
+            puzzle_type = update_data.get("puzzle_type", "")
+            
+            # Broadcast the update to all players except the sender
+            await broadcast_to_room(
+                room_code,
+                {
+                    "type": "team_puzzle_update",
+                    "player_id": player_id,
+                    "puzzle_type": puzzle_type,
+                    "update_data": update_data
+                },
+                exclude_player_id=player_id  # Don't send back to the original sender
+            )
+            return

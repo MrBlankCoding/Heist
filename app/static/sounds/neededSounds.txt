@@ -1,0 +1,6 @@
+
+## Required Sound Files
+- `lock_click.mp3` - Clicking sound when rotating the combination lock dial
+- `success.mp3` - Success sound when completing a puzzle
+- `failure.mp3` - Failure sound when making a mistake
+- `alarm.mp3` - Alarm sound for the timed puzzle or when security is alerted
