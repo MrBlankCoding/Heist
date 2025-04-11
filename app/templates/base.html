@@ -4,8 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}The Heist{% endblock %}</title>
+    
+    <!-- Preload critical assets -->
+    <link rel="preload" href="{{ url_for('static', path='css/game.css') }}" as="style">
+    <link rel="preload" href="{{ url_for('static', path='js/main.bundle.js') }}" as="script">
+    
+    <!-- Load stylesheets -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/game.css">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/game.css') }}">
+    
     {% block head %}{% endblock %}
 </head>
 <body class="bg-gray-900 text-gray-200 min-h-screen">

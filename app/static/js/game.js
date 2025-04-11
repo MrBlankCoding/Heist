@@ -1,19 +1,20 @@
 // game.js - Main game script that ties everything together
 
-import websocketManager from "./websocketManager.js";
-import playerStateManager from "./playerStateManager.js";
-import gameStartScreen from "./gameStartScreen.js";
-import GameUIManager from "./gameUIManager.js";
-import GameEventHandler from "./gameEventHandler.js";
-import NotificationSystem from "./notificationSystem.js";
-import ChatManager from "./chatManager.js";
-
-// Game puzzle controllers
-import HackerPuzzleController from "./puzzles/hackerPuzzleController.js";
-import SafeCrackerPuzzleController from "./puzzles/safeCrackerPuzzleController.js";
-import DemolitionsPuzzleController from "./puzzles/demolitionsPuzzleController.js";
-import LookoutPuzzleController from "./puzzles/lookoutPuzzleController.js";
-import TeamPuzzleController from "./puzzles/teamPuzzleController.js";
+// Import all modules from the bundle instead of individual files
+import {
+  websocketManager,
+  playerStateManager,
+  gameStartScreen,
+  GameUIManager,
+  GameEventHandler,
+  NotificationSystem,
+  ChatManager,
+  HackerPuzzleController,
+  SafeCrackerPuzzleController,
+  DemolitionsPuzzleController,
+  LookoutPuzzleController,
+  TeamPuzzleController,
+} from "./main.bundle.js";
 
 // Main Game Controller
 class GameController {

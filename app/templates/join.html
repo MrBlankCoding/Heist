@@ -28,6 +28,20 @@
                 </button>
             </div>
         </form>
+        
+        <!-- Game joined confirmation - initially hidden -->
+        <div id="gameJoined" class="hidden space-y-4 text-center">
+            <div class="py-4">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h2 class="text-xl font-bold mt-2">Game Joined Successfully</h2>
+                <p class="text-gray-400 mt-1">Click the button below to enter the game room</p>
+            </div>
+            <button id="enterGame" class="heist-button w-full">
+                Enter Game
+            </button>
+        </div>
     </div>
     
     <a href="/" class="mt-8 text-blue-400 hover:text-blue-300">Back to Home</a>
@@ -35,5 +49,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script type="module" src="/static/js/joinGame.js"></script>
+<script type="module" src="{{ url_for('static', path='js/joinGame.js') }}"></script>
 {% endblock %}

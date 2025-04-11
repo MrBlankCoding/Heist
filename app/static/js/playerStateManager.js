@@ -387,19 +387,20 @@ class PlayerStateManager {
         initiatorName: data.initiator_name,
         voteTimeLimit: data.vote_time_limit || 20,
         votes: data.votes || [],
-        players: this.gameState.players,
+        players: data.players || this.gameState.players,
       });
     });
 
     // Timer vote update
     websocketManager.registerMessageHandler("timer_vote_update", (data) => {
-      // Update local vote data
+      // Update the vote in our state
       if (this.gameState.timerVote) {
+        // Update votes
         this.gameState.timerVote.votes = data.votes || [];
 
-        // Track yes/no votes separately
-        if (data.player_id && data.vote !== undefined) {
-          if (data.vote === true) {
+        // Update yes and no votes
+        if (data.player_id) {
+          if (data.vote) {
             if (!this.gameState.timerVote.yesVotes.includes(data.player_id)) {
               this.gameState.timerVote.yesVotes.push(data.player_id);
             }
@@ -409,29 +410,27 @@ class PlayerStateManager {
             }
           }
         }
-      }
 
-      // Trigger event to update UI
-      this.trigger("timerVoteUpdated", {
-        votes: data.votes || [],
-        playerId: data.player_id, // Player who just voted
-        vote: data.vote, // Yes/no vote
-        players: this.gameState.players,
-        yesVotes: this.gameState.timerVote?.yesVotes || [],
-        noVotes: this.gameState.timerVote?.noVotes || [],
-      });
+        // Trigger event for UI to update the vote display
+        this.trigger("timerVoteUpdated", {
+          votes: this.gameState.timerVote.votes,
+          yesVotes: this.gameState.timerVote.yesVotes,
+          noVotes: this.gameState.timerVote.noVotes,
+          playerId: data.player_id,
+          vote: data.vote,
+          players: data.players || this.gameState.players,
+        });
+      }
     });
 
     // Timer vote completed
     websocketManager.registerMessageHandler("timer_vote_completed", (data) => {
-      // Clear the vote data
+      // Clear the vote state
       this.gameState.timerVote = null;
 
-      // Trigger event to hide the vote modal and show result
+      // Trigger event for UI to update
       this.trigger("timerVoteCompleted", {
         success: data.success,
-        votes: data.votes || [],
-        requiredVotes: data.required_votes,
         message: data.message,
       });
     });
@@ -987,6 +986,147 @@ class PlayerStateManager {
       websocketManager.send(data).catch((error) => {
         // Clean up handlers on send error
         websocketManager.removeMessageHandler("power_used", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
+    });
+  }
+
+  /**
+   * Initiate a vote to extend the game timer
+   * @returns {Promise<boolean>} - Resolves to true if the vote is initiated
+   */
+  initiateTimerExtensionVote() {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      // Check if a vote is already in progress
+      if (this.gameState.timerVote) {
+        reject(new Error("A timer vote is already in progress"));
+        return;
+      }
+
+      // Request timer extension vote from server
+      const data = {
+        type: "initiate_timer_vote",
+      };
+
+      const handleResponse = (data) => {
+        // Clean up handlers
+        websocketManager.removeMessageHandler(
+          "timer_vote_initiated",
+          handleResponse
+        );
+        websocketManager.removeMessageHandler("error", handleError);
+
+        // Initialize vote state
+        this.gameState.timerVote = {
+          initiatorId: this.gameState.playerId,
+          initiatorName: this.gameState.playerName,
+          timeLimit: data.vote_time_limit || 20,
+          votes: [],
+          yesVotes: [],
+          noVotes: [],
+        };
+
+        resolve(true);
+      };
+
+      const handleError = (data) => {
+        if (data.context === "timer_vote") {
+          // Clean up handlers
+          websocketManager.removeMessageHandler(
+            "timer_vote_initiated",
+            handleResponse
+          );
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler(
+        "timer_vote_initiated",
+        handleResponse
+      );
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Send timer vote request
+      websocketManager.send(data).catch((error) => {
+        // Clean up handlers on send error
+        websocketManager.removeMessageHandler(
+          "timer_vote_initiated",
+          handleResponse
+        );
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
+    });
+  }
+
+  /**
+   * Vote on timer extension
+   * @param {boolean} vote - True for yes, false for no
+   * @returns {Promise<boolean>} - Resolves to true if the vote is recorded
+   */
+  voteExtendTimer(vote) {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      // Check if a vote is in progress
+      if (!this.gameState.timerVote) {
+        reject(new Error("No timer vote is in progress"));
+        return;
+      }
+
+      // Request timer vote from server
+      const data = {
+        type: "extend_timer_vote",
+        vote: vote,
+      };
+
+      const handleResponse = (data) => {
+        // Clean up handlers
+        websocketManager.removeMessageHandler(
+          "timer_vote_update",
+          handleResponse
+        );
+        websocketManager.removeMessageHandler("error", handleError);
+        resolve(true);
+      };
+
+      const handleError = (data) => {
+        if (data.context === "timer_vote") {
+          // Clean up handlers
+          websocketManager.removeMessageHandler(
+            "timer_vote_update",
+            handleResponse
+          );
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler(
+        "timer_vote_update",
+        handleResponse
+      );
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Send timer vote request
+      websocketManager.send(data).catch((error) => {
+        // Clean up handlers on send error
+        websocketManager.removeMessageHandler(
+          "timer_vote_update",
+          handleResponse
+        );
         websocketManager.removeMessageHandler("error", handleError);
         reject(error);
       });
