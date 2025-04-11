@@ -254,34 +254,166 @@ class GameEventHandler {
   }
 
   /**
-   * Handle timer extension vote
+   * Handle when other players use their power
+   * @param {Object} data - Power used data
    */
-  handleExtendTimer() {
-    playerStateManager.voteExtendTimer();
-    this.setTimerExtendVoted();
+  handlePowerUsedByOthers(data) {
+    // Play power used sound effect
+    this.uiManager.playSound("powerUsed");
 
-    // Update button state
-    this.uiManager.updateExtendTimerButtonAfterVote();
+    // Show notification with player name and power used
+    this.notificationSystem.showAlert(
+      `${data.playerName} (${data.role}) used: ${data.powerDescription}`,
+      "info",
+      7000 // Show for 7 seconds
+    );
 
-    this.notificationSystem.showAlert("Vote cast to extend the timer", "info");
+    // Add a styled system message to the chat
+    this.chatManager.addSystemMessage(
+      `${data.playerName} activated: ${data.powerDescription}`,
+      false, // Don't skip animation
+      {
+        type: "power",
+        role: data.role,
+      }
+    );
   }
 
   /**
-   * Handle timer extension
-   * @param {Object} data - Timer extension data
+   * Handle extend timer button click
    */
-  handleTimerExtended(data) {
-    this.notificationSystem.showAlert(
-      `Timer extended! Alert level increased to ${data.alertLevel}`,
-      "warning"
+  handleExtendTimer() {
+    playerStateManager
+      .initiateTimerExtensionVote()
+      .then(() => {
+        this.notificationSystem.showAlert(
+          "Timer extension vote initiated",
+          "info"
+        );
+      })
+      .catch((error) => {
+        this.notificationSystem.showAlert(
+          error.message || "Failed to initiate timer extension vote",
+          "error"
+        );
+      });
+  }
+
+  /**
+   * Handle timer vote initiated event
+   * @param {Object} data - Vote data
+   */
+  handleTimerVoteInitiated(data) {
+    // Show the vote modal with appropriate callbacks
+    this.uiManager.showTimerVoteModal(
+      data.voteTimeLimit,
+      // Yes callback
+      () => {
+        playerStateManager
+          .voteExtendTimer(true)
+          .then(() => {
+            // Success message handled by the vote update
+          })
+          .catch((error) => {
+            this.notificationSystem.showAlert(
+              error.message || "Failed to register vote",
+              "error"
+            );
+          });
+      },
+      // No callback
+      () => {
+        playerStateManager
+          .voteExtendTimer(false)
+          .then(() => {
+            // Success message handled by the vote update
+          })
+          .catch((error) => {
+            this.notificationSystem.showAlert(
+              error.message || "Failed to register vote",
+              "error"
+            );
+          });
+      }
     );
 
-    // Reset timer vote button
-    this.uiManager.resetExtendTimerButton();
+    // Update the vote display
+    this.uiManager.updateTimerVote({
+      votes: data.votes,
+      players: data.players,
+      required: Math.ceil(Object.keys(data.players).length / 2), // Default to majority
+    });
 
-    // Add system message
+    // Add system message to chat
+    const initiatorName = data.initiatorName || "A player";
     this.chatManager.addSystemMessage(
-      "Timer extended by team vote. Alert level increased!"
+      `${initiatorName} initiated a vote to extend the timer`,
+      false,
+      { type: "vote" }
+    );
+  }
+
+  /**
+   * Handle timer vote update event
+   * @param {Object} data - Vote update data
+   */
+  handleTimerVoteUpdated(data) {
+    // Update the vote display
+    this.uiManager.updateTimerVote({
+      votes: data.votes,
+      players: data.players,
+      required: Math.ceil(Object.keys(data.players).length / 2), // Default to majority
+    });
+
+    // Play a sound for new votes
+    this.uiManager.playSound("info");
+
+    // Find the player who voted
+    if (data.playerId) {
+      const player = playerStateManager.getPlayer(data.playerId);
+      if (player) {
+        // Add system message to chat if not the current player
+        if (data.playerId !== playerStateManager.gameState.playerId) {
+          const voteText = data.vote ? "voted YES" : "voted NO";
+          this.chatManager.addSystemMessage(
+            `${player.name} ${voteText} on timer extension`,
+            false,
+            { type: "vote" }
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle timer vote completed event
+   * @param {Object} data - Vote completion data
+   */
+  handleTimerVoteCompleted(data) {
+    // Hide the vote modal
+    this.uiManager.hideTimerVoteModal();
+
+    // Show result notification
+    if (data.success) {
+      this.notificationSystem.showAlert(
+        "Timer extended successfully! Alert level increased.",
+        "success"
+      );
+      this.uiManager.playSound("timerExtended");
+    } else {
+      this.notificationSystem.showAlert(
+        data.message || "Vote failed. Timer not extended.",
+        "warning"
+      );
+    }
+
+    // Add system message to chat
+    this.chatManager.addSystemMessage(
+      data.success
+        ? "Vote passed! Timer extended by 60 seconds. Alert level increased!"
+        : data.message || "Vote failed. Timer not extended.",
+      false,
+      { type: "vote" }
     );
   }
 
@@ -325,6 +457,21 @@ class GameEventHandler {
       );
       this.chatManager.addSystemMessage(`${eventDisplayName} has ended.`);
     }, data.duration * 1000);
+  }
+
+  /**
+   * Handle timer extension
+   * @param {Object} data - Timer extension data
+   */
+  handleTimerExtended(data) {
+    this.notificationSystem.showAlert(
+      `Timer extended! Alert level increased to ${data.alertLevel}`,
+      "success"
+    );
+
+    // Reset the extend timer button (in case it was disabled)
+    this.uiManager.resetExtendTimerButton();
+    this.setTimerExtendVoted(false); // Reset the voted flag
   }
 }
 

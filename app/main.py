@@ -36,6 +36,12 @@ class GameRoom(BaseModel):
     timer: int = 300  # 5 minutes default
     status: str = "waiting"  # waiting, in_progress, completed, failed
     puzzles: Dict = {}
+    next_events_visible: bool = False  # Add field for Lookout power
+    # Timer vote related fields
+    timer_vote_active: bool = False
+    timer_votes: Dict = {"yes": [], "no": []}
+    timer_vote_initiator: Optional[str] = None
+    timer_vote_time_limit: int = 20
 
 
 # In-memory storage (would use a database in production)
@@ -351,10 +357,27 @@ async def trigger_random_event(room_code: str):
     if random.random() < (0.2 + (room.alert_level * 0.1)):
         event_types = ["security_patrol", "camera_sweep", "system_check"]
         event = random.choice(event_types)
+        event_duration = random.randint(5, 15)
+        
+        # If Lookout's power is active, send a warning to all players
+        if room.next_events_visible:
+            # Send warning 5 seconds before event
+            await broadcast_to_room(
+                room_code,
+                {
+                    "type": "lookout_warning",
+                    "event": event,
+                    "warning_time": 5,
+                    "message": f"Lookout detects {event.replace('_', ' ').title()} approaching in 5 seconds!"
+                }
+            )
+            # Wait 5 seconds before triggering the event
+            await asyncio.sleep(5)
 
+        # Send the actual event
         await broadcast_to_room(
             room_code,
-            {"type": "random_event", "event": event, "duration": random.randint(5, 15)},
+            {"type": "random_event", "event": event, "duration": event_duration},
         )
 
 
@@ -568,32 +591,103 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
     elif msg_type == "use_power":
         # Handle role power usage
         role = room.players[player_id].role
-        if handle_power_usage(room, player_id, role):
+        power_success = handle_power_usage(room, player_id, role)
+        
+        if power_success and role != "Lookout":
+            # For Lookout, broadcasting is handled in handle_lookout_power
+            # For other roles, broadcast power usage to all players
+            player_name = room.players[player_id].name
             await broadcast_to_room(
-                room_code, {"type": "power_used", "player_id": player_id, "role": role}
+                room_code, 
+                {
+                    "type": "power_used", 
+                    "player_id": player_id, 
+                    "player_name": player_name,
+                    "role": role
+                }
             )
+
+    elif msg_type == "initiate_timer_vote":
+        # Check if there's an active vote already
+        if room.timer_vote_active:
+            await connected_players[player_id].send_json({
+                "type": "error",
+                "context": "timer_vote",
+                "message": "A timer extension vote is already in progress"
+            })
+            return
+        
+        # Initialize vote tracking
+        room.timer_vote_active = True
+        room.timer_votes = {"yes": [], "no": []}
+        room.timer_vote_initiator = player_id
+        
+        # Broadcast vote initiated to all players
+        await broadcast_to_room(
+            room_code,
+            {
+                "type": "timer_vote_initiated",
+                "initiator_id": player_id,
+                "initiator_name": room.players[player_id].name,
+                "vote_time_limit": room.timer_vote_time_limit,
+                "votes": []  # No votes yet
+            }
+        )
+        
+        # Start timer for vote completion
+        asyncio.create_task(run_vote_timer(room_code))
+    
+    elif msg_type == "extend_timer_vote":
+        # Check if there's an active vote
+        if not room.timer_vote_active:
+            await connected_players[player_id].send_json({
+                "type": "error",
+                "context": "timer_vote",
+                "message": "No timer extension vote is currently active"
+            })
+            return
+        
+        # Check if player already voted
+        if player_id in room.timer_votes["yes"] or player_id in room.timer_votes["no"]:
+            await connected_players[player_id].send_json({
+                "type": "error",
+                "context": "timer_vote",
+                "message": "You have already voted"
+            })
+            return
+        
+        # Record the vote
+        vote_type = "yes" if message.get("vote", True) else "no"
+        room.timer_votes[vote_type].append(player_id)
+        
+        # Get all voters
+        all_voters = room.timer_votes["yes"] + room.timer_votes["no"]
+        
+        # Broadcast vote update
+        await broadcast_to_room(
+            room_code,
+            {
+                "type": "timer_vote_update",
+                "player_id": player_id,
+                "vote": vote_type == "yes",
+                "votes": all_voters
+            }
+        )
+        
+        # Check if everyone has voted
+        connected_player_count = sum(1 for p in room.players.values() if p.connected)
+        if len(all_voters) >= connected_player_count:
+            # Everyone voted, process the result immediately
+            await process_timer_vote_result(room_code)
 
     elif msg_type == "extend_timer":
-        # Allow players to vote to extend timer
-        if "timer_votes" not in room:
-            room.timer_votes = set()
-
-        room.timer_votes.add(player_id)
-
-        # If majority votes to extend
-        if len(room.timer_votes) > len(room.players) / 2:
-            room.timer += 60  # Add 1 minute
-            room.alert_level += 1  # Increase alert level
-            room.timer_votes.clear()
-
-            await broadcast_to_room(
-                room_code,
-                {
-                    "type": "timer_extended",
-                    "new_timer": room.timer,
-                    "alert_level": room.alert_level,
-                },
-            )
+        # Legacy method - deprecated in favor of voting system
+        # This has been replaced by the timer vote system
+        await connected_players[player_id].send_json({
+            "type": "error",
+            "context": "timer_extension",
+            "message": "This method is deprecated. Please use the vote system instead."
+        })
 
     elif msg_type == "chat_message":
         # Handle in-game chat
@@ -695,8 +789,133 @@ def handle_power_usage(room: GameRoom, player_id: str, role: str) -> bool:
         room.shortcuts = room.shortcuts + 1 if hasattr(room, "shortcuts") else 1
         return True
     elif role == "Lookout":
-        # Warn of upcoming events
+        # Just set the flag, the async function will handle the rest
         room.next_events_visible = True
+        
+        # Schedule the async part of the Lookout power using the room code
+        asyncio.create_task(handle_lookout_power(room_code=room.code, player_id=player_id))
         return True
 
     return False
+
+
+async def handle_lookout_power(room_code: str, player_id: str):
+    """Handle the async parts of the Lookout power"""
+    if room_code not in game_rooms or player_id not in connected_players:
+        return
+        
+    room = game_rooms[room_code]
+    
+    # Generate a future event prediction
+    event_types = ["security_patrol", "camera_sweep", "system_check"]
+    event_names = {
+        "security_patrol": "Security Patrol",
+        "camera_sweep": "Camera Sweep",
+        "system_check": "System Check"
+    }
+    predicted_event = random.choice(event_types)
+    predicted_time = random.randint(10, 30)
+    display_name = event_names[predicted_event]
+    
+    # Send special notification only to the Lookout player if connected
+    if player_id in connected_players:
+        await connected_players[player_id].send_json({
+            "type": "lookout_prediction",
+            "event": predicted_event,
+            "display_name": display_name,
+            "predicted_time": predicted_time
+        })
+        
+    # Create power description for other players
+    power_description = "Enhanced Security Detection"
+    
+    # Add power description to broadcast
+    await broadcast_to_room(
+        room_code,
+        {
+            "type": "power_used",
+            "player_id": player_id,
+            "player_name": room.players[player_id].name,
+            "role": "Lookout",
+            "powerDescription": power_description
+        }
+    )
+    
+    # Set timeout to reset the ability after 60 seconds
+    await reset_lookout_ability(room_code, 60)
+
+
+async def run_vote_timer(room_code: str):
+    """Run timer for vote completion"""
+    room = game_rooms[room_code]
+    
+    # Wait for vote time limit
+    time_remaining = room.timer_vote_time_limit
+    
+    while time_remaining > 0 and room.timer_vote_active:
+        await asyncio.sleep(1)
+        time_remaining -= 1
+    
+    # Process vote result when timer expires
+    if room.timer_vote_active:
+        await process_timer_vote_result(room_code)
+
+
+async def process_timer_vote_result(room_code: str):
+    """Process the timer vote result"""
+    room = game_rooms[room_code]
+    
+    # Mark vote as inactive
+    room.timer_vote_active = False
+    
+    # Calculate results
+    yes_votes = len(room.timer_votes.get("yes", []))
+    no_votes = len(room.timer_votes.get("no", []))
+    all_votes = yes_votes + no_votes
+    
+    # Calculate required votes (majority of connected players)
+    connected_player_count = sum(1 for p in room.players.values() if p.connected)
+    required_votes = max(1, connected_player_count // 2 + 1)  # Majority
+    
+    # Determine success
+    success = yes_votes >= required_votes
+    
+    if success:
+        # Extend the timer
+        room.timer += 60  # Add 1 minute
+        room.alert_level += 1  # Increase alert level
+        
+        # Broadcast timer extended
+        await broadcast_to_room(
+            room_code,
+            {
+                "type": "timer_extended",
+                "new_timer": room.timer,
+                "alert_level": room.alert_level,
+            },
+        )
+    
+    # Broadcast vote completion to all players
+    all_voters = room.timer_votes.get("yes", []) + room.timer_votes.get("no", [])
+    
+    await broadcast_to_room(
+        room_code,
+        {
+            "type": "timer_vote_completed",
+            "success": success,
+            "votes": all_voters,
+            "required_votes": required_votes,
+            "message": "Timer extension vote failed" if not success else "Timer extended successfully"
+        }
+    )
+    
+    # Clean up vote data
+    room.timer_votes = {"yes": [], "no": []}
+
+
+async def reset_lookout_ability(room_code: str, delay_seconds: int):
+    """Reset the Lookout's ability after a delay"""
+    await asyncio.sleep(delay_seconds)
+    
+    if room_code in game_rooms:
+        game_rooms[room_code].next_events_visible = False

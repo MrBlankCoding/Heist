@@ -65,6 +65,9 @@ class PlayerStateManager {
     this.temporaryHandlers = new Map();
     this.handlerIdCounter = 0;
 
+    // Local timer interval for smooth real-time updates
+    this.localTimerInterval = null;
+
     // Initialize WebSocket handlers
     this._setupWebSocketHandlers();
   }
@@ -308,11 +311,23 @@ class PlayerStateManager {
 
   /**
    * Vote to extend the timer
+   * @param {boolean} voteYes - Whether to vote yes
    * @returns {Promise} - Resolves when vote is registered
    */
-  voteExtendTimer() {
+  voteExtendTimer(voteYes = true) {
     return websocketManager.send({
-      type: "extend_timer",
+      type: "extend_timer_vote",
+      vote: voteYes,
+    });
+  }
+
+  /**
+   * Initiate a timer extension vote (usually from the UI button)
+   * @returns {Promise} - Resolves when vote is initiated
+   */
+  initiateTimerExtensionVote() {
+    return websocketManager.send({
+      type: "initiate_timer_vote",
     });
   }
 
@@ -587,6 +602,11 @@ class PlayerStateManager {
       });
       this.gameState.players = updatedPlayers;
 
+      // Start local timer if game is in progress
+      if (data.status === "in_progress" && !this.localTimerInterval) {
+        this._startLocalTimer();
+      }
+
       // Trigger events
       this.trigger("gameStateUpdated", data);
 
@@ -602,9 +622,82 @@ class PlayerStateManager {
       });
     });
 
+    // Timer vote initiated
+    websocketManager.registerMessageHandler("timer_vote_initiated", (data) => {
+      // Store the vote data for future reference
+      this.gameState.timerVote = {
+        initiator: data.initiator_id,
+        votes: data.votes || [],
+        voteTimeLimit: data.vote_time_limit || 20,
+      };
+
+      // Trigger event for UI to show the vote modal
+      this.trigger("timerVoteInitiated", {
+        initiatorId: data.initiator_id,
+        initiatorName: data.initiator_name,
+        voteTimeLimit: data.vote_time_limit || 20,
+        votes: data.votes || [],
+        players: this.gameState.players,
+      });
+    });
+
+    // Timer vote update
+    websocketManager.registerMessageHandler("timer_vote_update", (data) => {
+      // Update local vote data
+      if (this.gameState.timerVote) {
+        this.gameState.timerVote.votes = data.votes || [];
+      }
+
+      // Trigger event to update UI
+      this.trigger("timerVoteUpdated", {
+        votes: data.votes || [],
+        playerId: data.player_id, // Player who just voted
+        vote: data.vote, // Yes/no vote
+        players: this.gameState.players,
+      });
+    });
+
+    // Timer vote completed
+    websocketManager.registerMessageHandler("timer_vote_completed", (data) => {
+      // Clear the vote data
+      this.gameState.timerVote = null;
+
+      // Trigger event to hide the vote modal and show result
+      this.trigger("timerVoteCompleted", {
+        success: data.success,
+        votes: data.votes || [],
+        requiredVotes: data.required_votes,
+        message: data.message,
+      });
+    });
+
+    // Power used notification for all players
+    websocketManager.registerMessageHandler("power_used", (data) => {
+      // Only trigger event if it's not the current player (they get their own success message)
+      if (data.player_id !== this.gameState.playerId) {
+        const player = this.getPlayer(data.player_id);
+        if (player) {
+          const roleInfo = this.getRoleInfo(data.role);
+          this.trigger("powerUsed", {
+            playerId: data.player_id,
+            playerName: player.name,
+            role: data.role,
+            powerDescription: roleInfo ? roleInfo.power : "Special ability",
+          });
+        }
+      }
+    });
+
     // Timer updates
     websocketManager.registerMessageHandler("timer_update", (data) => {
+      // Sync our local timer with the server time
       this.gameState.timer = data.timer;
+
+      // Make sure local timer is running if not already
+      if (!this.localTimerInterval && this.gameState.status === "in_progress") {
+        this._startLocalTimer();
+      }
+
       this.trigger("timerUpdated", data.timer);
     });
 
@@ -649,15 +742,16 @@ class PlayerStateManager {
       this.trigger("stageCompleted", data.next_stage);
     });
 
-    // Game completed
+    // Game completed or over events - stop the timer
     websocketManager.registerMessageHandler("game_completed", () => {
       this.gameState.status = this.GAME_STATUS.COMPLETED;
+      this._stopLocalTimer();
       this.trigger("gameCompleted");
     });
 
-    // Game over
     websocketManager.registerMessageHandler("game_over", (data) => {
       this.gameState.status = this.GAME_STATUS.FAILED;
+      this._stopLocalTimer();
       this.trigger("gameOver", data.result);
     });
 
@@ -788,6 +882,10 @@ class PlayerStateManager {
       this.gameState.status = this.GAME_STATUS.IN_PROGRESS;
       this.gameState.stage = data.stage;
       this.gameState.timer = data.timer;
+
+      // Start the local timer for real-time updates
+      this._startLocalTimer();
+
       this.trigger("gameStarted", data);
     });
 
@@ -796,6 +894,45 @@ class PlayerStateManager {
       console.error("Server error:", data);
       this.trigger("error", data);
     });
+  }
+
+  /**
+   * Start the local timer for real-time updates
+   * @private
+   */
+  _startLocalTimer() {
+    // Clear any existing timer first
+    this._stopLocalTimer();
+
+    // Start a new timer that decrements each second
+    this.localTimerInterval = setInterval(() => {
+      // Only decrement if the game is in progress
+      if (this.gameState.status === this.GAME_STATUS.IN_PROGRESS) {
+        // Decrement the timer by 1 second
+        if (this.gameState.timer > 0) {
+          this.gameState.timer -= 1;
+
+          // Trigger the timer updated event with the new time
+          this.trigger("localTimerUpdated", this.gameState.timer);
+        }
+
+        // If timer reaches zero, handle game end
+        if (this.gameState.timer <= 0) {
+          this._stopLocalTimer();
+        }
+      }
+    }, 1000); // Update every second
+  }
+
+  /**
+   * Stop the local timer
+   * @private
+   */
+  _stopLocalTimer() {
+    if (this.localTimerInterval) {
+      clearInterval(this.localTimerInterval);
+      this.localTimerInterval = null;
+    }
   }
 }
 

@@ -99,6 +99,9 @@ class GameController {
     playerStateManager.on("timerUpdated", (timer) =>
       this.eventHandler.handleTimerUpdated(timer)
     );
+    playerStateManager.on("localTimerUpdated", (timer) =>
+      this.eventHandler.handleTimerUpdated(timer)
+    );
     playerStateManager.on("alertLevelChanged", (level) =>
       this.eventHandler.handleAlertLevelChanged(level)
     );
@@ -123,8 +126,20 @@ class GameController {
     playerStateManager.on("chatMessage", (data) =>
       this.chatManager.addChatMessage(data)
     );
+    playerStateManager.on("timerVoteInitiated", (data) =>
+      this.eventHandler.handleTimerVoteInitiated(data)
+    );
+    playerStateManager.on("timerVoteUpdated", (data) =>
+      this.eventHandler.handleTimerVoteUpdated(data)
+    );
+    playerStateManager.on("timerVoteCompleted", (data) =>
+      this.eventHandler.handleTimerVoteCompleted(data)
+    );
     playerStateManager.on("timerExtended", (data) =>
       this.eventHandler.handleTimerExtended(data)
+    );
+    playerStateManager.on("powerUsed", (data) =>
+      this.eventHandler.handlePowerUsedByOthers(data)
     );
     playerStateManager.on("gameStarted", () => {
       gameStartScreen.hideLobby();

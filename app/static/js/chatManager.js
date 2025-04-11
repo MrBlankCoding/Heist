@@ -90,15 +90,8 @@ class ChatManager {
       });
     }
 
-    // Try to load messages from sessionStorage
-    this._loadMessages();
-
-    // Add welcome message if no messages are loaded
-    if (this.messageBuffer.length === 0) {
-      this.addSystemMessage(
-        "Communication channel initialized. Welcome to the heist."
-      );
-    }
+    // Add welcome message
+    this.addSystemMessage("Comms active");
   }
 
   /**
@@ -150,13 +143,8 @@ class ChatManager {
     // Add to chat window
     this.elements.chatWindow.appendChild(messageEl);
 
-    // Store message in buffer
-    this._addToMessageBuffer({
-      type: "player",
-      id: messageId,
-      data,
-      timestamp: Date.now(),
-    });
+    // Add to message buffer for managing max messages
+    this._addToMessageBuffer(messageId);
 
     // Animate in unless skipped
     if (!skipAnimation) {
@@ -178,8 +166,11 @@ class ChatManager {
    * Add a system message to the chat
    * @param {string} message - System message
    * @param {boolean} [skipAnimation=false] - Whether to skip animation
+   * @param {Object} [options] - Additional options
+   * @param {string} [options.type] - Message type (e.g., 'power' for power notifications)
+   * @param {string} [options.role] - Role related to the message (for power notifications)
    */
-  addSystemMessage(message, skipAnimation = false) {
+  addSystemMessage(message, skipAnimation = false, options = {}) {
     if (!this.elements.chatWindow) return;
 
     const messageEl = document.createElement("div");
@@ -187,7 +178,7 @@ class ChatManager {
     messageEl.id = messageId;
 
     // Base classes without animation
-    messageEl.className = "flex justify-center mb-3 transform";
+    messageEl.className = "mb-2 transform";
 
     if (!skipAnimation) {
       messageEl.classList.add(
@@ -199,27 +190,44 @@ class ChatManager {
       );
     }
 
+    // Determine if this is a power notification
+    const isPowerMessage = options.type === "power";
+
+    // Create a role class for power messages
+    let roleClass = "";
+    if (isPowerMessage && options.role) {
+      // Convert role name to CSS class (e.g., "Safe Cracker" -> "safe-cracker")
+      roleClass = options.role.toLowerCase().replace(/\s+/g, "-");
+    }
+
     messageEl.innerHTML = `
-      <div class="px-3 py-2 bg-gray-800 bg-opacity-80 rounded-lg text-center">
-        <span class="text-sm text-purple-400 italic">
-          <svg xmlns="http://www.w3.org/2000/svg" class="inline-block h-3.5 w-3.5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-          </svg>
+      <div class="chat-system-message px-2 py-1 md:px-3 md:py-1.5 bg-gray-800 bg-opacity-80 rounded-lg text-center mx-auto w-[80%] md:w-[85%] ${
+        isPowerMessage ? "power-message " + roleClass : ""
+      }">
+        <span class="text-xs md:text-sm ${
+          isPowerMessage
+            ? "text-blue-400 font-medium"
+            : "text-purple-400 italic"
+        } flex items-center justify-center">
+          ${
+            isPowerMessage
+              ? `<svg xmlns="http://www.w3.org/2000/svg" class="inline-block h-3 w-3 mr-1.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" />
+              </svg>`
+              : `<svg xmlns="http://www.w3.org/2000/svg" class="inline-block h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+              </svg>`
+          }
           ${this._escapeHtml(message)}
         </span>
-        <div class="text-xs text-gray-500 mt-1">${this._getTimestamp()}</div>
+        <div class="text-[10px] text-gray-500 mt-0.5">${this._getTimestamp()}</div>
       </div>
     `;
 
     this.elements.chatWindow.appendChild(messageEl);
 
-    // Store in message buffer
-    this._addToMessageBuffer({
-      type: "system",
-      id: messageId,
-      message,
-      timestamp: Date.now(),
-    });
+    // Add to buffer for max message management
+    this._addToMessageBuffer(messageId);
 
     // Animate in unless skipped
     if (!skipAnimation) {
@@ -235,82 +243,24 @@ class ChatManager {
   }
 
   /**
-   * Save messages to session storage
+   * Add a message ID to the buffer and trim if needed
+   * @param {string} messageId - Message element ID
    * @private
    */
-  _saveMessages() {
-    try {
-      sessionStorage.setItem(
-        "heistChatMessages",
-        JSON.stringify(this.messageBuffer)
-      );
-    } catch (error) {
-      console.warn("Failed to save chat messages:", error);
-    }
-  }
-
-  /**
-   * Load messages from session storage
-   * @private
-   */
-  _loadMessages() {
-    try {
-      const savedMessages = sessionStorage.getItem("heistChatMessages");
-      if (savedMessages) {
-        const messages = JSON.parse(savedMessages);
-
-        if (Array.isArray(messages) && messages.length > 0) {
-          // Clear any existing messages
-          if (this.elements.chatWindow) {
-            this.elements.chatWindow.innerHTML = "";
-          }
-
-          // Load and display messages
-          messages.forEach((item) => {
-            if (item.type === "system") {
-              this.addSystemMessage(item.message, true);
-            } else if (item.type === "player" && item.data) {
-              this.addChatMessage(item.data, true);
-            }
-          });
-
-          // Update message counter
-          this.messageCounter = messages.length;
-
-          // Update message buffer
-          this.messageBuffer = messages;
-
-          // Scroll to bottom
-          this._scrollToBottom();
-        }
-      }
-    } catch (error) {
-      console.warn("Failed to load chat messages:", error);
-    }
-  }
-
-  /**
-   * Add a message to the buffer and trim if needed
-   * @param {Object} message - Message object
-   * @private
-   */
-  _addToMessageBuffer(message) {
-    this.messageBuffer.push(message);
+  _addToMessageBuffer(messageId) {
+    this.messageBuffer.push(messageId);
 
     // Trim buffer if too large
     if (this.messageBuffer.length > this.maxMessages) {
-      const removed = this.messageBuffer.shift();
+      const removedId = this.messageBuffer.shift();
       // Remove from DOM too
-      if (removed && removed.id && this.elements.chatWindow) {
-        const elem = document.getElementById(removed.id);
+      if (removedId && this.elements.chatWindow) {
+        const elem = document.getElementById(removedId);
         if (elem) {
           elem.remove();
         }
       }
     }
-
-    // Save to session storage
-    this._saveMessages();
   }
 
   /**
@@ -391,12 +341,14 @@ class ChatManager {
    */
   _createMessageHTML(data, isCurrentPlayer, roleColor, role) {
     return `
-      <div class="${isCurrentPlayer ? "order-2 ml-2" : "mr-2"}">
+      <div class="chat-message ${
+        isCurrentPlayer ? "ml-auto" : "mr-auto"
+      } mb-2 max-w-[85%] md:max-w-[90%]">
         ${
           isCurrentPlayer
             ? ""
             : `
-          <div class="font-bold text-${roleColor}-400 mb-1 flex items-center">
+          <div class="font-bold text-${roleColor}-400 mb-1 flex items-center text-xs md:text-sm">
             <span class="mr-1">${this._escapeHtml(data.playerName)}</span>
             <span class="text-xs text-${roleColor}-300 bg-${roleColor}-900 bg-opacity-40 px-1.5 py-0.5 rounded">${this._escapeHtml(
                 role
@@ -404,14 +356,14 @@ class ChatManager {
           </div>
         `
         }
-        <div class="p-3 rounded-lg ${
+        <div class="chat-message-bubble ${
           isCurrentPlayer
-            ? `bg-${roleColor}-700 bg-opacity-50 text-white`
-            : "bg-gray-700"
-        } max-w-xs break-words">
+            ? "own bg-" + roleColor + "-700 bg-opacity-50"
+            : "other bg-gray-700"
+        } text-white text-xs md:text-sm">
           ${this._formatMessage(data.message)}
         </div>
-        <div class="text-xs text-gray-500 mt-1 ${
+        <div class="text-xs text-gray-500 mt-0.5 ${
           isCurrentPlayer ? "text-right" : ""
         }">
           ${this._getTimestamp()}
@@ -492,7 +444,6 @@ class ChatManager {
     this.elements.chatWindow.innerHTML = "";
     this.messageBuffer = [];
     this.messageCounter = 0;
-    this._saveMessages();
   }
 }
 

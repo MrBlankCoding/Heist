@@ -22,6 +22,14 @@ class GameUIManager {
       gameResultMessage: document.getElementById("game-result-message"),
       playAgainButton: document.getElementById("play-again"),
       returnHomeButton: document.getElementById("return-home"),
+      // Timer vote modal elements
+      timerVoteModal: document.getElementById("timer-vote-modal"),
+      voteCount: document.getElementById("vote-count"),
+      voteProgress: document.getElementById("vote-progress"),
+      votePlayerList: document.getElementById("vote-player-list"),
+      voteYesButton: document.getElementById("vote-yes"),
+      voteNoButton: document.getElementById("vote-no"),
+      voteTimer: document.getElementById("vote-timer"),
     };
 
     // Validation
@@ -31,6 +39,7 @@ class GameUIManager {
     this.currentTimer = 300;
     this.currentAlertLevel = 0;
     this.currentStage = 1;
+    this.voteTimerInterval = null;
   }
 
   /**
@@ -58,13 +67,19 @@ class GameUIManager {
 
     // Only update if the timer has changed
     if (this.currentTimer === seconds) return;
+
+    // Store the previous value for animation
+    const previousTimer = this.currentTimer;
     this.currentTimer = seconds;
 
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    this.elements.timer.textContent = `${minutes
+    const formattedTime = `${minutes.toString().padStart(2, "0")}:${secs
       .toString()
-      .padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+      .padStart(2, "0")}`;
+
+    // Apply the new time
+    this.elements.timer.textContent = formattedTime;
 
     // Change timer color based on urgency
     this.elements.timer.classList.remove(
@@ -77,6 +92,17 @@ class GameUIManager {
       this.elements.timer.classList.add("text-red-500", "animate-pulse");
     } else if (seconds <= 60) {
       this.elements.timer.classList.add("text-yellow-500");
+    }
+
+    // Add a brief highlight effect when timer changes
+    if (previousTimer !== undefined && seconds !== previousTimer) {
+      // Apply highlight effect
+      this.elements.timer.classList.add("timer-update");
+
+      // Remove the effect after animation completes
+      setTimeout(() => {
+        this.elements.timer.classList.remove("timer-update");
+      }, 500);
     }
   }
 
@@ -427,6 +453,205 @@ class GameUIManager {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#039;");
+  }
+
+  /**
+   * Show the timer extension vote modal
+   * @param {number} voteTimeLimit - Time limit for voting in seconds
+   * @param {Function} onVoteYes - Callback for yes vote
+   * @param {Function} onVoteNo - Callback for no vote
+   */
+  showTimerVoteModal(voteTimeLimit = 20, onVoteYes, onVoteNo) {
+    if (!this.elements.timerVoteModal) return;
+
+    // Reset vote display
+    if (this.elements.voteCount) {
+      this.elements.voteCount.textContent = "0/0";
+    }
+
+    if (this.elements.voteProgress) {
+      this.elements.voteProgress.style.width = "0%";
+    }
+
+    if (this.elements.votePlayerList) {
+      this.elements.votePlayerList.innerHTML = "";
+    }
+
+    // Set up event listeners for buttons
+    if (this.elements.voteYesButton) {
+      // Remove old event listeners if any
+      const newYesButton = this.elements.voteYesButton.cloneNode(true);
+      this.elements.voteYesButton.parentNode.replaceChild(
+        newYesButton,
+        this.elements.voteYesButton
+      );
+      this.elements.voteYesButton = newYesButton;
+
+      this.elements.voteYesButton.addEventListener("click", () => {
+        this.elements.voteYesButton.disabled = true;
+        this.elements.voteYesButton.classList.add("opacity-50");
+        this.elements.voteNoButton.disabled = true;
+        this.elements.voteNoButton.classList.add("opacity-50");
+        if (onVoteYes) onVoteYes();
+      });
+    }
+
+    if (this.elements.voteNoButton) {
+      // Remove old event listeners if any
+      const newNoButton = this.elements.voteNoButton.cloneNode(true);
+      this.elements.voteNoButton.parentNode.replaceChild(
+        newNoButton,
+        this.elements.voteNoButton
+      );
+      this.elements.voteNoButton = newNoButton;
+
+      this.elements.voteNoButton.addEventListener("click", () => {
+        this.elements.voteYesButton.disabled = true;
+        this.elements.voteYesButton.classList.add("opacity-50");
+        this.elements.voteNoButton.disabled = true;
+        this.elements.voteNoButton.classList.add("opacity-50");
+        if (onVoteNo) onVoteNo();
+      });
+    }
+
+    // Start vote timer
+    this._startVoteTimer(voteTimeLimit);
+
+    // Show the modal
+    this.elements.timerVoteModal.classList.remove("hidden");
+    this.elements.timerVoteModal.classList.add("animate-fadeIn");
+
+    // Play sound effect
+    this.playSound("alert");
+  }
+
+  /**
+   * Update the timer extension vote display
+   * @param {Object} voteData - Vote data
+   * @param {Array} voteData.votes - Array of player IDs who have voted
+   * @param {Object} voteData.players - Players object
+   * @param {number} voteData.required - Number of votes required to pass
+   */
+  updateTimerVote(voteData) {
+    if (!this.elements.timerVoteModal) return;
+
+    const totalPlayers = Object.keys(voteData.players).length;
+    const votesCount = voteData.votes.length;
+    const requiredVotes = voteData.required || Math.ceil(totalPlayers / 2);
+
+    // Update vote count
+    if (this.elements.voteCount) {
+      this.elements.voteCount.textContent = `${votesCount}/${requiredVotes}`;
+    }
+
+    // Update progress bar (percentage of required votes)
+    if (this.elements.voteProgress) {
+      const percentage = Math.min(100, (votesCount / requiredVotes) * 100);
+      this.elements.voteProgress.style.width = `${percentage}%`;
+    }
+
+    // Update player list
+    if (this.elements.votePlayerList) {
+      this.elements.votePlayerList.innerHTML = "";
+
+      // Create player vote status elements
+      Object.entries(voteData.players).forEach(([playerId, player]) => {
+        const hasVoted = voteData.votes.includes(playerId);
+        const isCurrentPlayer =
+          playerId === playerStateManager.gameState.playerId;
+
+        const playerEl = document.createElement("div");
+        playerEl.className = "flex items-center justify-between";
+
+        const roleInfo = playerStateManager.getRoleInfo(player.role);
+        const roleColor = roleInfo ? roleInfo.color : "gray";
+
+        playerEl.innerHTML = `
+          <div class="flex items-center">
+            <span class="text-${roleColor}-400 mr-1.5">●</span>
+            <span class="${
+              isCurrentPlayer ? "font-bold" : ""
+            }">${this._escapeHtml(player.name)}</span>
+          </div>
+          <div>
+            ${
+              hasVoted
+                ? '<span class="text-green-400">✓</span>'
+                : '<span class="text-gray-500">•••</span>'
+            }
+          </div>
+        `;
+
+        this.elements.votePlayerList.appendChild(playerEl);
+      });
+    }
+  }
+
+  /**
+   * Hide the timer extension vote modal
+   */
+  hideTimerVoteModal() {
+    if (!this.elements.timerVoteModal) return;
+
+    // Stop the vote timer
+    if (this.voteTimerInterval) {
+      clearInterval(this.voteTimerInterval);
+      this.voteTimerInterval = null;
+    }
+
+    // Hide the modal with animation
+    this.elements.timerVoteModal.classList.add("animate-fadeOut");
+
+    // Remove the modal after animation completes
+    setTimeout(() => {
+      this.elements.timerVoteModal.classList.add("hidden");
+      this.elements.timerVoteModal.classList.remove(
+        "animate-fadeIn",
+        "animate-fadeOut"
+      );
+
+      // Reset button states
+      if (this.elements.voteYesButton) {
+        this.elements.voteYesButton.disabled = false;
+        this.elements.voteYesButton.classList.remove("opacity-50");
+      }
+
+      if (this.elements.voteNoButton) {
+        this.elements.voteNoButton.disabled = false;
+        this.elements.voteNoButton.classList.remove("opacity-50");
+      }
+    }, 300);
+  }
+
+  /**
+   * Start the vote timer countdown
+   * @param {number} duration - Duration in seconds
+   * @private
+   */
+  _startVoteTimer(duration) {
+    if (!this.elements.voteTimer) return;
+
+    // Clear any existing interval
+    if (this.voteTimerInterval) {
+      clearInterval(this.voteTimerInterval);
+    }
+
+    // Set initial value
+    let timeLeft = duration;
+    this.elements.voteTimer.textContent = `Vote ends in ${timeLeft}s`;
+
+    // Start interval
+    this.voteTimerInterval = setInterval(() => {
+      timeLeft--;
+
+      if (timeLeft <= 0) {
+        clearInterval(this.voteTimerInterval);
+        this.voteTimerInterval = null;
+        // Don't auto-hide the modal - the server should tell us when to hide it
+      } else {
+        this.elements.voteTimer.textContent = `Vote ends in ${timeLeft}s`;
+      }
+    }, 1000);
   }
 }
 

@@ -85,6 +85,23 @@
 .timer {
   font-family: "Courier New", Courier, monospace;
   letter-spacing: 0.1em;
+  transition: color 0.3s ease;
+}
+
+/* Timer update animation */
+@keyframes timer-flash {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+.timer-update {
+  animation: timer-flash 0.5s ease-in-out;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
 
 /* Puzzle Area */
@@ -94,13 +111,14 @@
 
 /* Chat Window */
 .chat-window {
-  height: 250px;
+  height: calc(100vh - 200px); /* Dynamic height based on viewport */
   overflow-y: auto;
   scroll-behavior: smooth;
+  max-height: 70vh; /* Prevent it from getting too tall on large screens */
 }
 
 .chat-window::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .chat-window::-webkit-scrollbar-track {
@@ -110,6 +128,102 @@
 .chat-window::-webkit-scrollbar-thumb {
   background-color: #4b5563;
   border-radius: 20px;
+}
+
+/* Chat messages scaling */
+.chat-message {
+  max-width: 90%;
+  word-break: break-word;
+}
+
+.chat-message-bubble {
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  position: relative;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.chat-message-bubble.own {
+  border-bottom-right-radius: 0.25rem;
+  margin-left: auto;
+}
+
+.chat-message-bubble.other {
+  border-bottom-left-radius: 0.25rem;
+  margin-right: auto;
+}
+
+/* Chat system messages */
+.chat-system-message {
+  width: 80%;
+  margin: 0 auto;
+  text-align: center;
+  opacity: 0.75;
+  transition: opacity 0.2s ease;
+  font-size: 0.7rem;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.chat-system-message:hover {
+  opacity: 1;
+}
+
+/* Left sidebar adjustments */
+@media (min-width: 1024px) {
+  .lg\:col-span-1 .bg-gray-800 {
+    position: sticky;
+    top: 1rem;
+    height: calc(100vh - 2rem);
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .chat-window {
+    flex-grow: 1;
+    max-height: none; /* Override the max-height on large screens */
+  }
+}
+
+/* Small screens optimization */
+@media (max-width: 768px) {
+  .chat-window {
+    height: calc(100vh - 170px);
+  }
+  
+  /* Make sure the chat container isn't too large on small devices */
+  .chat-message {
+    max-width: 95%;
+  }
+  
+  .chat-message-bubble {
+    padding: 0.5rem 0.75rem;
+  }
+  
+  .puzzle-area {
+    min-height: 300px;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+  .chat-window {
+    height: calc(100vh - 150px);
+  }
+  
+  .chat-message-bubble {
+    padding: 0.5rem;
+  }
+  
+  .chat-system-message {
+    width: 95%;
+  }
 }
 
 /* Puzzle Specific Styles */
@@ -234,4 +348,48 @@
   .chat-window {
     height: 200px;
   }
+}
+
+/* Power notifications */
+.power-notification {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-left: 3px solid #3b82f6;
+  padding: 0.5rem;
+  margin: 0.5rem 0;
+  font-weight: 500;
+  animation: pulse-blue 2s ease-in-out;
+}
+
+@keyframes pulse-blue {
+  0%, 100% { box-shadow: 0 0 0 rgba(59, 130, 246, 0); }
+  50% { box-shadow: 0 0 10px rgba(59, 130, 246, 0.6); }
+}
+
+.power-notification.hacker {
+  background-color: rgba(59, 130, 246, 0.2);
+  border-left-color: #3b82f6;
+}
+
+.power-notification.safe-cracker {
+  background-color: rgba(245, 158, 11, 0.2);
+  border-left-color: #f59e0b;
+}
+
+.power-notification.demolitions {
+  background-color: rgba(239, 68, 68, 0.2);
+  border-left-color: #ef4444;
+}
+
+.power-notification.lookout {
+  background-color: rgba(16, 185, 129, 0.2);
+  border-left-color: #10b981;
+}
+
+/* System messages */
+.chat-system-message.power-message {
+  width: 90%;
+  background-color: rgba(59, 130, 246, 0.15);
+  border-left: 2px solid #3b82f6;
+  padding-left: 0.75rem;
+  opacity: 0.9;
 } 
