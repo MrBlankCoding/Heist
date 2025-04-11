@@ -22,6 +22,7 @@ class PlayerStateManager {
       alertLevel: 0,
       lastTimerUpdate: 0,
       lastTimerValue: 0,
+      puzzles: {},
     };
 
     // Handlers for temporary WebSocket subscriptions
@@ -735,14 +736,38 @@ class PlayerStateManager {
 
     // Game started event
     websocketManager.registerMessageHandler("game_started", (data) => {
+      console.log("Game started event received");
       this.gameState.status = this.GAME_STATUS.IN_PROGRESS;
-      this.gameState.stage = data.stage;
-      this.gameState.timer = data.timer;
+      this.gameState.stage = data.stage || 1;
+      this.gameState.timer = data.timer || 300;
 
-      // Start the local timer for real-time updates
-      this._startLocalTimer();
+      // Start the local timer if not already running
+      if (!this.localTimerInterval) {
+        this._startLocalTimer();
+      }
 
-      this.trigger("gameStarted", data);
+      // Trigger event for UI to update
+      this.trigger("gameStateUpdated", this.gameState);
+      this.trigger("gameStarted", this.gameState);
+
+      // If we don't receive a puzzle within 2 seconds, request it
+      setTimeout(() => {
+        if (!this.gameState.puzzles[this.gameState.playerId]) {
+          console.log(
+            "No puzzle received after game start, requesting puzzle data"
+          );
+
+          // Send a request for puzzle data
+          websocketManager
+            .send({
+              type: "request_puzzle",
+              player_id: this.gameState.playerId,
+            })
+            .catch((error) => {
+              console.error("Error requesting puzzle:", error);
+            });
+        }
+      }, 2000);
     });
 
     // Error handling

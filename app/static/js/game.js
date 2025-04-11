@@ -33,6 +33,9 @@ class GameController {
 
     // Initialize
     this._init();
+
+    // Make GameController globally accessible for debugging
+    window.GameController = this;
   }
 
   /**
@@ -165,74 +168,95 @@ class GameController {
    * Register for player state events
    */
   _registerPlayerStateEvents() {
-    playerStateManager.on("gameStateUpdated", (data) =>
-      this.eventHandler.handleGameStateUpdated(data)
-    );
-    playerStateManager.on("timerUpdated", (timer) =>
-      this.eventHandler.handleTimerUpdated(timer)
-    );
-    playerStateManager.on("localTimerUpdated", (timer) =>
-      this.eventHandler.handleTimerUpdated(timer)
-    );
-    playerStateManager.on("alertLevelChanged", (level) =>
-      this.eventHandler.handleAlertLevelChanged(level)
-    );
-    playerStateManager.on("puzzleReceived", (puzzle) =>
-      this.eventHandler.handlePuzzleReceived(puzzle)
-    );
-    playerStateManager.on("puzzleCompleted", (data) =>
-      this.eventHandler.handlePuzzleCompleted(data)
-    );
-    playerStateManager.on("stageCompleted", (nextStage) =>
-      this.eventHandler.handleStageCompleted(nextStage)
-    );
-    playerStateManager.on("gameCompleted", () =>
-      this.eventHandler.handleGameCompleted()
-    );
-    playerStateManager.on("gameOver", (result) =>
-      this.eventHandler.handleGameOver(result)
-    );
-    playerStateManager.on("gameReset", (data) =>
-      this.eventHandler.handleGameReset(data)
-    );
-    playerStateManager.on("randomEvent", (data) =>
-      this.eventHandler.handleRandomEvent(data)
-    );
-    playerStateManager.on("chatMessage", (data) =>
-      this.chatManager.addChatMessage(data)
-    );
-    playerStateManager.on("timerVoteInitiated", (data) =>
-      this.eventHandler.handleTimerVoteInitiated(data)
-    );
-    playerStateManager.on("timerVoteUpdated", (data) =>
-      this.eventHandler.handleTimerVoteUpdated(data)
-    );
-    playerStateManager.on("timerVoteCompleted", (data) =>
-      this.eventHandler.handleTimerVoteCompleted(data)
-    );
-    playerStateManager.on("timerExtended", (data) =>
-      this.eventHandler.handleTimerExtended(data)
-    );
-    playerStateManager.on("powerUsed", (data) =>
-      this.eventHandler.handlePowerUsedByOthers(data)
-    );
-    playerStateManager.on("gameStarted", () => {
-      gameStartScreen.hideLobby();
-      this.uiManager.elements.gameArea.classList.remove("hidden");
+    // Add try-catch to prevent errors in event registration
+    try {
+      // Game state events
+      playerStateManager.on("gameStateUpdated", (data) =>
+        this.eventHandler.handleGameStateUpdated(data)
+      );
+      playerStateManager.on("timerUpdated", (timer) =>
+        this.eventHandler.handleTimerUpdated(timer)
+      );
+      playerStateManager.on("localTimerUpdated", (timer) =>
+        this.eventHandler.handleTimerUpdated(timer)
+      );
+      playerStateManager.on("alertLevelChanged", (level) =>
+        this.eventHandler.handleAlertLevelChanged(level)
+      );
 
-      // Update role instruction text
-      const playerRole = playerStateManager.gameState.playerRole;
-      if (playerRole) {
-        const roleInfo = playerStateManager.getRoleInfo(playerRole);
-        if (roleInfo) {
-          this.uiManager.elements.roleInstruction.textContent = `${playerRole} - ${roleInfo.description}`;
-          this.uiManager.elements.roleInstruction.classList.remove(
-            "text-gray-400",
-            "italic"
-          );
+      // Puzzle events - these are critical for puzzle display
+      playerStateManager.on("puzzleReceived", (puzzle) => {
+        console.log("Puzzle received event triggered", puzzle);
+        this.eventHandler.handlePuzzleReceived(puzzle);
+      });
+      playerStateManager.on("puzzleCompleted", (data) =>
+        this.eventHandler.handlePuzzleCompleted(data)
+      );
+
+      // Game progression events
+      playerStateManager.on("stageCompleted", (nextStage) =>
+        this.eventHandler.handleStageCompleted(nextStage)
+      );
+      playerStateManager.on("gameCompleted", () =>
+        this.eventHandler.handleGameCompleted()
+      );
+      playerStateManager.on("gameOver", (result) =>
+        this.eventHandler.handleGameOver(result)
+      );
+      playerStateManager.on("gameReset", (data) =>
+        this.eventHandler.handleGameReset(data)
+      );
+
+      // Random events and communication
+      playerStateManager.on("randomEvent", (data) =>
+        this.eventHandler.handleRandomEvent(data)
+      );
+      playerStateManager.on("chatMessage", (data) =>
+        this.chatManager.addChatMessage(data)
+      );
+
+      // Timer and power events
+      playerStateManager.on("timerVoteInitiated", (data) =>
+        this.eventHandler.handleTimerVoteInitiated(data)
+      );
+      playerStateManager.on("timerVoteUpdated", (data) =>
+        this.eventHandler.handleTimerVoteUpdated(data)
+      );
+      playerStateManager.on("timerVoteCompleted", (data) =>
+        this.eventHandler.handleTimerVoteCompleted(data)
+      );
+      playerStateManager.on("timerExtended", (data) =>
+        this.eventHandler.handleTimerExtended(data)
+      );
+      playerStateManager.on("powerUsed", (data) =>
+        this.eventHandler.handlePowerUsedByOthers(data)
+      );
+
+      // Game started event - handles transition from lobby to game
+      playerStateManager.on("gameStarted", () => {
+        console.log("Game started event triggered");
+        gameStartScreen.hideLobby();
+        if (this.uiManager.elements.gameArea) {
+          this.uiManager.elements.gameArea.classList.remove("hidden");
+          console.log("Game area made visible");
         }
-      }
-    });
+
+        // Update role instruction text
+        const playerRole = playerStateManager.gameState.playerRole;
+        if (playerRole) {
+          const roleInfo = playerStateManager.getRoleInfo(playerRole);
+          if (roleInfo && this.uiManager.elements.roleInstruction) {
+            this.uiManager.elements.roleInstruction.textContent = `${playerRole} - ${roleInfo.description}`;
+            this.uiManager.elements.roleInstruction.classList.remove(
+              "text-gray-400",
+              "italic"
+            );
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Error registering player state events:", error);
+    }
   }
 
   /**
@@ -243,6 +267,17 @@ class GameController {
     this.uiManager.updateAlertLevel(playerStateManager.gameState.alertLevel);
     this.uiManager.updateStageInfo();
     this.uiManager.updateTeamStatus();
+
+    // Ensure puzzle area is visible when game starts
+    if (
+      playerStateManager.gameState.status ===
+      playerStateManager.GAME_STATUS.IN_PROGRESS
+    ) {
+      const gameArea = document.getElementById("game-area");
+      if (gameArea) {
+        gameArea.classList.remove("hidden");
+      }
+    }
   }
 }
 

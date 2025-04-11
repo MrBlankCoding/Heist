@@ -13,6 +13,7 @@
     
     .role-card {
         transition: all 0.3s ease;
+        cursor: pointer;
     }
     
     .role-card:hover {
@@ -32,6 +33,8 @@
     
     .puzzle-area {
         min-height: 400px;
+        background-color: rgba(31, 41, 55, 0.5);
+        border-radius: 0.5rem;
     }
     
     .chat-window {
@@ -78,6 +81,43 @@
     
     .animate-fadeOut {
         animation: fadeOut 0.3s ease-out forwards;
+    }
+    
+    #puzzle-content {
+        min-height: 300px;
+        padding: 1rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    /* Role-specific puzzle styling */
+    .grid-cell {
+        background-color: rgba(17, 24, 39, 0.8);
+        border: 1px solid rgba(75, 85, 99, 0.5);
+        transition: all 0.2s ease;
+    }
+    
+    .grid-cell:hover {
+        background-color: rgba(31, 41, 55, 0.9);
+    }
+    
+    /* Safe cracker puzzle styling */
+    .lock-dial {
+        background: radial-gradient(circle, #374151 0%, #1F2937 100%);
+        box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.6);
+    }
+    
+    /* Timer ripple animation */
+    @keyframes timerUpdate {
+        0% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.7); }
+        70% { box-shadow: 0 0 0 10px rgba(96, 165, 250, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); }
+    }
+    
+    .timer-update {
+        animation: timerUpdate 1s ease-out;
     }
 </style>
 {% endblock %}
@@ -333,4 +373,81 @@
 <!-- Load game script bundle instead of individual files -->
 <script src="{{ url_for('static', path='js/main.bundle.js') }}" type="module"></script>
 <script src="{{ url_for('static', path='js/game.js') }}" type="module"></script>
+
+<!-- Debug script to help resolve puzzle loading issues -->
+<script type="module">
+    document.addEventListener('DOMContentLoaded', () => {
+        // Check if puzzle area exists
+        const puzzleArea = document.getElementById('puzzle-area');
+        const puzzleContent = document.getElementById('puzzle-content');
+        
+        if (puzzleContent) {
+            // Set a default content to ensure the area is properly styled
+            if (puzzleContent.children.length === 0) {
+                const defaultContent = document.createElement('div');
+                defaultContent.innerHTML = `
+                    <p class="text-blue-400 text-center">Waiting for puzzle assignment...</p>
+                    <p class="text-gray-400 text-sm text-center mt-2">Your role-specific puzzle will appear here when the game starts.</p>
+                    <div id="request-puzzle-container" class="mt-4 text-center hidden">
+                        <button id="request-puzzle" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors duration-200">
+                            Request Puzzle
+                        </button>
+                    </div>
+                `;
+                puzzleContent.appendChild(defaultContent);
+                
+                // Add event listener to request puzzle button
+                const requestPuzzleButton = document.getElementById('request-puzzle');
+                if (requestPuzzleButton) {
+                    requestPuzzleButton.addEventListener('click', () => {
+                        console.log("Manual puzzle request initiated");
+                        
+                        // Import websocketManager to send the request
+                        import('./main.bundle.js').then(module => {
+                            const websocketManager = module.websocketManager;
+                            const playerStateManager = module.playerStateManager;
+                            
+                            if (websocketManager && playerStateManager) {
+                                websocketManager.send({
+                                    type: "request_puzzle",
+                                    player_id: playerStateManager.gameState.playerId
+                                }).catch(error => {
+                                    console.error("Error requesting puzzle:", error);
+                                });
+                            } else {
+                                console.error("Could not access websocketManager or playerStateManager");
+                            }
+                        });
+                    });
+                }
+                
+                // Show request button if game in progress
+                setTimeout(() => {
+                    import('./main.bundle.js').then(module => {
+                        const playerStateManager = module.playerStateManager;
+                        if (playerStateManager && 
+                            playerStateManager.gameState.status === 'in_progress' &&
+                            puzzleContent.textContent.includes("Waiting for puzzle assignment")) {
+                            
+                            const requestContainer = document.getElementById('request-puzzle-container');
+                            if (requestContainer) {
+                                requestContainer.classList.remove('hidden');
+                            }
+                        }
+                    });
+                }, 3000);
+            }
+        }
+        
+        // Log module loading status
+        console.log('Debug: Checking module loading status');
+        window.setTimeout(() => {
+            if (window.GameController) {
+                console.log('Debug: Game controller loaded successfully');
+            } else {
+                console.warn('Debug: Game controller not found on window object');
+            }
+        }, 1000);
+    });
+</script>
 {% endblock %}

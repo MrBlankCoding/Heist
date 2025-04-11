@@ -2,11 +2,14 @@
 
 import playerStateManager from "./playerStateManager.js";
 import websocketManager from "./websocketManager.js";
-import HackerPuzzleController from "./puzzles/hackerPuzzleController.js";
-import SafeCrackerPuzzleController from "./puzzles/safeCrackerPuzzleController.js";
-import DemolitionsPuzzleController from "./puzzles/demolitionsPuzzleController.js";
-import LookoutPuzzleController from "./puzzles/lookoutPuzzleController.js";
-import TeamPuzzleController from "./puzzles/teamPuzzleController.js";
+// Fix imports by getting them from main.bundle.js instead of importing directly
+import {
+  HackerPuzzleController,
+  SafeCrackerPuzzleController,
+  DemolitionsPuzzleController,
+  LookoutPuzzleController,
+  TeamPuzzleController,
+} from "./main.bundle.js";
 
 class GameUIManager {
   constructor() {

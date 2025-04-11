@@ -300,6 +300,14 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
             room_code, {"type": "game_started", "stage": room.stage, "timer": room.timer}
         )
 
+        # Send puzzle data to each player
+        for pid, player_data in room.players.items():
+            if pid in room.puzzles and pid in connected_players:
+                await connected_players[pid].send_json(
+                    {"type": "puzzle_data", "puzzle": room.puzzles[pid]}
+                )
+                print(f"Sent puzzle to player {pid}")
+
         # Start the game timer
         asyncio.create_task(run_game_timer(room_code))
         return
@@ -725,3 +733,64 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
                 "players": all_players
             }
         )
+
+    elif msg_type == "request_puzzle":
+        # Check if the game is in progress
+        if room.status != "in_progress":
+            await connected_players[player_id].send_json({
+                "type": "error",
+                "context": "puzzle_request",
+                "message": "Game is not in progress"
+            })
+            return
+            
+        # Check if puzzle exists for this player
+        if player_id in room.puzzles:
+            print(f"Sending requested puzzle to player {player_id}")
+            await connected_players[player_id].send_json({
+                "type": "puzzle_data", 
+                "puzzle": room.puzzles[player_id]
+            })
+        else:
+            print(f"No puzzle found for player {player_id}, generating new puzzle")
+            # Determine player role
+            role = ""
+            if player_id in room.players:
+                player = room.players[player_id]
+                if isinstance(player, dict):
+                    role = player.get("role", "")
+                else:
+                    role = player.role
+                    
+            # Generate a puzzle based on role
+            from app.game_logic import (
+                generate_hacker_puzzle,
+                generate_safe_cracker_puzzle,
+                generate_demolitions_puzzle,
+                generate_lookout_puzzle
+            )
+            
+            if role == "Hacker":
+                room.puzzles[player_id] = generate_hacker_puzzle(room.stage)
+            elif role == "Safe Cracker":
+                room.puzzles[player_id] = generate_safe_cracker_puzzle(room.stage)
+            elif role == "Demolitions":
+                room.puzzles[player_id] = generate_demolitions_puzzle(room.stage)
+            elif role == "Lookout":
+                room.puzzles[player_id] = generate_lookout_puzzle(room.stage)
+            else:
+                await connected_players[player_id].send_json({
+                    "type": "error",
+                    "context": "puzzle_request",
+                    "message": f"Unknown role: {role}"
+                })
+                return
+                
+            # Update Redis
+            store_room_data(room_code, room.dict())
+            
+            # Send the newly generated puzzle
+            await connected_players[player_id].send_json({
+                "type": "puzzle_data", 
+                "puzzle": room.puzzles[player_id]
+            })

@@ -9,7 +9,7 @@ export { default as GameEventHandler } from "./gameEventHandler.js";
 export { default as NotificationSystem } from "./notificationSystem.js";
 export { default as ChatManager } from "./chatManager.js";
 
-// Re-export puzzle controllers
+// Re-export puzzle controllers - ensure these paths are correct and the files exist
 export { default as HackerPuzzleController } from "./puzzles/hackerPuzzleController.js";
 export { default as SafeCrackerPuzzleController } from "./puzzles/safeCrackerPuzzleController.js";
 export { default as DemolitionsPuzzleController } from "./puzzles/demolitionsPuzzleController.js";
