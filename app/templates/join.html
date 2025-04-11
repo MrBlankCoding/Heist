@@ -1,0 +1,39 @@
+<!-- templates/join.html -->
+{% extends "base.html" %}
+
+{% block title %}The Heist - Join Game{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-screen py-12">
+    <div class="text-center mb-8">
+        <h1 class="text-4xl font-bold text-blue-500 mb-4">JOIN A HEIST</h1>
+        <p class="text-xl">Enter the room code to join an existing game</p>
+    </div>
+    
+    <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+        <form id="joinGameForm" class="space-y-4">
+            <div>
+                <label for="roomCode" class="block text-sm font-medium mb-1">Room Code</label>
+                <input type="text" id="roomCode" name="roomCode" class="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50" required>
+            </div>
+            
+            <div>
+                <label for="playerName" class="block text-sm font-medium mb-1">Your Codename</label>
+                <input type="text" id="playerName" name="playerName" class="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50" required>
+            </div>
+            
+            <div class="pt-4">
+                <button type="submit" class="heist-button w-full">
+                    Join Game
+                </button>
+            </div>
+        </form>
+    </div>
+    
+    <a href="/" class="mt-8 text-blue-400 hover:text-blue-300">Back to Home</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/static/js/joinGame.js"></script>
+{% endblock %}

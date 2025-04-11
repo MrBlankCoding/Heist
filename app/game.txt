@@ -1,0 +1,48 @@
+**The Heist**
+
+---
+
+## Roles
+Each role feels essential & has unique puzzles.
+
+| Role         | Puzzle Style                                       | Bonus Power |
+|--------------|----------------------------------------------------|-------------|
+| Hacker       | Circuit puzzles, code breaking, matching patterns  | Temporarily slow a timer |
+| Safe Cracker | Audio cues, memory games, tactile lock puzzles     | Can skip one lock with a rare tool |
+| Demolitions  | Timing puzzles, fuse wiring, spatial challenges    | Can break weak walls for shortcuts |
+| Lookout      | Pattern recognition, surveillance puzzles          | Warn team of random events or traps |
+
+---
+
+## Stage Breakdown
+
+| Stage | Theme | Difficulty | Puzzle Style | Teamwork? |
+|-------|-------|------------|--------------|-----------|
+| 1 | Perimeter Breach | Easy | Mostly solo | Rare |
+| 2 | Security Systems | Medium | Everyone deals with their own traps | Minor help |
+| 3 | Laser Hallways | Medium | Dodging/timing puzzles | Communication helps |
+| 4 | Vault Access | Hard | Players pass data or items between puzzles | Required |
+| 5 | Escape Sequence | Very Hard | Chaotic multi-part puzzles, solving while alarms blare | Constant teamwork |
+
+---
+
+## Extra Tension Mechanics
+- Random events mid-stage (alarms, patrols, camera sweeps)
+- Optional loot for higher risk/reward
+- Vote to extend timer — but increases alert level
+- Limited-use "Tools" (buy with money from previous runs)
+
+---
+
+## Multiplayer Interaction Ideas
+- Voice chat integrated or text with restrictions (like needing line-of-sight or comms puzzles)
+- Puzzle dependencies (ex: Safe Cracker needs a code from Hacker mid-puzzle)
+- Visual puzzle clues only visible to certain roles
+- Panic button to ask for help but with a cooldown
+
+---
+
+## Visual/Style Ideas
+- Clean, blueprint-style UI with heist music  
+- Neon cyberpunk bank?  
+- Silhouette-style characters with subtle animations  

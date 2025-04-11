@@ -1,0 +1,46 @@
+<!-- templates/index.html -->
+{% extends "base.html" %}
+
+{% block title %}The Heist - Welcome{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-screen py-12">
+    <div class="text-center mb-8">
+        <h1 class="text-5xl font-bold text-blue-500 mb-4">THE HEIST</h1>
+        <p class="text-xl">A cooperative multiplayer puzzle game</p>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">
+        <a href="/create" class="heist-button">
+            Create Game
+        </a>
+        <a href="/join" class="heist-button">
+            Join Game
+        </a>
+    </div>
+    
+    <div class="mt-16 max-w-2xl text-center">
+        <h2 class="text-2xl font-bold text-blue-400 mb-4">How to Play</h2>
+        <p class="mb-4">Team up with friends and pull off the perfect heist! Each player takes on a critical role with unique abilities and puzzles.</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3 class="text-xl font-bold text-blue-300 mb-2">Hacker</h3>
+                <p>Break into electronic systems with circuit puzzles and code breaking challenges.</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3 class="text-xl font-bold text-blue-300 mb-2">Safe Cracker</h3>
+                <p>Listen for audio cues and solve tactile lock puzzles to access secured areas.</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3 class="text-xl font-bold text-blue-300 mb-2">Demolitions</h3>
+                <p>Wire fuses and solve timing puzzles to create controlled explosions.</p>
+            </div>
+            <div class="bg-gray-800 rounded-lg p-4">
+                <h3 class="text-xl font-bold text-blue-300 mb-2">Lookout</h3>
+                <p>Monitor surveillance systems and solve pattern recognition puzzles.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

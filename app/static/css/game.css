@@ -1,0 +1,237 @@
+/* game.css - Custom styles for The Heist game */
+
+/* Button Styles */
+.heist-button {
+  background-color: #3b82f6;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.heist-button:hover {
+  background-color: #2563eb;
+}
+
+.heist-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.heist-button-secondary {
+  background-color: #4b5563;
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0.375rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.heist-button-secondary:hover {
+  background-color: #374151;
+}
+
+.heist-button-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Role Cards */
+.role-card {
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.role-card:before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(45deg, rgba(0, 0, 0, 0), rgba(255, 255, 255, 0.1));
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.role-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.role-card:hover:before {
+  opacity: 1;
+}
+
+.role-card.selected {
+  border: 2px solid #60a5fa;
+  box-shadow: 0 0 15px rgba(96, 165, 250, 0.5);
+}
+
+/* Blueprint Grid Background */
+.blueprint-grid {
+  background-color: #1e293b;
+  background-image: 
+    linear-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.1) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Timer */
+.timer {
+  font-family: "Courier New", Courier, monospace;
+  letter-spacing: 0.1em;
+}
+
+/* Puzzle Area */
+.puzzle-area {
+  min-height: 400px;
+}
+
+/* Chat Window */
+.chat-window {
+  height: 250px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.chat-window::-webkit-scrollbar {
+  width: 8px;
+}
+
+.chat-window::-webkit-scrollbar-track {
+  background: #1f2937;
+}
+
+.chat-window::-webkit-scrollbar-thumb {
+  background-color: #4b5563;
+  border-radius: 20px;
+}
+
+/* Puzzle Specific Styles */
+
+/* Hacker - Circuit Grid */
+.hacker-grid {
+  display: grid;
+  gap: 4px;
+  background-color: #111827;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+/* Safe Cracker - Lock Dial */
+.safe-dial {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background-color: #374151;
+  border: 8px solid #d97706;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  transition: transform 0.3s ease;
+}
+
+/* Demolitions - Wires */
+.wire-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.wire {
+  height: 10px;
+  border-radius: 5px;
+  transition: all 0.2s ease;
+}
+
+.wire-red { background-color: #ef4444; }
+.wire-blue { background-color: #3b82f6; }
+.wire-green { background-color: #10b981; }
+.wire-yellow { background-color: #f59e0b; }
+.wire-white { background-color: #f3f4f6; }
+
+.wire.cut {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+/* Lookout - Camera Feed */
+.camera-feed {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4/3;
+  background-color: #1f2937;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.camera-feed::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.1),
+    rgba(0, 0, 0, 0.1) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+  pointer-events: none;
+}
+
+.camera-feed-static {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  opacity: 0.1;
+  pointer-events: none;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-pulse {
+  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeOut {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.animate-fadeOut {
+  animation: fadeOut 0.5s ease-out;
+}
+
+/* Media Queries */
+@media (max-width: 768px) {
+  .puzzle-area {
+    min-height: 300px;
+  }
+  
+  .chat-window {
+    height: 200px;
+  }
+} 

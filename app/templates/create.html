@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}The Heist - Create Game{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-screen py-12">
+    <div class="text-center mb-8">
+        <h1 class="text-4xl font-bold text-blue-500 mb-4">CREATE A HEIST</h1>
+        <p class="text-xl">Set up a new game and invite your crew</p>
+    </div>
+
+    <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
+        <form id="createGameForm" class="space-y-4">
+            <div>
+                <label for="hostName" class="block text-sm font-medium mb-1">Your Codename</label>
+                <input type="text" id="hostName" name="hostName" class="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50" required>
+            </div>
+
+            <div class="pt-4">
+                <button type="submit" class="heist-button w-full">
+                    Create Game
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div id="gameCreated" class="hidden mt-8 bg-gray-800 rounded-lg p-6 w-full max-w-md text-center">
+        <h2 class="text-2xl font-bold text-green-400 mb-4">Game Created!</h2>
+        <div class="mb-4">
+            <p class="text-sm text-gray-400 mb-1">Room Code:</p>
+            <p id="roomCode" class="text-3xl font-mono tracking-wider"></p>
+        </div>
+        <p class="mb-4">Share this code with your team to join the heist.</p>
+        <button id="enterGame" class="heist-button w-full">
+            Enter Lobby
+        </button>
+    </div>
+
+    <a href="/" class="mt-8 text-blue-400 hover:text-blue-300">Back to Home</a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="module" src="/static/js/createGame.js"></script>
+{% endblock %}
