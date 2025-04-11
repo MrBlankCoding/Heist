@@ -54,6 +54,26 @@ class GameStartScreen {
       this._updatePlayerConnection(playerId, false);
     });
 
+    playerStateManager.on("playerLeft", (playerInfo) => {
+      // Remove the player element completely from UI
+      const playerElement = document.getElementById(`player-${playerInfo.id}`);
+      if (playerElement) {
+        // Add fade-out animation
+        playerElement.classList.add("animate-fadeOut");
+
+        // Remove after animation completes
+        setTimeout(() => {
+          playerElement.remove();
+        }, 300);
+      }
+
+      // Update role card availability
+      this._updateRoleCardAvailability();
+
+      // Refresh start button state
+      this._refreshStartButton();
+    });
+
     playerStateManager.on("playerRoleSelected", (data) => {
       // If we have full player data, use it
       if (data.player) {
@@ -302,59 +322,129 @@ class GameStartScreen {
    * @param {Object} player - Player object
    */
   _renderPlayer(player) {
-    // Ensure we have a valid player ID
+    // Validate player data
     if (!player || !player.id) {
-      console.error("Invalid player data:", player);
+      console.warn("Invalid player data in _renderPlayer:", player);
       return;
     }
 
-    const playerId = player.id;
-    let playerEl;
-
-    // Check if player element already exists
-    if (this.playerElements[playerId]) {
-      // Use existing element
-      playerEl = this.playerElements[playerId];
-    } else {
-      // Create new element only if it doesn't exist
-      playerEl = document.createElement("div");
-      playerEl.id = `player-${playerId}`;
-      playerEl.className = "bg-gray-700 rounded-lg p-3 flex flex-col";
-      this.playerListElement.appendChild(playerEl);
-      this.playerElements[playerId] = playerEl;
+    if (!this.playerListElement) {
+      console.warn("Player list element not found in _renderPlayer");
+      return;
     }
 
-    // Get role info
-    const roleInfo = player.role
-      ? playerStateManager.getRoleInfo(player.role)
-      : null;
-    const roleColor = roleInfo ? roleInfo.color : "gray";
-    const isCurrentPlayer = playerId === playerStateManager.gameState.playerId;
-    const connectionStatus = player.connected
-      ? "text-green-400"
-      : "text-red-400";
-    const roleSymbol = player.role ? "●" : "○";
-    const roleText = player.role ? player.role : "Selecting role...";
-    const roleClass = player.role
-      ? `text-${roleColor}-300`
-      : "text-gray-400 italic";
+    // Check if this player element already exists
+    if (this.playerElements[player.id]) {
+      // Update existing player element
+      const playerElement = this.playerElements[player.id];
 
-    playerEl.innerHTML = `
-      <div class="flex justify-between items-center">
-        <div class="flex items-center">
-          <span class="text-${roleColor}-400 mr-2">${roleSymbol}</span>
-          <h4 class="font-bold ${isCurrentPlayer ? "text-blue-300" : ""}">
-            ${this._escapeHtml(player.name)}${isCurrentPlayer ? " (You)" : ""}${
-      player.is_host ? " 👑" : ""
-    }
-          </h4>
+      // Generate safe values, defaulting to placeholder values if missing
+      const playerName = player.name
+        ? this._escapeHtml(player.name)
+        : `Player ${player.id.slice(0, 4)}`;
+      const playerRole = player.role || "No role";
+      const connectionStatus = player.connected !== false; // Default to true if undefined
+
+      // Create role label with color based on role
+      let roleLabel = "";
+      if (player.role) {
+        const roleInfo = playerStateManager.getRoleInfo(player.role);
+        const roleColor = roleInfo ? roleInfo.color : "gray";
+        roleLabel = `<span class="text-${roleColor}-400">● ${player.role}</span>`;
+      } else {
+        roleLabel = '<span class="text-gray-400">● No role</span>';
+      }
+
+      // Update player element content
+      playerElement.innerHTML = `
+        <div class="flex items-center justify-between py-1">
+          <div>
+            ${
+              player.id === playerStateManager.gameState.playerId
+                ? "<strong>"
+                : ""
+            }
+            ${playerName}
+            ${
+              player.is_host
+                ? '<span class="ml-1 text-purple-300">(Host)</span>'
+                : ""
+            }
+            ${
+              player.id === playerStateManager.gameState.playerId
+                ? "</strong>"
+                : ""
+            }
+          </div>
+          <div>
+            ${roleLabel}
+            ${
+              !connectionStatus
+                ? '<span class="ml-2 text-red-400">(Disconnected)</span>'
+                : ""
+            }
+          </div>
         </div>
-        <div class="${connectionStatus}">
-          ${player.connected ? "✓" : "✗"}
+      `;
+
+      return; // Early return as we've updated the existing element
+    }
+
+    // Create new player element
+    const playerElement = document.createElement("div");
+    playerElement.className = "border-b border-gray-700 last:border-0";
+
+    // Generate safe values, defaulting to placeholders if missing
+    const playerName = player.name
+      ? this._escapeHtml(player.name)
+      : `Player ${player.id.slice(0, 4)}`;
+    const connectionStatus = player.connected !== false; // Default to true if undefined
+
+    // Create role label
+    let roleLabel = "";
+    if (player.role) {
+      const roleInfo = playerStateManager.getRoleInfo(player.role);
+      const roleColor = roleInfo ? roleInfo.color : "gray";
+      roleLabel = `<span class="text-${roleColor}-400">● ${player.role}</span>`;
+    } else {
+      roleLabel = '<span class="text-gray-400">● No role</span>';
+    }
+
+    // Set player element content
+    playerElement.innerHTML = `
+      <div class="flex items-center justify-between py-1">
+        <div>
+          ${
+            player.id === playerStateManager.gameState.playerId
+              ? "<strong>"
+              : ""
+          }
+          ${playerName}
+          ${
+            player.is_host
+              ? '<span class="ml-1 text-purple-300">(Host)</span>'
+              : ""
+          }
+          ${
+            player.id === playerStateManager.gameState.playerId
+              ? "</strong>"
+              : ""
+          }
+        </div>
+        <div>
+          ${roleLabel}
+          ${
+            !connectionStatus
+              ? '<span class="ml-2 text-red-400">(Disconnected)</span>'
+              : ""
+          }
         </div>
       </div>
-      <div class="mt-1 text-sm ${roleClass}">${roleText}</div>
     `;
+
+    // Store reference and append to player list
+    this.playerElements[player.id] = playerElement;
+    this.playerListElement.appendChild(playerElement);
   }
 
   /**
@@ -454,6 +544,12 @@ class GameStartScreen {
   _refreshAllPlayers() {
     console.log("Refreshing all players");
 
+    // Exit early if UI elements aren't available
+    if (!this.playerListElement) {
+      console.warn("Player list element not found");
+      return;
+    }
+
     // Get a list of all taken roles
     const takenRoles = new Set();
 
@@ -463,15 +559,17 @@ class GameStartScreen {
       typeof playerStateManager.gameState.players === "object"
     ) {
       Object.values(playerStateManager.gameState.players).forEach((player) => {
-        if (player.role) {
+        if (player && player.role) {
           console.log(
             `Found taken role: ${player.role} by player ${
-              player.name || player.id
+              player.name || player.id || "unknown"
             }`
           );
           takenRoles.add(player.role);
         }
       });
+    } else {
+      console.warn("Invalid players object in _refreshAllPlayers");
     }
 
     console.log("All taken roles:", Array.from(takenRoles));
@@ -486,51 +584,49 @@ class GameStartScreen {
       playerStateManager.gameState.players &&
       typeof playerStateManager.gameState.players === "object"
     ) {
-      Object.values(playerStateManager.gameState.players).forEach((player) => {
-        // Make sure player has id property
-        if (player && !player.id && player.player_id) {
-          player.id = player.player_id;
-        } else if (!player.id) {
-          // Try to get id from object key
-          Object.entries(playerStateManager.gameState.players).forEach(
-            ([id, p]) => {
-              if (p === player) {
-                player.id = id;
+      try {
+        Object.values(playerStateManager.gameState.players).forEach(
+          (player) => {
+            if (!player) {
+              console.warn("Found null/undefined player in players list");
+              return; // Skip this player
+            }
+
+            // Make sure player has id property
+            if (!player.id && player.player_id) {
+              player.id = player.player_id;
+            } else if (!player.id) {
+              // Try to get id from object key
+              try {
+                Object.entries(playerStateManager.gameState.players).forEach(
+                  ([id, p]) => {
+                    if (p === player) {
+                      player.id = id;
+                    }
+                  }
+                );
+              } catch (err) {
+                console.error("Error finding player ID:", err);
               }
             }
-          );
-        }
 
-        // Only render if we have an id
-        if (player.id) {
-          this._renderPlayer(player);
-        }
-      });
+            // Only render if we have an id
+            if (player.id) {
+              this._renderPlayer(player);
+            } else {
+              console.warn("Skipping player without ID:", player);
+            }
+          }
+        );
+      } catch (err) {
+        console.error("Error rendering players:", err);
+      }
+    } else {
+      console.warn("No valid players object available for rendering");
     }
 
     // Update role cards based on taken roles
-    if (this.roleCards && this.roleCards.length) {
-      const currentPlayerRole = playerStateManager.gameState.playerRole;
-      this.roleCards.forEach((card) => {
-        const role = card.dataset.role;
-
-        // Reset card state first
-        card.classList.remove("selected", "opacity-50", "cursor-not-allowed");
-        card.style.pointerEvents = "auto";
-
-        // If this role is taken by anyone (including the current player)
-        if (takenRoles.has(role)) {
-          console.log(`Disabling role card: ${role} (taken)`);
-          card.classList.add("opacity-50", "cursor-not-allowed");
-          card.style.pointerEvents = "none";
-
-          // If it's the current player's role, also mark it as selected
-          if (role === currentPlayerRole) {
-            card.classList.add("selected");
-          }
-        }
-      });
-    }
+    this._updateRoleCardAvailability();
 
     // Refresh start button state
     this._refreshStartButton();
@@ -540,17 +636,46 @@ class GameStartScreen {
    * Private: Refresh start button state (enabled/disabled)
    */
   _refreshStartButton() {
+    // Exit early if we're missing key elements
+    if (!this.startGameButton) {
+      console.warn("Start game button not found in _refreshStartButton");
+      return;
+    }
+
+    // Double-check playerStateManager is properly initialized
+    if (!playerStateManager || !playerStateManager.gameState) {
+      console.error("PlayerStateManager not properly initialized");
+      this.startGameButton.disabled = true;
+      this.startGameButton.textContent = "Connection error";
+      return;
+    }
+
     const isHost = playerStateManager.isHost();
     const hasRole = !!playerStateManager.gameState.playerRole;
 
-    // Add safety check to ensure players exists and is an object
-    const players =
-      playerStateManager.gameState.players &&
-      typeof playerStateManager.gameState.players === "object"
-        ? Object.values(playerStateManager.gameState.players)
-        : [];
+    // Add comprehensive safety check for players object
+    let players = [];
+    try {
+      if (
+        playerStateManager.gameState.players &&
+        typeof playerStateManager.gameState.players === "object"
+      ) {
+        players = Object.values(playerStateManager.gameState.players);
+      } else {
+        console.warn(
+          "Invalid players object in _refreshStartButton:",
+          playerStateManager.gameState.players
+        );
+      }
+    } catch (err) {
+      console.error("Error accessing players in _refreshStartButton:", err);
+    }
 
-    const allPlayersHaveRoles = players.every((player) => !!player.role);
+    // More safety checks on players array
+    const allPlayersHaveRoles =
+      Array.isArray(players) &&
+      players.length > 0 &&
+      players.every((player) => player && !!player.role);
     const hasMinimumPlayers = players.length >= 2;
 
     // Always show the button, but control its disabled state and text
@@ -560,7 +685,10 @@ class GameStartScreen {
     console.log("Start button check:", {
       isHost,
       hasRole,
-      players: players.map((p) => ({ name: p.name, role: p.role })),
+      playersCount: players.length,
+      players: Array.isArray(players)
+        ? players.map((p) => p && { name: p.name, role: p.role })
+        : [],
       allPlayersHaveRoles,
       hasMinimumPlayers,
       playerRole: playerStateManager.gameState.playerRole,
@@ -577,7 +705,7 @@ class GameStartScreen {
         this.startGameButton.textContent = "Select a role first";
         this.startGameButton.disabled = true;
       } else if (!allPlayersHaveRoles) {
-        const playersWithoutRoles = players.filter((p) => !p.role).length;
+        const playersWithoutRoles = players.filter((p) => p && !p.role).length;
         this.startGameButton.textContent = `Waiting for ${playersWithoutRoles} player${
           playersWithoutRoles === 1 ? "" : "s"
         } to select roles`;
@@ -632,28 +760,51 @@ class GameStartScreen {
    * Updates all role cards' states based on which roles are taken
    */
   _updateRoleCardAvailability() {
-    if (!this.roleCards || !this.roleCards.length) return;
+    if (!this.roleCards || !this.roleCards.length) {
+      console.warn("Role cards not found in _updateRoleCardAvailability");
+      return;
+    }
 
     // Get a list of all taken roles
     const takenRoles = new Set();
 
-    // Add safety check
-    if (
-      playerStateManager.gameState.players &&
-      typeof playerStateManager.gameState.players === "object"
-    ) {
-      Object.values(playerStateManager.gameState.players).forEach((player) => {
-        if (player && player.role) {
-          takenRoles.add(player.role);
-        }
-      });
+    // Add safety check for players object
+    try {
+      if (
+        playerStateManager &&
+        playerStateManager.gameState &&
+        playerStateManager.gameState.players &&
+        typeof playerStateManager.gameState.players === "object"
+      ) {
+        Object.values(playerStateManager.gameState.players).forEach(
+          (player) => {
+            if (player && player.role) {
+              takenRoles.add(player.role);
+            }
+          }
+        );
+      } else {
+        console.warn("Invalid players object in _updateRoleCardAvailability");
+      }
+    } catch (err) {
+      console.error(
+        "Error processing players in _updateRoleCardAvailability:",
+        err
+      );
     }
 
-    // Get current player's role
-    const currentPlayerRole = playerStateManager.gameState.playerRole;
+    // Get current player's role with safety check
+    const currentPlayerRole =
+      playerStateManager && playerStateManager.gameState
+        ? playerStateManager.gameState.playerRole
+        : null;
 
     // Update each role card
     this.roleCards.forEach((card) => {
+      if (!card || !card.dataset || !card.dataset.role) {
+        return; // Skip invalid cards
+      }
+
       const role = card.dataset.role;
 
       // Reset card state first

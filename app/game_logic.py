@@ -5,23 +5,40 @@ from typing import Dict
 # Use absolute imports instead of relative imports
 import app.models
 import app.utils
+import app.redis_client
 
-# Get references to game_rooms and connected_players
+# Import Redis functions
+from app.redis_client import (
+    store_room_data,
+    get_room_data,
+    store_player_data,
+    get_player_data,
+    cleanup_room_if_ended
+)
+
+# Get references to game_rooms and connected_players - keep for compatibility
 game_rooms = app.utils.game_rooms
 connected_players = app.utils.connected_players
 broadcast_to_room = app.utils.broadcast_to_room
 
 # Use GameRoom from app.models
 GameRoom = app.models.GameRoom
+Player = app.models.Player
 
 
-def generate_puzzles(room: GameRoom, stage: int) -> Dict:
+def generate_puzzles(room, stage: int) -> Dict:
     """Generate puzzles for the given stage and room"""
     puzzles = {}
 
     # Generate role-specific puzzles
-    for player_id, player in room.players.items():
-        role = player.role
+    for player_id, player_data in room.players.items():
+        # Handle player data being either a dict or Player object
+        role = ""
+        if isinstance(player_data, dict):
+            role = player_data.get("role", "")
+        else:
+            role = player_data.role
+            
         if role == "Hacker":
             puzzles[player_id] = generate_hacker_puzzle(stage)
         elif role == "Safe Cracker":
@@ -109,7 +126,7 @@ def validate_puzzle_solution(puzzle: Dict, solution) -> bool:
     return False
 
 
-def handle_power_usage(room: GameRoom, player_id: str, role: str) -> bool:
+def handle_power_usage(room, player_id: str, role: str) -> bool:
     """Handle a role's power usage"""
     if role == "Hacker":
         # Enhance Hacker power: Slow down timer and reduce alert level
@@ -126,7 +143,7 @@ def handle_power_usage(room: GameRoom, player_id: str, role: str) -> bool:
         room.timer += 30  # Add 30 seconds
         
         # Find the player's current puzzle
-        if player_id in room.puzzles:
+        if hasattr(room, 'puzzles') and player_id in room.puzzles:
             puzzle = room.puzzles[player_id]
             # Mark the puzzle as having a hint
             puzzle["hint_active"] = True
@@ -142,7 +159,7 @@ def handle_power_usage(room: GameRoom, player_id: str, role: str) -> bool:
     elif role == "Demolitions":
         # Enhanced Demolitions power: Skip barriers in puzzles and temporarily reduce random events
         room.timer += 20  # Add 20 seconds
-        room.shortcuts = room.shortcuts + 1 if hasattr(room, "shortcuts") else 1
+        room.shortcuts = getattr(room, 'shortcuts', 0) + 1
         
         # Temporarily reduce random event chance (store original alert level)
         if not hasattr(room, "original_alert_level"):
@@ -174,11 +191,26 @@ async def restore_alert_level(room_code: str, delay_seconds: int):
     """Restore the original alert level after Demolitions power expires"""
     await asyncio.sleep(delay_seconds)
     
-    if room_code in game_rooms:
-        room = game_rooms[room_code]
+    # Get room data from Redis
+    room_data = get_room_data(room_code)
+    if room_data:
+        room = GameRoom(**room_data)
+        
         if hasattr(room, "original_alert_level"):
             room.alert_level = room.original_alert_level
-            del room.original_alert_level
+            
+            # Remove the original_alert_level attribute
+            if hasattr(room, "original_alert_level"):
+                delattr(room, "original_alert_level")
+            
+            # Update Redis
+            store_room_data(room_code, room.dict())
+            
+            # Update in-memory for compatibility
+            if room_code in game_rooms:
+                game_rooms[room_code].alert_level = room.alert_level
+                if hasattr(game_rooms[room_code], "original_alert_level"):
+                    delattr(game_rooms[room_code], "original_alert_level")
             
             # Notify players that the effect has expired
             await broadcast_to_room(
@@ -192,11 +224,13 @@ async def restore_alert_level(room_code: str, delay_seconds: int):
 
 async def handle_lookout_power(room_code: str, player_id: str):
     """Handle the async parts of the Lookout power"""
-    if room_code not in game_rooms or player_id not in connected_players:
+    # Get room data from Redis
+    room_data = get_room_data(room_code)
+    if not room_data or player_id not in connected_players:
         return
-        
-    room = game_rooms[room_code]
     
+    room = GameRoom(**room_data)
+        
     # Generate a future event prediction
     event_types = ["security_patrol", "camera_sweep", "system_check"]
     event_names = {
@@ -224,7 +258,16 @@ async def handle_lookout_power(room_code: str, player_id: str):
             "events": predicted_events,
             "duration": 60  # Effect lasts 60 seconds
         })
-        
+    
+    # Get player name
+    player_name = ""
+    if player_id in room.players:
+        player = room.players[player_id]
+        if isinstance(player, dict):
+            player_name = player.get("name", "Unknown")
+        else:
+            player_name = player.name
+    
     # Create power description for other players
     power_description = "Enhanced Security Detection - Can predict upcoming events"
     
@@ -234,7 +277,7 @@ async def handle_lookout_power(room_code: str, player_id: str):
         {
             "type": "power_used",
             "player_id": player_id,
-            "player_name": room.players[player_id].name,
+            "player_name": player_name,
             "role": "Lookout",
             "powerDescription": power_description
         }
@@ -244,6 +287,13 @@ async def handle_lookout_power(room_code: str, player_id: str):
     if room.alert_level > 0:
         original_level = room.alert_level
         room.alert_level -= 1
+        
+        # Update Redis
+        store_room_data(room_code, room.dict())
+        
+        # Update in-memory for compatibility
+        if room_code in game_rooms:
+            game_rooms[room_code].alert_level = room.alert_level
         
         # Schedule alert level restoration
         asyncio.create_task(
@@ -258,11 +308,21 @@ async def restore_lookout_effect(room_code: str, delay_seconds: int, original_le
     """Restore the alert level after Lookout power effect expires"""
     await asyncio.sleep(delay_seconds)
     
-    if room_code in game_rooms:
-        room = game_rooms[room_code]
+    # Get room data from Redis
+    room_data = get_room_data(room_code)
+    if room_data:
+        room = GameRoom(**room_data)
+        
         # Only restore if current alert level is lower than original
         if room.alert_level < original_level:
             room.alert_level = original_level
+            
+            # Update Redis
+            store_room_data(room_code, room.dict())
+            
+            # Update in-memory for compatibility
+            if room_code in game_rooms:
+                game_rooms[room_code].alert_level = original_level
             
             # Notify players that the effect has expired
             await broadcast_to_room(
@@ -278,22 +338,55 @@ async def reset_lookout_ability(room_code: str, delay_seconds: int):
     """Reset the Lookout's ability after a delay"""
     await asyncio.sleep(delay_seconds)
     
-    if room_code in game_rooms:
-        game_rooms[room_code].next_events_visible = False
+    # Get room data from Redis
+    room_data = get_room_data(room_code)
+    if room_data:
+        room = GameRoom(**room_data)
+        room.next_events_visible = False
+        
+        # Update Redis
+        store_room_data(room_code, room.dict())
+        
+        # Update in-memory for compatibility
+        if room_code in game_rooms:
+            game_rooms[room_code].next_events_visible = False
 
 
 async def run_game_timer(room_code: str):
     """Run the game timer for a room"""
-    room = game_rooms[room_code]
+    # Get initial room data from Redis
+    room_data = get_room_data(room_code)
+    if not room_data:
+        return
+    
+    room = GameRoom(**room_data)
     
     # Send initial timer to ensure everyone is synchronized
     await broadcast_to_room(
         room_code, {"type": "timer_update", "timer": room.timer, "sync": True}
     )
 
-    while room.timer > 0 and room.status == "in_progress":
+    while True:
+        # Refresh room data from Redis for each iteration
+        room_data = get_room_data(room_code)
+        if not room_data:
+            break
+            
+        room = GameRoom(**room_data)
+        
+        # Check if timer has expired or game is no longer in progress
+        if room.timer <= 0 or room.status != "in_progress":
+            break
+            
         await asyncio.sleep(1)
         room.timer -= 1
+        
+        # Update Redis with new timer value
+        store_room_data(room_code, room.dict())
+        
+        # Update in-memory for compatibility
+        if room_code in game_rooms:
+            game_rooms[room_code].timer = room.timer
 
         # Only send timer updates at specific intervals to reduce traffic:
         # - Every 15 seconds for regular updates
@@ -319,14 +412,60 @@ async def run_game_timer(room_code: str):
         # Game over when timer runs out
         if room.timer <= 0:
             room.status = "failed"
+            
+            # Update Redis
+            store_room_data(room_code, room.dict())
+            
+            # Update in-memory for compatibility
+            if room_code in game_rooms:
+                game_rooms[room_code].status = "failed"
+                
             await broadcast_to_room(
                 room_code, {"type": "game_over", "result": "time_expired"}
             )
+            
+            # Schedule cleanup check after a delay to give players time to see the result
+            asyncio.create_task(cleanup_if_no_players_connected(room_code))
+            break
+
+
+async def cleanup_if_no_players_connected(room_code: str):
+    """Check if all players have disconnected from a game, and if so, clean up"""
+    # Give players some time to see game results before checking for cleanup
+    await asyncio.sleep(5)
+    
+    # Get updated room data
+    room_data = get_room_data(room_code)
+    if not room_data:
+        return  # Room already cleaned up
+    
+    # Check if all players are disconnected
+    all_disconnected = True
+    for player_id, player_data in room_data.get("players", {}).items():
+        is_connected = False
+        if isinstance(player_data, dict):
+            is_connected = player_data.get("connected", False)
+        else:
+            is_connected = getattr(player_data, "connected", False)
+        
+        if is_connected:
+            all_disconnected = False
+            break
+    
+    if all_disconnected:
+        # All players are disconnected, clean up the room
+        print(f"All players disconnected from finished game {room_code}, cleaning up")
+        cleanup_room_if_ended(room_code)
 
 
 async def trigger_random_event(room_code: str):
     """Trigger a random event in the game"""
-    room = game_rooms[room_code]
+    # Get room data from Redis
+    room_data = get_room_data(room_code)
+    if not room_data:
+        return
+        
+    room = GameRoom(**room_data)
 
     # Higher alert level = more chance of events
     # Use original_alert_level if set (from Demolitions power)
@@ -338,7 +477,7 @@ async def trigger_random_event(room_code: str):
         event_duration = random.randint(5, 15)
         
         # If Lookout's power is active, send a warning to all players
-        if room.next_events_visible:
+        if hasattr(room, 'next_events_visible') and room.next_events_visible:
             # Send warning 5 seconds before event
             await broadcast_to_room(
                 room_code,
@@ -361,26 +500,55 @@ async def trigger_random_event(room_code: str):
 
 async def run_vote_timer(room_code: str):
     """Run timer for vote completion"""
-    room = game_rooms[room_code]
+    # Get room data from Redis
+    room_data = get_room_data(room_code)
+    if not room_data:
+        return
+        
+    room = GameRoom(**room_data)
     
     # Wait for vote time limit
-    time_remaining = room.timer_vote_time_limit
+    time_remaining = getattr(room, 'timer_vote_time_limit', 20)
     
-    while time_remaining > 0 and room.timer_vote_active:
+    while time_remaining > 0:
+        # Refresh room data on each iteration
+        room_data = get_room_data(room_code)
+        if not room_data:
+            return
+            
+        room = GameRoom(**room_data)
+        
+        # Check if vote is still active
+        if not hasattr(room, 'timer_vote_active') or not room.timer_vote_active:
+            return
+            
         await asyncio.sleep(1)
         time_remaining -= 1
     
     # Process vote result when timer expires
-    if room.timer_vote_active:
-        await process_timer_vote_result(room_code)
+    # Refresh room data one more time
+    room_data = get_room_data(room_code)
+    if room_data:
+        room = GameRoom(**room_data)
+        if hasattr(room, 'timer_vote_active') and room.timer_vote_active:
+            await process_timer_vote_result(room_code)
 
 
 async def process_timer_vote_result(room_code: str):
     """Process the timer vote result"""
-    room = game_rooms[room_code]
+    # Get room data from Redis
+    room_data = get_room_data(room_code)
+    if not room_data:
+        return
+        
+    room = GameRoom(**room_data)
     
     # Mark vote as inactive
     room.timer_vote_active = False
+    
+    # Initialize votes if needed
+    if not hasattr(room, 'timer_votes') or not isinstance(room.timer_votes, dict):
+        room.timer_votes = {"yes": [], "no": []}
     
     # Calculate results
     yes_votes = len(room.timer_votes.get("yes", []))
@@ -388,7 +556,10 @@ async def process_timer_vote_result(room_code: str):
     all_votes = yes_votes + no_votes
     
     # Calculate required votes (majority of connected players)
-    connected_player_count = sum(1 for p in room.players.values() if p.connected)
+    connected_player_count = sum(1 for pid, p in room.players.items() 
+                                 if (isinstance(p, dict) and p.get("connected", False)) or 
+                                    (hasattr(p, "connected") and p.connected))
+                                    
     required_votes = max(1, connected_player_count // 2 + 1)  # Majority
     
     # Determine success
@@ -398,6 +569,15 @@ async def process_timer_vote_result(room_code: str):
         # Extend the timer
         room.timer += 60  # Add 1 minute
         room.alert_level += 1  # Increase alert level
+        
+        # Update Redis
+        store_room_data(room_code, room.dict())
+        
+        # Update in-memory for compatibility
+        if room_code in game_rooms:
+            game_rooms[room_code].timer = room.timer
+            game_rooms[room_code].alert_level = room.alert_level
+            game_rooms[room_code].timer_vote_active = False
         
         # Broadcast timer extended
         await broadcast_to_room(
@@ -409,6 +589,13 @@ async def process_timer_vote_result(room_code: str):
                 "sync": True  # Add sync flag to ensure clients synchronize
             },
         )
+    else:
+        # Update Redis (just to mark vote as inactive)
+        store_room_data(room_code, room.dict())
+        
+        # Update in-memory for compatibility
+        if room_code in game_rooms:
+            game_rooms[room_code].timer_vote_active = False
     
     # Create detailed result message
     result_message = "Timer extension vote failed" if not success else "Timer extended successfully"
@@ -431,5 +618,10 @@ async def process_timer_vote_result(room_code: str):
         }
     )
     
-    # Clean up vote data
-    room.timer_votes = {"yes": [], "no": []} 
+    # Clean up vote data in room
+    room.timer_votes = {"yes": [], "no": []}
+    store_room_data(room_code, room.dict())
+    
+    # Clean up in-memory for compatibility
+    if room_code in game_rooms:
+        game_rooms[room_code].timer_votes = {"yes": [], "no": []} 

@@ -4,42 +4,118 @@ import websocketManager from "./websocketManager.js";
 
 class PlayerStateManager {
   constructor() {
-    // Use a frozen object for immutable constants
-    this.GAME_STATUS = Object.freeze({
+    // Create a new instance of the event system for state management
+    this.events = {};
+    this.handlers = {};
+    this.nextHandlerId = 1;
+
+    // All game state will be managed here
+    this.gameState = {
+      roomCode: "",
+      playerId: "",
+      playerName: "",
+      playerRole: "",
+      stage: 0,
+      status: this.GAME_STATUS.WAITING,
+      players: {},
+      timer: 300,
+      alertLevel: 0,
+      lastTimerUpdate: 0,
+      lastTimerValue: 0,
+    };
+
+    // Handlers for temporary WebSocket subscriptions
+    this.temporaryHandlers = new Map();
+
+    // Set up WebSocket handlers
+    this._setupWebSocketHandlers();
+  }
+
+  // Game status constants
+  get GAME_STATUS() {
+    return {
       WAITING: "waiting",
       IN_PROGRESS: "in_progress",
       COMPLETED: "completed",
       FAILED: "failed",
-    });
-
-    // Define valid roles
-    this.VALID_ROLES = Object.freeze([
-      "Hacker",
-      "Safe Cracker",
-      "Demolitions",
-      "Lookout",
-    ]);
-
-    // Initialize game state
-    this.gameState = this._loadPersistedState() || {
-      roomCode: null,
-      playerId: null,
-      playerName: null,
-      playerRole: null,
-      stage: 1,
-      status: this.GAME_STATUS.WAITING,
-      timer: 300,
-      alertLevel: 0,
-      players: {},
-      puzzles: {},
-      timerExtendVotes: new Set(),
-      timerVote: { yesVotes: [], noVotes: [] },
-      lastServerSync: null,
-      lastSyncTimer: null,
     };
+  }
 
-    // Define role information
-    this.roleDescriptions = Object.freeze({
+  // Private: Save essential game state for reconnection
+  // This method is deprecated as we now use server-side state
+  _persistState() {
+    // This method no longer saves to localStorage
+    // State is maintained on the server via Redis
+    console.log("State persistence now handled by server");
+  }
+
+  // Private: Load persisted game state
+  // This method is deprecated as we now use server-side state
+  _loadPersistedState() {
+    // This method no longer loads from localStorage
+    // State will be retrieved from the server via WebSocket
+    console.log("State now retrieved from server");
+    return false; // Nothing to load locally
+  }
+
+  // Clear persisted state
+  // This method is modified to be a no-op since state is stored on the server
+  clearPersistedState() {
+    // No need to clear local state as we don't store it locally anymore
+    console.log("State management now handled by server");
+  }
+
+  // Initialize game state
+  initialize(roomCode, playerId, playerName) {
+    return new Promise((resolve) => {
+      // Set essential properties
+      this.gameState.roomCode = roomCode;
+      this.gameState.playerId = playerId;
+      this.gameState.playerName = playerName;
+      this.gameState.status = this.GAME_STATUS.WAITING;
+
+      // No need to persist state to localStorage as it's now on the server
+
+      this.trigger("gameStateUpdated", this.gameState);
+      resolve(true);
+    });
+  }
+
+  // Handle reconnection to a game
+  handleReconnection() {
+    return new Promise((resolve, reject) => {
+      // We will rely on server to provide all necessary state
+      // Check if we have essential authentication info
+      if (!this.gameState.playerId) {
+        // No player ID to reconnect with
+        reject(new Error("No player ID available for reconnection"));
+        return;
+      }
+
+      if (!this.gameState.roomCode) {
+        // No room code to reconnect to
+        reject(new Error("No room code available for reconnection"));
+        return;
+      }
+
+      // If we have playerId and roomCode, we can attempt reconnection
+      // The actual state will be populated via WebSocket upon connection
+      resolve(true);
+    });
+  }
+
+  /**
+   * Define valid roles
+   */
+  get VALID_ROLES() {
+    return Object.freeze(["Hacker", "Safe Cracker", "Demolitions", "Lookout"]);
+  }
+
+  /**
+   * Define role information
+   */
+  get roleDescriptions() {
+    return Object.freeze({
       Hacker: {
         description: "Circuit puzzles, code breaking, matching patterns",
         power: "Temporarily slow a timer",
@@ -61,427 +137,23 @@ class PlayerStateManager {
         color: "green",
       },
     });
+  }
 
-    // Stage information
-    this.stageInfo = Object.freeze([
+  /**
+   * Define stage information
+   */
+  get stageInfo() {
+    return Object.freeze([
       { number: 1, name: "Perimeter Breach", difficulty: "Easy" },
       { number: 2, name: "Security Systems", difficulty: "Medium" },
       { number: 3, name: "Laser Hallways", difficulty: "Medium" },
       { number: 4, name: "Vault Access", difficulty: "Hard" },
       { number: 5, name: "Escape Sequence", difficulty: "Very Hard" },
     ]);
-
-    // Event handling
-    this.eventListeners = {};
-    this.temporaryHandlers = new Map();
-    this.handlerIdCounter = 0;
-
-    // Local timer interval for smooth real-time updates
-    this.localTimerInterval = null;
-
-    // Initialize WebSocket handlers
-    this._setupWebSocketHandlers();
-  }
-
-  /**
-   * Private: Save essential game state to localStorage
-   */
-  _persistState() {
-    const persistedState = {
-      roomCode: this.gameState.roomCode,
-      playerId: this.gameState.playerId,
-      playerName: this.gameState.playerName,
-      playerRole: this.gameState.playerRole,
-      stage: this.gameState.stage,
-      status: this.gameState.status,
-      alertLevel: this.gameState.alertLevel,
-    };
-    localStorage.setItem("heistGameState", JSON.stringify(persistedState));
-  }
-
-  /**
-   * Private: Load persisted game state from localStorage
-   */
-  _loadPersistedState() {
-    const savedState = localStorage.getItem("heistGameState");
-    if (!savedState) return null;
-
-    try {
-      return JSON.parse(savedState);
-    } catch (e) {
-      console.error("Error loading persisted state:", e);
-      return null;
-    }
-  }
-
-  /**
-   * Clear persisted state (used when game ends or player explicitly leaves)
-   */
-  clearPersistedState() {
-    localStorage.removeItem("heistGameState");
-  }
-
-  /**
-   * Initialize player state with user information
-   * @param {string} roomCode - Game room code
-   * @param {string} playerId - Player ID
-   * @param {string} playerName - Player name
-   * @returns {Promise} - Resolves when connection is established
-   */
-  initialize(roomCode, playerId, playerName) {
-    if (!roomCode || !playerId) {
-      return Promise.reject(new Error("Room code and player ID are required"));
-    }
-
-    // Update state with new connection info
-    this.gameState.roomCode = roomCode;
-    this.gameState.playerId = playerId;
-    this.gameState.playerName = playerName;
-
-    // Persist the state
-    this._persistState();
-
-    return websocketManager.connect(roomCode, playerId);
-  }
-
-  /**
-   * Handle reconnection attempt
-   * @returns {Promise} - Resolves when reconnection is complete
-   */
-  handleReconnection() {
-    const savedState = this._loadPersistedState();
-    if (!savedState || !savedState.roomCode || !savedState.playerId) {
-      return Promise.reject(new Error("No saved game state found"));
-    }
-
-    // Validate saved state to avoid inconsistencies
-    // If the game state has a role but the game isn't in progress,
-    // or if status is corrupted, reset to waiting
-    if (
-      (savedState.playerRole &&
-        savedState.status !== this.GAME_STATUS.IN_PROGRESS) ||
-      (savedState.status !== this.GAME_STATUS.IN_PROGRESS &&
-        savedState.status !== this.GAME_STATUS.WAITING)
-    ) {
-      console.log(
-        "Invalid saved state detected, resetting to waiting state",
-        savedState
-      );
-      savedState.status = this.GAME_STATUS.WAITING;
-      savedState.playerRole = null; // Clear the role as it may be stale
-    }
-
-    // Initialize with validated state
-    return this.initialize(
-      savedState.roomCode,
-      savedState.playerId,
-      savedState.playerName
-    ).then(() => {
-      // Ensure we apply the validated state after initialization
-      this.gameState.status = savedState.status;
-      this.gameState.playerRole = savedState.playerRole;
-      this.gameState.stage = savedState.stage || 1;
-      this.gameState.alertLevel = savedState.alertLevel || 0;
-
-      // Empty players object by default until server sends the real data
-      this.gameState.players = {};
-
-      // Re-persist the validated state
-      this._persistState();
-
-      return Promise.resolve();
-    });
-  }
-
-  /**
-   * Select a role for the player
-   * @param {string} role - Role to select
-   * @returns {Promise} - Resolves when role selection is confirmed
-   */
-  selectRole(role) {
-    // Validate role
-    if (!this.VALID_ROLES.includes(role)) {
-      console.error("PlayerStateManager: Invalid role:", role);
-      return Promise.reject(new Error(`Invalid role: ${role}`));
-    }
-
-    // Check websocket connection
-    if (!websocketManager.isConnected()) {
-      console.error("PlayerStateManager: WebSocket not connected");
-      return Promise.reject(new Error("WebSocket not connected"));
-    }
-
-    return new Promise((resolve, reject) => {
-      // Create a temporary message handler
-      const handlerId = this._getNextHandlerId();
-
-      // Set up handler for role confirmation
-      const handleResponse = (data) => {
-        if (data.type === "role_confirmed") {
-          // Update local game state
-          this.gameState.playerRole = role;
-          this._persistState(); // Persist after role confirmation
-
-          // Trigger event for role selection
-          this.trigger("playerRoleSelected", {
-            playerId: this.gameState.playerId,
-            role: role,
-            player: data.player,
-          });
-
-          resolve(data);
-          this._cleanupTemporaryHandler(handlerId);
-        } else if (data.type === "error" && data.context === "role_selection") {
-          reject(new Error(data.message || "Role selection failed"));
-          this._cleanupTemporaryHandler(handlerId);
-        }
-      };
-
-      // Register temporary handlers
-      this.temporaryHandlers.set(handlerId, {
-        role_confirmed: handleResponse,
-        error: handleResponse,
-      });
-
-      websocketManager.registerMessageHandler("role_confirmed", handleResponse);
-      websocketManager.registerMessageHandler("error", handleResponse);
-
-      // Send role selection message
-      websocketManager
-        .send({
-          type: "select_role",
-          player_id: this.gameState.playerId,
-          role: role,
-        })
-        .catch((error) => {
-          console.error(
-            "PlayerStateManager: Error sending role selection:",
-            error
-          );
-          reject(error);
-          this._cleanupTemporaryHandler(handlerId);
-        });
-    });
-  }
-
-  /**
-   * Start the game (host only)
-   * @returns {Promise} - Resolves when game starts
-   */
-  startGame() {
-    return new Promise((resolve, reject) => {
-      if (!this.isHost()) {
-        reject(new Error("Only the host can start the game"));
-        return;
-      }
-
-      if (!websocketManager.isConnected()) {
-        reject(new Error("WebSocket not connected"));
-        return;
-      }
-
-      // Create a temporary message handler
-      const handlerId = this._getNextHandlerId();
-
-      // Set up handler for game start confirmation
-      const handleResponse = (data) => {
-        if (data.type === "game_started") {
-          resolve();
-          this._cleanupTemporaryHandler(handlerId);
-        } else if (data.type === "error" && data.context === "game_start") {
-          reject(new Error(data.message));
-          this._cleanupTemporaryHandler(handlerId);
-        }
-      };
-
-      // Register temporary handlers
-      websocketManager.registerMessageHandler("game_started", handleResponse);
-
-      websocketManager.registerMessageHandler("error", handleResponse);
-
-      // Send game start request
-      websocketManager
-        .send({
-          type: "start_game",
-          player_id: this.gameState.playerId, // Include player ID to verify host status
-        })
-        .catch((error) => {
-          reject(error);
-          this._cleanupTemporaryHandler(handlerId);
-        });
-    });
-  }
-
-  /**
-   * Use the player's role power
-   * @returns {Promise} - Resolves when power use is confirmed
-   */
-  useRolePower() {
-    return new Promise((resolve, reject) => {
-      if (!this.gameState.playerRole) {
-        reject(new Error("No role selected"));
-        return;
-      }
-
-      if (!websocketManager.isConnected()) {
-        reject(new Error("WebSocket not connected"));
-        return;
-      }
-
-      // Create a temporary message handler
-      const handlerId = this._getNextHandlerId();
-
-      // Set up handler for power use confirmation
-      const handleResponse = (data) => {
-        if (
-          data.type === "power_used" &&
-          data.player_id === this.gameState.playerId
-        ) {
-          resolve();
-          this._cleanupTemporaryHandler(handlerId);
-        } else if (data.type === "error" && data.context === "power_use") {
-          reject(new Error(data.message));
-          this._cleanupTemporaryHandler(handlerId);
-        }
-      };
-
-      // Register temporary handlers
-      websocketManager.registerMessageHandler("power_used", handleResponse);
-
-      websocketManager.registerMessageHandler("error", handleResponse);
-
-      // Send power use request
-      websocketManager
-        .send({
-          type: "use_power",
-        })
-        .catch((error) => {
-          reject(error);
-          this._cleanupTemporaryHandler(handlerId);
-        });
-    });
-  }
-
-  /**
-   * Vote to extend the timer
-   * @param {boolean} voteYes - Whether to vote yes
-   * @returns {Promise} - Resolves when vote is registered
-   */
-  voteExtendTimer(voteYes = true) {
-    return websocketManager.send({
-      type: "extend_timer_vote",
-      vote: voteYes,
-    });
-  }
-
-  /**
-   * Initiate a timer extension vote (usually from the UI button)
-   * @returns {Promise} - Resolves when vote is initiated
-   */
-  initiateTimerExtensionVote() {
-    return websocketManager.send({
-      type: "initiate_timer_vote",
-    });
-  }
-
-  /**
-   * Submit a puzzle solution
-   * @param {any} solution - Solution data
-   * @returns {Promise} - Resolves when solution is processed
-   */
-  submitPuzzleSolution(solution) {
-    return new Promise((resolve, reject) => {
-      if (!websocketManager.isConnected()) {
-        reject(new Error("WebSocket not connected"));
-        return;
-      }
-
-      // Generate a unique handler ID
-      const handlerId = this._getNextHandlerId();
-
-      // Define the message handlers
-      const handleCompletion = (data) => {
-        if (data.player_id === this.gameState.playerId) {
-          resolve(true); // Success
-          this._cleanupTemporaryHandler(handlerId);
-        }
-      };
-
-      const handleFailure = (data) => {
-        if (data.player_id === this.gameState.playerId) {
-          resolve(false); // Incorrect solution
-          this._cleanupTemporaryHandler(handlerId);
-        }
-      };
-
-      const handleError = (data) => {
-        if (data.context === "puzzle_solution") {
-          reject(new Error(data.message));
-          this._cleanupTemporaryHandler(handlerId);
-        }
-      };
-
-      // Store the handler references
-      this.temporaryHandlers.set(handlerId, {
-        puzzleCompleted: handleCompletion,
-        puzzleFailed: handleFailure,
-        error: handleError,
-      });
-
-      // Register the temporary handlers
-      websocketManager.registerMessageHandler(
-        "puzzle_completed",
-        this.temporaryHandlers.get(handlerId).puzzleCompleted
-      );
-      websocketManager.registerMessageHandler(
-        "puzzle_failed",
-        this.temporaryHandlers.get(handlerId).puzzleFailed
-      );
-      websocketManager.registerMessageHandler(
-        "error",
-        this.temporaryHandlers.get(handlerId).error
-      );
-
-      // Set a timeout to remove handlers in case of no response
-      setTimeout(() => {
-        if (this.temporaryHandlers.has(handlerId)) {
-          reject(new Error("Timeout waiting for puzzle solution response"));
-          this._cleanupTemporaryHandler(handlerId);
-        }
-      }, 10000); // 10 second timeout
-
-      // Send solution
-      websocketManager
-        .send({
-          type: "puzzle_solution",
-          solution: solution,
-        })
-        .catch((error) => {
-          reject(error);
-          this._cleanupTemporaryHandler(handlerId);
-        });
-    });
-  }
-
-  /**
-   * Send a chat message to the team
-   * @param {string} message - Message text
-   * @returns {Promise} - Resolves when message is sent
-   */
-  sendChatMessage(message) {
-    if (!message || message.trim() === "") {
-      return Promise.resolve(false);
-    }
-
-    return websocketManager.send({
-      type: "chat_message",
-      message: message.trim(),
-    });
   }
 
   /**
    * Get the current stage information
-   * @returns {Object} - Stage info
    */
   getCurrentStageInfo() {
     const stageIndex = Math.max(
@@ -541,10 +213,10 @@ class PlayerStateManager {
    * @returns {Function} - Function to remove this listener
    */
   on(event, callback) {
-    if (!this.eventListeners[event]) {
-      this.eventListeners[event] = [];
+    if (!this.events[event]) {
+      this.events[event] = [];
     }
-    this.eventListeners[event].push(callback);
+    this.events[event].push(callback);
 
     // Return function to remove this specific callback
     return () => this.off(event, callback);
@@ -556,10 +228,8 @@ class PlayerStateManager {
    * @param {Function} callback - Callback function
    */
   off(event, callback) {
-    if (this.eventListeners[event]) {
-      this.eventListeners[event] = this.eventListeners[event].filter(
-        (cb) => cb !== callback
-      );
+    if (this.events[event]) {
+      this.events[event] = this.events[event].filter((cb) => cb !== callback);
     }
   }
 
@@ -569,9 +239,9 @@ class PlayerStateManager {
    * @param {any} data - Event data
    */
   trigger(event, data) {
-    if (!this.eventListeners[event]) return;
+    if (!this.events[event]) return;
 
-    const handlers = [...this.eventListeners[event]];
+    const handlers = [...this.events[event]];
     for (const handler of handlers) {
       try {
         handler(data);
@@ -586,7 +256,7 @@ class PlayerStateManager {
    * @returns {number} - Unique handler ID
    */
   _getNextHandlerId() {
-    return ++this.handlerIdCounter;
+    return this.nextHandlerId++;
   }
 
   /**
@@ -594,7 +264,7 @@ class PlayerStateManager {
    * @param {number} handlerId - Handler ID to clean up
    */
   _cleanupTemporaryHandler(handlerId) {
-    const handlers = this.temporaryHandlers.get(handlerId);
+    const handlers = this.handlers[handlerId];
     if (!handlers) return;
 
     // Remove all handlers
@@ -603,7 +273,7 @@ class PlayerStateManager {
     });
 
     // Remove from map
-    this.temporaryHandlers.delete(handlerId);
+    this.handlers[handlerId] = null;
   }
 
   /**
@@ -666,7 +336,7 @@ class PlayerStateManager {
       this.gameState.status = this.GAME_STATUS.WAITING;
       this.gameState.timer = 300;
       this.gameState.alertLevel = 0;
-      this.gameState.puzzles = {};
+      this.gameState.players = {};
       this.gameState.timerExtendVotes = new Set();
 
       // Reset all player roles
@@ -895,10 +565,89 @@ class PlayerStateManager {
 
     // Player disconnected
     websocketManager.registerMessageHandler("player_disconnected", (data) => {
+      if (!data || !data.player_id) {
+        console.warn("Received invalid player_disconnected event:", data);
+        return;
+      }
+
+      console.log("Player disconnected:", data.player_id);
+
+      // Safety check to ensure players object exists
+      if (!this.gameState.players) {
+        this.gameState.players = {};
+      }
+
+      // If the player exists in our state, mark as disconnected
       if (this.gameState.players[data.player_id]) {
-        const player = { ...this.gameState.players[data.player_id] };
+        // Create a deep copy to prevent accidental mutations
+        const player = {
+          ...this.gameState.players[data.player_id],
+          connected: false,
+        };
+
+        // Update the player in our state
         this.gameState.players[data.player_id].connected = false;
+
+        // Notify subscribers with complete player info
         this.trigger("playerDisconnected", data.player_id);
+
+        console.log("Updated player connection status:", player);
+      } else {
+        console.warn("Disconnected player not found in state:", data.player_id);
+
+        // Create a placeholder for the disconnected player
+        this.gameState.players[data.player_id] = {
+          id: data.player_id,
+          connected: false,
+          name: `Disconnected Player (${data.player_id.slice(0, 4)})`,
+          role: null,
+          is_host: false,
+        };
+
+        // Still trigger the event for subscribers
+        this.trigger("playerDisconnected", data.player_id);
+      }
+    });
+
+    // Player left the game
+    websocketManager.registerMessageHandler("player_left", (data) => {
+      if (!data || !data.player_id) {
+        console.warn("Received invalid player_left event:", data);
+        return;
+      }
+
+      console.log("Player left the game:", data.player_id, data.player_name);
+
+      // Safety check to ensure players object exists
+      if (!this.gameState.players) {
+        this.gameState.players = {};
+      }
+
+      // If the player exists in our state, remove them
+      if (this.gameState.players[data.player_id]) {
+        // Get player information before deleting
+        const playerInfo = {
+          id: data.player_id,
+          name: data.player_name || this.gameState.players[data.player_id].name,
+          role: this.gameState.players[data.player_id].role,
+        };
+
+        // Remove the player from our state
+        delete this.gameState.players[data.player_id];
+
+        // Notify subscribers that the player left
+        this.trigger("playerLeft", playerInfo);
+
+        // Show system message in chat that player left
+        this.trigger("chatMessage", {
+          playerId: "system",
+          playerName: "System",
+          message: `${playerInfo.name} has left the game.`,
+        });
+
+        console.log("Removed player from game state:", playerInfo);
+      } else {
+        console.warn("Player not found in state:", data.player_id);
       }
     });
 
@@ -1059,6 +808,189 @@ class PlayerStateManager {
       clearInterval(this.localTimerInterval);
       this.localTimerInterval = null;
     }
+  }
+
+  selectRole(role) {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      // Request role selection from server
+      const data = {
+        type: "select_role",
+        role: role,
+      };
+
+      const handleResponse = (data) => {
+        if (data.error) {
+          // Remove temporary handler
+          websocketManager.removeMessageHandler("error", handleError);
+          websocketManager.removeMessageHandler(
+            "role_confirmed",
+            handleResponse
+          );
+          reject(new Error(data.error));
+          return;
+        }
+
+        // Check if the confirmed role is for this player
+        if (data.player_id === this.gameState.playerId) {
+          // Update local state
+          this.gameState.playerRole = role;
+          this.gameState.players = data.players;
+
+          // Trigger state update event
+          this.trigger("gameStateUpdated", this.gameState);
+
+          // Clean up handlers
+          websocketManager.removeMessageHandler("error", handleError);
+          websocketManager.removeMessageHandler(
+            "role_confirmed",
+            handleResponse
+          );
+
+          resolve({
+            player: data.player,
+            players: data.players,
+          });
+        }
+      };
+
+      const handleError = (data) => {
+        if (data.context === "role_selection") {
+          websocketManager.removeMessageHandler("error", handleError);
+          websocketManager.removeMessageHandler(
+            "role_confirmed",
+            handleResponse
+          );
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("role_confirmed", handleResponse);
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Send role selection request
+      websocketManager.send(data).catch((error) => {
+        // Clean up handlers on send error
+        websocketManager.removeMessageHandler("error", handleError);
+        websocketManager.removeMessageHandler("role_confirmed", handleResponse);
+        reject(error);
+      });
+    });
+  }
+
+  startGame() {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      // Only the host can start the game
+      if (!this.isHost()) {
+        reject(new Error("Only the host can start the game"));
+        return;
+      }
+
+      // Request game start from server
+      const data = {
+        type: "start_game",
+      };
+
+      const handleResponse = (data) => {
+        // Update local state for game start
+        this.gameState.status = this.GAME_STATUS.IN_PROGRESS;
+        this.gameState.stage = data.stage || 1;
+        this.gameState.timer = data.timer || 300;
+
+        // Trigger events
+        this.trigger("gameStateUpdated", this.gameState);
+        this.trigger("gameStarted", this.gameState);
+
+        // Clean up handlers
+        websocketManager.removeMessageHandler("game_started", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+
+        resolve(true);
+      };
+
+      const handleError = (data) => {
+        if (data.context === "game_start") {
+          // Clean up handlers
+          websocketManager.removeMessageHandler("game_started", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("game_started", handleResponse);
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Send game start request
+      websocketManager.send(data).catch((error) => {
+        // Clean up handlers on send error
+        websocketManager.removeMessageHandler("game_started", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
+    });
+  }
+
+  useRolePower() {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      if (!this.gameState.playerRole) {
+        reject(new Error("You must have a role to use a power"));
+        return;
+      }
+
+      // Request power usage from server
+      const data = {
+        type: "use_power",
+        role: this.gameState.playerRole,
+      };
+
+      const handleResponse = (data) => {
+        // Check if the power usage is for this player
+        if (data.player_id === this.gameState.playerId) {
+          // Clean up handlers
+          websocketManager.removeMessageHandler("power_used", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+
+          resolve(true);
+        }
+      };
+
+      const handleError = (data) => {
+        if (data.context === "power_usage") {
+          // Clean up handlers
+          websocketManager.removeMessageHandler("power_used", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("power_used", handleResponse);
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Send power usage request
+      websocketManager.send(data).catch((error) => {
+        // Clean up handlers on send error
+        websocketManager.removeMessageHandler("power_used", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
+    });
   }
 }
 

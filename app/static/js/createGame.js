@@ -6,9 +6,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const roomCodeDisplay = document.getElementById("roomCode");
   const enterGameBtn = document.getElementById("enterGame");
 
-  // Clear any potentially stale game state when loading the create page
-  localStorage.removeItem("heistGameState");
-
+  // No need to clear localStorage anymore
   let playerData = {};
 
   createForm.addEventListener("submit", async (e) => {
@@ -17,9 +15,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const hostName = document.getElementById("hostName").value;
 
     try {
-      // Clear any existing game state before creating a new game
-      localStorage.removeItem("heistGameState");
-
+      // No need to clear localStorage anymore
       const response = await fetch(
         "/api/rooms/create?" +
           new URLSearchParams({
@@ -37,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      // Store player data
+      // Store player data in memory (will only be used for the redirect)
       playerData = {
         room_code: data.room_code,
         player_id: data.player_id,
@@ -49,8 +45,7 @@ document.addEventListener("DOMContentLoaded", () => {
       createForm.classList.add("hidden");
       gameCreated.classList.remove("hidden");
 
-      // Save to local storage
-      localStorage.setItem("heistPlayer", JSON.stringify(playerData));
+      // No longer saving to localStorage - server maintains state
     } catch (error) {
       console.error("Error creating game:", error);
       alert("Failed to create game. Please try again.");
@@ -58,6 +53,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   enterGameBtn.addEventListener("click", () => {
-    window.location.href = `/game/${playerData.room_code}`;
+    // Redirect to the game page with queryParams
+    const params = new URLSearchParams({
+      player_id: playerData.player_id,
+    });
+    window.location.href = `/game/${playerData.room_code}?${params}`;
   });
 });

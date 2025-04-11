@@ -46,3 +46,8 @@ Each role feels essential & has unique puzzles.
 - Clean, blueprint-style UI with heist music  
 - Neon cyberpunk bank?  
 - Silhouette-style characters with subtle animations  
+
+
+
+Add logic to check that you dont join a room that doesnt exsist.
+move from local storage DB (redis)

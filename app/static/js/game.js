@@ -87,6 +87,77 @@ class GameController {
       }
       this.eventHandler.handleExtendTimer();
     });
+
+    // Leave game button
+    const leaveGameButton = document.getElementById("leave-game");
+    const leaveGameModal = document.getElementById("leave-game-modal");
+    const confirmLeaveButton = document.getElementById("confirm-leave");
+    const cancelLeaveButton = document.getElementById("cancel-leave");
+
+    if (leaveGameButton && leaveGameModal) {
+      // Show modal when leave button is clicked
+      leaveGameButton.addEventListener("click", () => {
+        leaveGameModal.classList.remove("hidden");
+      });
+
+      // Hide modal when cancel is clicked
+      if (cancelLeaveButton) {
+        cancelLeaveButton.addEventListener("click", () => {
+          leaveGameModal.classList.add("hidden");
+        });
+      }
+
+      // Handle leave game confirmation
+      if (confirmLeaveButton) {
+        confirmLeaveButton.addEventListener("click", () =>
+          this._handleLeaveGame()
+        );
+      }
+    }
+  }
+
+  /**
+   * Handle leave game confirmation
+   * @private
+   */
+  _handleLeaveGame() {
+    const playerId = document.getElementById("player-id")?.value;
+
+    if (!playerId) {
+      this.notificationSystem.showAlert("Player ID not found", "error");
+      return;
+    }
+
+    // Disconnect WebSocket first
+    websocketManager.disconnect("User manually left the game");
+
+    // Call the leave API
+    fetch(`/api/game/leave?player_id=${playerId}`, {
+      method: "POST",
+    })
+      .then((response) => response.json())
+      .then((data) => {
+        if (data.error) {
+          this.notificationSystem.showAlert(`Error: ${data.error}`, "error");
+        } else {
+          // Clear any local state
+          playerStateManager.clearPersistedState();
+
+          // Redirect to home page
+          window.location.href = "/";
+        }
+      })
+      .catch((error) => {
+        console.error("Error leaving game:", error);
+        this.notificationSystem.showAlert(
+          "Failed to leave game properly. Redirecting to home...",
+          "error"
+        );
+        // Redirect anyway after a delay
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 2000);
+      });
   }
 
   /**
@@ -184,132 +255,50 @@ document.addEventListener("DOMContentLoaded", () => {
     ? roomCodeElement.textContent.split(": ")[1]
     : null; // Extract room code
 
-  // Try to reconnect first if we have saved state
-  playerStateManager
-    .handleReconnection()
-    .then(() => {
-      console.log("Successfully reconnected to game");
+  // Get player ID from hidden input field
+  const playerIdElement = document.getElementById("player-id");
+  const playerId = playerIdElement ? playerIdElement.value : null;
 
-      // Validate the reconnection state
-      // If we have player info but no players object or it's empty, something is wrong
-      if (
-        playerStateManager.gameState.playerRole &&
-        (!playerStateManager.gameState.players ||
-          typeof playerStateManager.gameState.players !== "object" ||
-          Object.keys(playerStateManager.gameState.players).length === 0)
-      ) {
-        console.log(
-          "Invalid game state detected - players missing but role exists"
-        );
-        // Reset potentially invalid state
-        playerStateManager.gameState.playerRole = null;
-        playerStateManager.gameState.status =
-          playerStateManager.GAME_STATUS.WAITING;
-
-        // Always show the lobby for possibly invalid states
-        return gameStartScreen.showLobby();
-      }
-
-      return websocketManager.connect(
-        playerStateManager.gameState.roomCode,
-        playerStateManager.gameState.playerId
+  if (!playerId || !roomCode) {
+    console.error("Missing player ID or room code");
+    // Show error message to user
+    if (game.notificationSystem) {
+      game.notificationSystem.showAlert(
+        "Error: Missing player information. Please return to the home page and try again.",
+        "error",
+        0 // Duration 0 means it stays until dismissed
       );
+    }
+    return;
+  }
+
+  // Initialize connection with server-provided state
+  playerStateManager
+    .initialize(roomCode, playerId, "") // playerName will be provided by server
+    .then(() => {
+      return websocketManager.connect(roomCode, playerId);
     })
     .then(() => {
-      // If we got here through the invalid state path, websocketManager.connect wasn't called
-      // We detect this by checking if the websocket is connected
-      if (!websocketManager.isConnected()) {
-        return; // Skip the rest of this handling
-      }
+      // Connection established
+      // The WebSocket handler will provide all necessary game state
+      console.log("Connected to game server");
 
-      // If game status is in progress AND we have valid player data,
-      // show the game area immediately - this handles reconnection to active games
-      if (
-        playerStateManager.gameState.status ===
-          playerStateManager.GAME_STATUS.IN_PROGRESS &&
-        playerStateManager.gameState.players &&
-        typeof playerStateManager.gameState.players === "object" &&
-        Object.keys(playerStateManager.gameState.players).length > 0
-      ) {
-        console.log("Reconnected to game in progress, showing game area");
-        if (gameStartScreen) {
-          gameStartScreen.hideLobby();
-        }
-
-        const gameArea = document.getElementById("game-area");
-        if (gameArea) {
-          gameArea.classList.remove("hidden");
-        }
-
-        // Update role instruction
-        const roleInstruction = document.getElementById("role-instruction");
-        if (roleInstruction) {
-          const playerRole = playerStateManager.gameState.playerRole;
-          if (playerRole) {
-            const roleInfo = playerStateManager.getRoleInfo(playerRole);
-            if (roleInfo) {
-              roleInstruction.textContent = `${playerRole} - ${roleInfo.description}`;
-              roleInstruction.classList.remove("text-gray-400", "italic");
-            }
-          }
-        }
-      } else {
-        // For all other cases, show the lobby
-        console.log(
-          "Showing lobby - game is not in progress or has invalid state"
-        );
-        gameStartScreen.showLobby();
-      }
-    })
-    .catch(() => {
-      // If reconnection fails, try normal initialization
-      console.log("No saved game state, attempting normal initialization");
-
-      // Clear any potentially corrupted state
-      playerStateManager.clearPersistedState();
-
-      // Retrieve player data from local storage
-      const heistPlayer = localStorage.getItem("heistPlayer");
-      if (!heistPlayer) {
-        console.error("Player ID not found in local storage.");
-        return;
-      }
-
-      const playerData = JSON.parse(heistPlayer);
-      const playerId = playerData.player_id;
-      const playerName = playerData.player_name;
-
-      if (roomCode && playerId) {
-        // Initialize player state before connecting
-        return playerStateManager
-          .initialize(roomCode, playerId, playerName)
-          .then(() => {
-            return websocketManager.connect(roomCode, playerId);
-          });
-      } else {
-        throw new Error("Room code or Player ID not found.");
-      }
-    })
-    .then(() => {
-      // Show the lobby regardless of whether we reconnected or initialized new
+      // Always show the lobby initially - if game is in progress,
+      // the websocket handler will update the UI appropriately
       gameStartScreen.showLobby();
     })
     .catch((error) => {
-      console.error("Error initializing game:", error);
-    });
+      console.error("Error connecting to game:", error);
 
-  // Handle page unload to clean up if the game is complete
-  window.addEventListener("beforeunload", () => {
-    // Only clear persisted state if the game is complete or failed
-    if (
-      playerStateManager.gameState.status ===
-        playerStateManager.GAME_STATUS.COMPLETED ||
-      playerStateManager.gameState.status ===
-        playerStateManager.GAME_STATUS.FAILED
-    ) {
-      playerStateManager.clearPersistedState();
-    }
-  });
+      // Show error to user
+      if (game.notificationSystem) {
+        game.notificationSystem.showAlert(
+          "Failed to connect to game. Please refresh the page or try again later.",
+          "error",
+          0 // Duration 0 means it stays until dismissed
+        );
+      }
+    });
 });
 
 export default GameController;
