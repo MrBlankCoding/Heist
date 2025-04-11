@@ -1,395 +1,529 @@
-/* game.css - Custom styles for The Heist game */
-
-/* Button Styles */
-.heist-button {
-  background-color: #3b82f6;
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  cursor: pointer;
+/* Prevent page scrolling */
+html, body {
+    height: 100%;
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
 }
 
-.heist-button:hover {
-  background-color: #2563eb;
+/* Main content container to handle scrolling within the app if needed */
+.game-container {
+    height: 100vh;
+    overflow-y: auto;
+    padding: 1.5rem;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(96, 165, 250, 0.5) rgba(17, 24, 39, 0.7);
 }
 
-.heist-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* Custom scrollbar for content container */
+.game-container::-webkit-scrollbar {
+    width: 6px;
 }
 
-.heist-button-secondary {
-  background-color: #4b5563;
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 0.375rem;
-  font-weight: 600;
-  transition: all 0.2s ease;
-  cursor: pointer;
+.game-container::-webkit-scrollbar-track {
+    background: rgba(17, 24, 39, 0.7);
 }
 
-.heist-button-secondary:hover {
-  background-color: #374151;
+.game-container::-webkit-scrollbar-thumb {
+    background-color: rgba(96, 165, 250, 0.5);
+    border-radius: 6px;
 }
 
-.heist-button-secondary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+/* Additional game-specific styles */
+.blueprint-grid {
+    background-image: radial-gradient(circle, #304060 1px, transparent 1px);
+    background-size: 20px 20px;
 }
 
-/* Role Cards */
+/* Role card styling */
 .role-card {
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.role-card:before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(45deg, rgba(0, 0, 0, 0), rgba(255, 255, 255, 0.1));
-  opacity: 0;
-  transition: opacity 0.3s ease;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .role-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-}
-
-.role-card:hover:before {
-  opacity: 1;
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
 }
 
 .role-card.selected {
-  border: 2px solid #60a5fa;
-  box-shadow: 0 0 15px rgba(96, 165, 250, 0.5);
+    border: 2px solid #60A5FA;
+    box-shadow: 0 0 15px rgba(96, 165, 250, 0.5);
 }
 
-/* Blueprint Grid Background */
-.blueprint-grid {
-  background-color: #1e293b;
-  background-image: 
-    linear-gradient(rgba(59, 130, 246, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(59, 130, 246, 0.1) 1px, transparent 1px);
-  background-size: 20px 20px;
+/* EFFECT COMMON STYLES */
+.effect-element {
+    position: absolute;
+    pointer-events: none;
+    z-index: 10;
 }
 
-/* Timer */
-.timer {
-  font-family: "Courier New", Courier, monospace;
-  letter-spacing: 0.1em;
-  transition: color 0.3s ease;
+.effect-active {
+    z-index: 20;
 }
 
-/* Timer update animation */
-@keyframes timer-flash {
-  0% { opacity: 1; }
-  50% { opacity: 0.7; }
-  100% { opacity: 1; }
+/* HACKER ROLE EFFECTS */
+/* Digital particle animation */
+.digital-particle {
+    position: absolute;
+    font-family: monospace;
+    font-weight: bold;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
 }
 
-.timer-update {
-  animation: timer-flash 0.5s ease-in-out;
+.digital-particle-animate {
+    opacity: 0.8;
+    animation: floatParticle var(--duration, 3s) ease-in-out infinite;
+    animation-delay: var(--delay, 0s);
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+@keyframes floatParticle {
+    0%, 100% {
+        transform: translate(0, 0);
+    }
+    50% {
+        transform: translate(var(--float-x, 10px), var(--float-y, -10px));
+    }
 }
 
-/* Puzzle Area */
-.puzzle-area {
-  min-height: 400px;
+/* Text glitch effect */
+@keyframes textGlitch {
+    0% { 
+        text-shadow: 0.05em 0 0 rgba(255, 0, 0, 0.75),
+                    -0.05em -0.025em 0 rgba(0, 255, 0, 0.75),
+                    -0.025em 0.05em 0 rgba(0, 0, 255, 0.75);
+    }
+    14% { 
+        text-shadow: 0.05em 0 0 rgba(255, 0, 0, 0.75),
+                    -0.05em -0.025em 0 rgba(0, 255, 0, 0.75),
+                    -0.025em 0.05em 0 rgba(0, 0, 255, 0.75);
+    }
+    15% { 
+        text-shadow: -0.05em -0.025em 0 rgba(255, 0, 0, 0.75),
+                    0.025em 0.025em 0 rgba(0, 255, 0, 0.75),
+                    -0.05em -0.05em 0 rgba(0, 0, 255, 0.75);
+    }
+    49% {
+        text-shadow: -0.05em -0.025em 0 rgba(255, 0, 0, 0.75),
+                    0.025em 0.025em 0 rgba(0, 255, 0, 0.75),
+                    -0.05em -0.05em 0 rgba(0, 0, 255, 0.75);
+    }
+    50% {
+        text-shadow: 0.025em 0.05em 0 rgba(255, 0, 0, 0.75),
+                    0.05em 0 0 rgba(0, 255, 0, 0.75),
+                    0 -0.05em 0 rgba(0, 0, 255, 0.75);
+    }
+    99% {
+        text-shadow: 0.025em 0.05em 0 rgba(255, 0, 0, 0.75),
+                    0.05em 0 0 rgba(0, 255, 0, 0.75),
+                    0 -0.05em 0 rgba(0, 0, 255, 0.75);
+    }
+    100% {
+        text-shadow: 0.05em 0 0 rgba(255, 0, 0, 0.75),
+                    -0.05em -0.025em 0 rgba(0, 255, 0, 0.75),
+                    -0.025em 0.05em 0 rgba(0, 0, 255, 0.75);
+    }
 }
 
-/* Chat Window */
-.chat-window {
-  height: calc(100vh - 200px); /* Dynamic height based on viewport */
-  overflow-y: auto;
-  scroll-behavior: smooth;
-  max-height: 70vh; /* Prevent it from getting too tall on large screens */
+/* Apply glitch to hacker title on hover */
+.role-card[data-role="Hacker"].effect-active h4 {
+    animation: textGlitch 2s infinite linear alternate-reverse;
 }
 
-.chat-window::-webkit-scrollbar {
-  width: 6px;
+/* SAFE CRACKER ROLE EFFECTS */
+/* Safe dial styling */
+.safe-dial-ring {
+    position: relative;
+    border-radius: 50%;
+    border: 2px solid rgba(252, 211, 77, 0.7);
+    background: radial-gradient(circle, #1F2937 0%, #111827 80%);
+    box-shadow: 
+        inset 0 0 20px rgba(0, 0, 0, 0.6),
+        0 0 15px rgba(252, 211, 77, 0.3);
+    transition: transform 0.05s ease;
 }
 
-.chat-window::-webkit-scrollbar-track {
-  background: #1f2937;
+.safe-dial-tick {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 2px;
+    height: 6px;
+    background-color: rgba(252, 211, 77, 0.7);
+    transform-origin: center bottom;
 }
 
-.chat-window::-webkit-scrollbar-thumb {
-  background-color: #4b5563;
-  border-radius: 20px;
+.safe-dial-tick-large {
+    height: 10px;
+    width: 3px;
+    background-color: rgba(252, 211, 77, 0.9);
 }
 
-/* Chat messages scaling */
-.chat-message {
-  max-width: 90%;
-  word-break: break-word;
+.safe-dial-number {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    transform: translateX(-50%);
+    font-size: 8px;
+    font-family: monospace;
+    color: rgba(252, 211, 77, 0.9);
+    margin-bottom: 3px;
 }
 
-.chat-message-bubble {
-  padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
-  position: relative;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  width: fit-content;
-  max-width: 100%;
+.safe-dial-pointer {
+    position: absolute;
+    top: 20%;
+    left: 50%;
+    width: 4px;
+    height: 10px;
+    background-color: rgba(252, 211, 77, 1);
+    transform: translateX(-50%);
+    box-shadow: 0 0 5px rgba(252, 211, 77, 0.7);
+    border-radius: 2px;
+    z-index: 2;
 }
 
-.chat-message-bubble.own {
-  border-bottom-right-radius: 0.25rem;
-  margin-left: auto;
+/* Safe click feedback */
+.safe-click {
+    animation: safeClick 0.1s ease;
 }
 
-.chat-message-bubble.other {
-  border-bottom-left-radius: 0.25rem;
-  margin-right: auto;
+@keyframes safeClick {
+    0% { transform: translateY(-5px); }
+    50% { transform: translateY(-5.8px); }
+    100% { transform: translateY(-5px); }
 }
 
-/* Chat system messages */
-.chat-system-message {
-  width: 80%;
-  margin: 0 auto;
-  text-align: center;
-  opacity: 0.75;
-  transition: opacity 0.2s ease;
-  font-size: 0.7rem;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  line-height: 1.2;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  max-width: 280px;
+/* Combination display */
+@keyframes digitChange {
+    0% { transform: translateY(0); opacity: 1; }
+    50% { transform: translateY(-100%); opacity: 0; }
+    50.1% { transform: translateY(100%); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
 }
 
-.chat-system-message:hover {
-  opacity: 1;
+.digit-change {
+    animation: digitChange 0.3s ease forwards;
 }
 
-/* Left sidebar adjustments */
-@media (min-width: 1024px) {
-  .lg\:col-span-1 .bg-gray-800 {
-    position: sticky;
-    top: 1rem;
-    height: calc(100vh - 2rem);
-    display: flex;
-    flex-direction: column;
-  }
-  
-  .chat-window {
-    flex-grow: 1;
-    max-height: none; /* Override the max-height on large screens */
-  }
+/* DEMOLITIONS ROLE EFFECTS */
+/* Fuse effect */
+.fuse-spark {
+    height: 10px;
+    width: 10px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(254, 243, 199, 1) 0%, rgba(239, 68, 68, 0.8) 70%);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.7), 0 0 20px rgba(254, 243, 199, 0.5);
+    animation: sparkPulse 0.3s ease-in-out infinite alternate;
+    transform: translateY(-50%);
 }
 
-/* Small screens optimization */
-@media (max-width: 768px) {
-  .chat-window {
-    height: calc(100vh - 170px);
-  }
-  
-  /* Make sure the chat container isn't too large on small devices */
-  .chat-message {
-    max-width: 95%;
-  }
-  
-  .chat-message-bubble {
-    padding: 0.5rem 0.75rem;
-  }
-  
-  .puzzle-area {
-    min-height: 300px;
-  }
+@keyframes sparkPulse {
+    0% { transform: translateY(-50%) scale(0.8); }
+    100% { transform: translateY(-50%) scale(1.2); }
 }
 
-/* Extra small screens */
-@media (max-width: 480px) {
-  .chat-window {
-    height: calc(100vh - 150px);
-  }
-  
-  .chat-message-bubble {
-    padding: 0.5rem;
-  }
-  
-  .chat-system-message {
-    width: 95%;
-  }
+/* Smoke particles */
+.smoke-particle {
+    position: absolute;
+    border-radius: 50%;
+    background-color: rgba(156, 163, 175, 0.6);
+    animation: smokeRise 1s ease-out forwards;
 }
 
-/* Puzzle Specific Styles */
-
-/* Hacker - Circuit Grid */
-.hacker-grid {
-  display: grid;
-  gap: 4px;
-  background-color: #111827;
-  border-radius: 8px;
-  padding: 16px;
+@keyframes smokeRise {
+    0% { transform: translateY(0) scale(1); }
+    100% { transform: translateY(-20px) scale(2); opacity: 0; }
 }
 
-/* Safe Cracker - Lock Dial */
-.safe-dial {
-  position: relative;
-  width: 200px;
-  height: 200px;
-  border-radius: 50%;
-  background-color: #374151;
-  border: 8px solid #d97706;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  transition: transform 0.3s ease;
+/* Explosion effects */
+.explosion-particle {
+    position: absolute;
+    border-radius: 50%;
+    transform: scale(0);
+    animation: explodeOut 0.8s ease-out forwards;
+    box-shadow: 0 0 8px currentColor;
 }
 
-/* Demolitions - Wires */
-.wire-container {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+@keyframes explodeOut {
+    0% { 
+        transform: scale(0) rotate(0deg); 
+        opacity: 1; 
+    }
+    100% { 
+        transform: 
+            scale(3) 
+            translateX(calc(cos(var(--angle, 0rad)) * var(--speed, 50px))) 
+            translateY(calc(sin(var(--angle, 0rad)) * var(--speed, 50px))) 
+            rotate(180deg); 
+        opacity: 0; 
+    }
 }
 
-.wire {
-  height: 10px;
-  border-radius: 5px;
-  transition: all 0.2s ease;
+/* Flash effect */
+.flash-effect {
+    opacity: 0;
+    animation: flashBang 0.3s ease-out forwards;
 }
 
-.wire-red { background-color: #ef4444; }
-.wire-blue { background-color: #3b82f6; }
-.wire-green { background-color: #10b981; }
-.wire-yellow { background-color: #f59e0b; }
-.wire-white { background-color: #f3f4f6; }
-
-.wire.cut {
-  opacity: 0.5;
-  text-decoration: line-through;
+@keyframes flashBang {
+    0% { opacity: 0; }
+    10% { opacity: 0.8; }
+    100% { opacity: 0; }
 }
 
-/* Lookout - Camera Feed */
-.camera-feed {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4/3;
-  background-color: #1f2937;
-  border-radius: 4px;
-  overflow: hidden;
+/* Explosion shake */
+.explosion-shake {
+    animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
 }
 
-.camera-feed::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.1),
-    rgba(0, 0, 0, 0.1) 2px,
-    transparent 2px,
-    transparent 4px
-  );
-  pointer-events: none;
+@keyframes shake {
+    0%, 100% { transform: translateY(-5px); }
+    10%, 30%, 50%, 70%, 90% { transform: translate(-1px, -6px); }
+    20%, 40%, 60%, 80% { transform: translate(1px, -4px); }
 }
 
-.camera-feed-static {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  opacity: 0.1;
-  pointer-events: none;
+/* LOOKOUT ROLE EFFECTS */
+/* Radar screen */
+.radar-screen {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background-color: rgba(16, 185, 129, 0.1);
+    border: 2px solid rgba(16, 185, 129, 0.5);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 
+        inset 0 0 15px rgba(0, 0, 0, 0.5),
+        0 0 10px rgba(16, 185, 129, 0.3);
 }
 
-/* Animations */
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+.radar-grid-x, .radar-grid-y {
+    position: absolute;
+    background-color: rgba(16, 185, 129, 0.3);
 }
 
-.animate-pulse {
-  animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.radar-grid-x {
+    width: 100%;
+    height: 1px;
+    top: 50%;
+    left: 0;
 }
 
+.radar-grid-y {
+    width: 1px;
+    height: 100%;
+    left: 50%;
+    top: 0;
+}
+
+.radar-circle {
+    position: absolute;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.radar-sweep {
+    position: absolute;
+    width: 50%;
+    height: 1px;
+    background: linear-gradient(90deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.8));
+    top: 50%;
+    left: 50%;
+    transform-origin: left center;
+    animation: radarSweep 3s linear infinite;
+    box-shadow: 0 0 5px rgba(16, 185, 129, 0.5);
+}
+
+@keyframes radarSweep {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.radar-blip {
+    position: absolute;
+    background-color: rgba(16, 185, 129, 0.8);
+    border-radius: 50%;
+    animation: blipPulse 2s ease-out;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
+}
+
+@keyframes blipPulse {
+    0% { transform: scale(0); opacity: 1; }
+    50% { transform: scale(1.5); opacity: 0.6; box-shadow: 0 0 12px rgba(16, 185, 129, 0.6); }
+    100% { transform: scale(0); opacity: 0; }
+}
+
+/* Text blink effect */
+.text-blink {
+    animation: textBlink 0.3s step-end;
+}
+
+@keyframes textBlink {
+    0%, 50% { opacity: 0; }
+    25%, 75%, 100% { opacity: 1; }
+}
+
+/* Background gradient utility */
+.bg-gradient-radial {
+    background-image: radial-gradient(var(--tw-gradient-stops));
+    background-position: center;
+    background-size: 100% 100%;
+}
+
+/* Floating particles animation for hacker card */
+@keyframes floatParticles {
+    0% { transform: translateY(0) rotate(0deg); opacity: 0.2; }
+    50% { transform: translateY(-10px) rotate(180deg); opacity: 0.7; }
+    100% { transform: translateY(0) rotate(360deg); opacity: 0.2; }
+}
+
+@keyframes floatParticles2 {
+    0% { transform: translateY(0) rotate(0deg); opacity: 0.1; }
+    33% { transform: translateY(-15px) translateX(5px) rotate(120deg); opacity: 0.6; }
+    66% { transform: translateY(-5px) translateX(-5px) rotate(240deg); opacity: 0.3; }
+    100% { transform: translateY(0) rotate(360deg); opacity: 0.1; }
+}
+
+.role-card[data-role="Hacker"]::before,
+.role-card[data-role="Hacker"]::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    background-color: rgba(96, 165, 250, 0.5);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: 5;
+}
+
+.role-card[data-role="Hacker"]::before {
+    width: 6px;
+    height: 6px;
+    left: 30%;
+    top: 40%;
+    animation: floatParticles 4s infinite;
+}
+
+.role-card[data-role="Hacker"]::after {
+    width: 4px;
+    height: 4px;
+    right: 30%;
+    top: 60%;
+    animation: floatParticles2 5s infinite;
+}
+
+.role-card[data-role="Hacker"]:hover::before,
+.role-card[data-role="Hacker"]:hover::after {
+    opacity: 1;
+}
+
+/* Message enter/exit animations */
 @keyframes fadeIn {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.5s ease-in;
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes fadeOut {
-  0% { opacity: 1; }
-  100% { opacity: 0; }
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+.animate-fadeIn {
+    animation: fadeIn 0.3s ease-out forwards;
 }
 
 .animate-fadeOut {
-  animation: fadeOut 0.5s ease-out;
+    animation: fadeOut 0.3s ease-out forwards;
 }
 
-/* Media Queries */
-@media (max-width: 768px) {
-  .puzzle-area {
+/* Timer ripple animation */
+@keyframes timerUpdate {
+    0% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.7); }
+    70% { box-shadow: 0 0 0 10px rgba(96, 165, 250, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); }
+}
+
+.timer-update {
+    animation: timerUpdate 1s ease-out;
+}
+
+/* Pulse animation for hacker card click */
+@keyframes pulse {
+    0% { transform: scale(0.95); opacity: 0.7; }
+    50% { transform: scale(1.05); opacity: 0.3; }
+    100% { transform: scale(1); opacity: 0; }
+}
+
+/* Custom scrollbar styling */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: rgba(17, 24, 39, 0.7);
+    border-radius: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(96, 165, 250, 0.5);
+    border-radius: 8px;
+    border: 1px solid rgba(17, 24, 39, 0.7);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(96, 165, 250, 0.8);
+}
+
+/* Other existing game-specific styles */
+.timer {
+    font-family: monospace;
+    letter-spacing: 0.1em;
+}
+
+.puzzle-area {
+    min-height: 400px;
+    background-color: rgba(31, 41, 55, 0.5);
+    border-radius: 0.5rem;
+}
+
+.chat-window {
+    height: 250px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(96, 165, 250, 0.5) rgba(17, 24, 39, 0.7);
+}
+
+#puzzle-content {
     min-height: 300px;
-  }
-  
-  .chat-window {
-    height: 200px;
-  }
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
 }
 
-/* Power notifications */
-.power-notification {
-  background-color: rgba(59, 130, 246, 0.2);
-  border-left: 3px solid #3b82f6;
-  padding: 0.5rem;
-  margin: 0.5rem 0;
-  font-weight: 500;
-  animation: pulse-blue 2s ease-in-out;
+/* Role-specific puzzle styling */
+.grid-cell {
+    background-color: rgba(17, 24, 39, 0.8);
+    border: 1px solid rgba(75, 85, 99, 0.5);
+    transition: all 0.2s ease;
 }
 
-@keyframes pulse-blue {
-  0%, 100% { box-shadow: 0 0 0 rgba(59, 130, 246, 0); }
-  50% { box-shadow: 0 0 10px rgba(59, 130, 246, 0.6); }
+.grid-cell:hover {
+    background-color: rgba(31, 41, 55, 0.9);
 }
 
-.power-notification.hacker {
-  background-color: rgba(59, 130, 246, 0.2);
-  border-left-color: #3b82f6;
-}
-
-.power-notification.safe-cracker {
-  background-color: rgba(245, 158, 11, 0.2);
-  border-left-color: #f59e0b;
-}
-
-.power-notification.demolitions {
-  background-color: rgba(239, 68, 68, 0.2);
-  border-left-color: #ef4444;
-}
-
-.power-notification.lookout {
-  background-color: rgba(16, 185, 129, 0.2);
-  border-left-color: #10b981;
-}
-
-/* System messages */
-.chat-system-message.power-message {
-  width: 90%;
-  background-color: rgba(59, 130, 246, 0.15);
-  border-left: 2px solid #3b82f6;
-  padding-left: 0.75rem;
-  opacity: 0.9;
+/* Safe cracker puzzle styling */
+.lock-dial {
+    background: radial-gradient(circle, #374151 0%, #1F2937 100%);
+    box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.6);
 } 
