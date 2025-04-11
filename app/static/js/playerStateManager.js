@@ -12,6 +12,14 @@ class PlayerStateManager {
       FAILED: "failed",
     });
 
+    // Define valid roles
+    this.VALID_ROLES = Object.freeze([
+      "Hacker",
+      "Safe Cracker",
+      "Demolitions",
+      "Lookout",
+    ]);
+
     // Initialize game state
     this.gameState = {
       roomCode: null,
@@ -100,7 +108,7 @@ class PlayerStateManager {
    */
   selectRole(role) {
     // Validate role
-    if (!VALID_ROLES.includes(role)) {
+    if (!this.VALID_ROLES.includes(role)) {
       console.error("PlayerStateManager: Invalid role:", role);
       return Promise.reject(new Error(`Invalid role: ${role}`));
     }
@@ -117,7 +125,7 @@ class PlayerStateManager {
 
       // Set up handler for role confirmation
       const handleResponse = (data) => {
-        if (data.success) {
+        if (data.type === "role_confirmed") {
           // Update local game state
           this.gameState.playerRole = role;
 
@@ -129,26 +137,21 @@ class PlayerStateManager {
           });
 
           resolve(data);
-        } else {
-          // Role selection failed
+          this._cleanupTemporaryHandler(handlerId);
+        } else if (data.type === "error" && data.context === "role_selection") {
           reject(new Error(data.message || "Role selection failed"));
+          this._cleanupTemporaryHandler(handlerId);
         }
-
-        // Clean up temporary handler
-        this._cleanupTemporaryHandler(handlerId);
       };
 
       // Register temporary handlers
-      websocketManager.registerMessageHandler("role_confirmed", handleResponse);
-
-      websocketManager.registerMessageHandler("error", (data) => {
-        console.error(
-          "PlayerStateManager: Error selecting role:",
-          data.message
-        );
-        reject(new Error(data.message || "Error selecting role"));
-        this._cleanupTemporaryHandler(handlerId);
+      this.temporaryHandlers.set(handlerId, {
+        role_confirmed: handleResponse,
+        error: handleResponse,
       });
+
+      websocketManager.registerMessageHandler("role_confirmed", handleResponse);
+      websocketManager.registerMessageHandler("error", handleResponse);
 
       // Send role selection message
       websocketManager
