@@ -120,6 +120,9 @@ class GameController {
     playerStateManager.on("gameOver", (result) =>
       this.eventHandler.handleGameOver(result)
     );
+    playerStateManager.on("gameReset", (data) =>
+      this.eventHandler.handleGameReset(data)
+    );
     playerStateManager.on("randomEvent", (data) =>
       this.eventHandler.handleRandomEvent(data)
     );
@@ -181,36 +184,132 @@ document.addEventListener("DOMContentLoaded", () => {
     ? roomCodeElement.textContent.split(": ")[1]
     : null; // Extract room code
 
-  // Retrieve player data from local storage
-  const heistPlayer = localStorage.getItem("heistPlayer");
-  let playerId = null;
-  let playerName = null;
-  if (heistPlayer) {
-    const playerData = JSON.parse(heistPlayer);
-    playerId = playerData.player_id;
-    playerName = playerData.player_name;
-  } else {
-    console.error("Player ID not found in local storage.");
-    return; // Or handle this error appropriately
-  }
+  // Try to reconnect first if we have saved state
+  playerStateManager
+    .handleReconnection()
+    .then(() => {
+      console.log("Successfully reconnected to game");
 
-  if (roomCode && playerId) {
-    // Initialize player state before connecting
-    playerStateManager
-      .initialize(roomCode, playerId, playerName)
-      .then(() => {
-        return websocketManager.connect(roomCode, playerId);
-      })
-      .then(() => {
-        // Show the lobby
+      // Validate the reconnection state
+      // If we have player info but no players object or it's empty, something is wrong
+      if (
+        playerStateManager.gameState.playerRole &&
+        (!playerStateManager.gameState.players ||
+          typeof playerStateManager.gameState.players !== "object" ||
+          Object.keys(playerStateManager.gameState.players).length === 0)
+      ) {
+        console.log(
+          "Invalid game state detected - players missing but role exists"
+        );
+        // Reset potentially invalid state
+        playerStateManager.gameState.playerRole = null;
+        playerStateManager.gameState.status =
+          playerStateManager.GAME_STATUS.WAITING;
+
+        // Always show the lobby for possibly invalid states
+        return gameStartScreen.showLobby();
+      }
+
+      return websocketManager.connect(
+        playerStateManager.gameState.roomCode,
+        playerStateManager.gameState.playerId
+      );
+    })
+    .then(() => {
+      // If we got here through the invalid state path, websocketManager.connect wasn't called
+      // We detect this by checking if the websocket is connected
+      if (!websocketManager.isConnected()) {
+        return; // Skip the rest of this handling
+      }
+
+      // If game status is in progress AND we have valid player data,
+      // show the game area immediately - this handles reconnection to active games
+      if (
+        playerStateManager.gameState.status ===
+          playerStateManager.GAME_STATUS.IN_PROGRESS &&
+        playerStateManager.gameState.players &&
+        typeof playerStateManager.gameState.players === "object" &&
+        Object.keys(playerStateManager.gameState.players).length > 0
+      ) {
+        console.log("Reconnected to game in progress, showing game area");
+        if (gameStartScreen) {
+          gameStartScreen.hideLobby();
+        }
+
+        const gameArea = document.getElementById("game-area");
+        if (gameArea) {
+          gameArea.classList.remove("hidden");
+        }
+
+        // Update role instruction
+        const roleInstruction = document.getElementById("role-instruction");
+        if (roleInstruction) {
+          const playerRole = playerStateManager.gameState.playerRole;
+          if (playerRole) {
+            const roleInfo = playerStateManager.getRoleInfo(playerRole);
+            if (roleInfo) {
+              roleInstruction.textContent = `${playerRole} - ${roleInfo.description}`;
+              roleInstruction.classList.remove("text-gray-400", "italic");
+            }
+          }
+        }
+      } else {
+        // For all other cases, show the lobby
+        console.log(
+          "Showing lobby - game is not in progress or has invalid state"
+        );
         gameStartScreen.showLobby();
-      })
-      .catch((error) => {
-        console.error("Error initializing game:", error);
-      });
-  } else {
-    console.error("Room code or Player ID not found.");
-  }
+      }
+    })
+    .catch(() => {
+      // If reconnection fails, try normal initialization
+      console.log("No saved game state, attempting normal initialization");
+
+      // Clear any potentially corrupted state
+      playerStateManager.clearPersistedState();
+
+      // Retrieve player data from local storage
+      const heistPlayer = localStorage.getItem("heistPlayer");
+      if (!heistPlayer) {
+        console.error("Player ID not found in local storage.");
+        return;
+      }
+
+      const playerData = JSON.parse(heistPlayer);
+      const playerId = playerData.player_id;
+      const playerName = playerData.player_name;
+
+      if (roomCode && playerId) {
+        // Initialize player state before connecting
+        return playerStateManager
+          .initialize(roomCode, playerId, playerName)
+          .then(() => {
+            return websocketManager.connect(roomCode, playerId);
+          });
+      } else {
+        throw new Error("Room code or Player ID not found.");
+      }
+    })
+    .then(() => {
+      // Show the lobby regardless of whether we reconnected or initialized new
+      gameStartScreen.showLobby();
+    })
+    .catch((error) => {
+      console.error("Error initializing game:", error);
+    });
+
+  // Handle page unload to clean up if the game is complete
+  window.addEventListener("beforeunload", () => {
+    // Only clear persisted state if the game is complete or failed
+    if (
+      playerStateManager.gameState.status ===
+        playerStateManager.GAME_STATUS.COMPLETED ||
+      playerStateManager.gameState.status ===
+        playerStateManager.GAME_STATUS.FAILED
+    ) {
+      playerStateManager.clearPersistedState();
+    }
+  });
 });
 
 export default GameController;

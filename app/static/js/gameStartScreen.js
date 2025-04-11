@@ -456,16 +456,24 @@ class GameStartScreen {
 
     // Get a list of all taken roles
     const takenRoles = new Set();
-    Object.values(playerStateManager.gameState.players).forEach((player) => {
-      if (player.role) {
-        console.log(
-          `Found taken role: ${player.role} by player ${
-            player.name || player.id
-          }`
-        );
-        takenRoles.add(player.role);
-      }
-    });
+
+    // Add safety check
+    if (
+      playerStateManager.gameState.players &&
+      typeof playerStateManager.gameState.players === "object"
+    ) {
+      Object.values(playerStateManager.gameState.players).forEach((player) => {
+        if (player.role) {
+          console.log(
+            `Found taken role: ${player.role} by player ${
+              player.name || player.id
+            }`
+          );
+          takenRoles.add(player.role);
+        }
+      });
+    }
+
     console.log("All taken roles:", Array.from(takenRoles));
 
     // Clear existing elements
@@ -473,26 +481,32 @@ class GameStartScreen {
     this.playerElements = {};
 
     // Re-render all players
-    Object.values(playerStateManager.gameState.players).forEach((player) => {
-      // Make sure player has id property
-      if (player && !player.id && player.player_id) {
-        player.id = player.player_id;
-      } else if (!player.id) {
-        // Try to get id from object key
-        Object.entries(playerStateManager.gameState.players).forEach(
-          ([id, p]) => {
-            if (p === player) {
-              player.id = id;
+    // Add safety check
+    if (
+      playerStateManager.gameState.players &&
+      typeof playerStateManager.gameState.players === "object"
+    ) {
+      Object.values(playerStateManager.gameState.players).forEach((player) => {
+        // Make sure player has id property
+        if (player && !player.id && player.player_id) {
+          player.id = player.player_id;
+        } else if (!player.id) {
+          // Try to get id from object key
+          Object.entries(playerStateManager.gameState.players).forEach(
+            ([id, p]) => {
+              if (p === player) {
+                player.id = id;
+              }
             }
-          }
-        );
-      }
+          );
+        }
 
-      // Only render if we have an id
-      if (player.id) {
-        this._renderPlayer(player);
-      }
-    });
+        // Only render if we have an id
+        if (player.id) {
+          this._renderPlayer(player);
+        }
+      });
+    }
 
     // Update role cards based on taken roles
     if (this.roleCards && this.roleCards.length) {
@@ -528,7 +542,14 @@ class GameStartScreen {
   _refreshStartButton() {
     const isHost = playerStateManager.isHost();
     const hasRole = !!playerStateManager.gameState.playerRole;
-    const players = Object.values(playerStateManager.gameState.players);
+
+    // Add safety check to ensure players exists and is an object
+    const players =
+      playerStateManager.gameState.players &&
+      typeof playerStateManager.gameState.players === "object"
+        ? Object.values(playerStateManager.gameState.players)
+        : [];
+
     const allPlayersHaveRoles = players.every((player) => !!player.role);
     const hasMinimumPlayers = players.length >= 2;
 
@@ -613,14 +634,20 @@ class GameStartScreen {
   _updateRoleCardAvailability() {
     if (!this.roleCards || !this.roleCards.length) return;
 
-    // Get all taken roles (except current player's if they're changing)
+    // Get a list of all taken roles
     const takenRoles = new Set();
-    Object.values(playerStateManager.gameState.players).forEach((player) => {
-      // If this is not the current player and they have a role, mark it as taken
-      if (player.id !== playerStateManager.gameState.playerId && player.role) {
-        takenRoles.add(player.role);
-      }
-    });
+
+    // Add safety check
+    if (
+      playerStateManager.gameState.players &&
+      typeof playerStateManager.gameState.players === "object"
+    ) {
+      Object.values(playerStateManager.gameState.players).forEach((player) => {
+        if (player && player.role) {
+          takenRoles.add(player.role);
+        }
+      });
+    }
 
     // Get current player's role
     const currentPlayerRole = playerStateManager.gameState.playerRole;

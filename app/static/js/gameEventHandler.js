@@ -7,6 +7,7 @@ import SafeCrackerPuzzleController from "./puzzles/safeCrackerPuzzleController.j
 import DemolitionsPuzzleController from "./puzzles/demolitionsPuzzleController.js";
 import LookoutPuzzleController from "./puzzles/lookoutPuzzleController.js";
 import TeamPuzzleController from "./puzzles/teamPuzzleController.js";
+import websocketManager from "./websocketManager.js";
 
 class GameEventHandler {
   constructor(
@@ -35,31 +36,91 @@ class GameEventHandler {
    * @param {Object} data - Game state data
    */
   handleGameStateUpdated(data) {
-    // Update UI based on game state
-    this.uiManager.updateTimer(data.timer);
-    this.uiManager.updateAlertLevel(data.alertLevel);
-    this.uiManager.updateStageInfo();
-    this.uiManager.updateTeamStatus();
+    // Make sure UI Manager has been initialized
+    if (!this.uiManager) {
+      console.error("UI Manager not initialized");
+      return;
+    }
 
-    // Check if game was already in progress when joining
+    try {
+      // Only update UI if methods exist
+      if (typeof this.uiManager.updateTimer === "function") {
+        this.uiManager.updateTimer(data.timer);
+      }
+
+      if (typeof this.uiManager.updateAlertLevel === "function") {
+        this.uiManager.updateAlertLevel(data.alertLevel);
+      }
+
+      if (typeof this.uiManager.updateStageInfo === "function") {
+        this.uiManager.updateStageInfo();
+      }
+
+      if (typeof this.uiManager.updateTeamStatus === "function") {
+        this.uiManager.updateTeamStatus();
+      }
+
+      // If game is in progress, make sure the game area is visible and lobby is hidden
+      if (data.status === "in_progress") {
+        // Handle reconnection scenario - make sure we show the game area
+        this._ensureGameAreaVisible();
+      }
+    } catch (error) {
+      console.error("Error updating UI:", error);
+    }
+  }
+
+  /**
+   * Ensure the game area is visible and lobby is hidden
+   * Private helper for reconnection scenario
+   */
+  _ensureGameAreaVisible() {
+    // Make sure gameStartScreen exists and has the needed methods
+    if (gameStartScreen && typeof gameStartScreen.hideLobby === "function") {
+      // Hide the lobby if it's visible
+      if (
+        gameStartScreen.lobbyElement &&
+        !gameStartScreen.lobbyElement.classList.contains("hidden")
+      ) {
+        gameStartScreen.hideLobby();
+      }
+    }
+
+    // Make sure game area is visible
     if (
-      data.status === "in_progress" &&
-      gameStartScreen.lobbyElement.classList.contains("hidden") === false
+      this.uiManager &&
+      this.uiManager.elements &&
+      this.uiManager.elements.gameArea
     ) {
-      gameStartScreen.hideLobby();
-      this.uiManager.gameAreaElement.classList.remove("hidden");
+      this.uiManager.elements.gameArea.classList.remove("hidden");
 
-      // Update role instruction to replace "waiting for game to start" message
-      const playerRole = playerStateManager.gameState.playerRole;
-      if (playerRole) {
-        const roleInfo = playerStateManager.getRoleInfo(playerRole);
-        if (roleInfo) {
-          this.uiManager.roleInstructionElement.textContent = `${playerRole} - ${roleInfo.description}`;
-          this.uiManager.roleInstructionElement.classList.remove(
-            "text-gray-400",
-            "italic"
-          );
-        }
+      // Update role instruction
+      this._updateRoleInstruction();
+    }
+  }
+
+  /**
+   * Update role instruction element
+   * Private helper for reconnection and game state updates
+   */
+  _updateRoleInstruction() {
+    if (
+      !this.uiManager ||
+      !this.uiManager.elements ||
+      !this.uiManager.elements.roleInstruction
+    ) {
+      return;
+    }
+
+    const playerRole = playerStateManager.gameState.playerRole;
+    if (playerRole) {
+      const roleInfo = playerStateManager.getRoleInfo(playerRole);
+      if (roleInfo) {
+        this.uiManager.elements.roleInstruction.textContent = `${playerRole} - ${roleInfo.description}`;
+        this.uiManager.elements.roleInstruction.classList.remove(
+          "text-gray-400",
+          "italic"
+        );
       }
     }
   }
@@ -201,6 +262,10 @@ class GameEventHandler {
 
     // Play success sound
     this.uiManager.playSound("success");
+
+    // Mark game as complete in state
+    playerStateManager.gameState.status =
+      playerStateManager.GAME_STATUS.COMPLETED;
   }
 
   /**
@@ -224,6 +289,9 @@ class GameEventHandler {
 
     // Play failure sound
     this.uiManager.playSound("failure");
+
+    // Mark game as failed in state
+    playerStateManager.gameState.status = playerStateManager.GAME_STATUS.FAILED;
   }
 
   /**
@@ -341,9 +409,12 @@ class GameEventHandler {
 
     // Update the vote display
     this.uiManager.updateTimerVote({
-      votes: data.votes,
+      votes: data.votes || [],
+      yesVotes: [], // No votes yet when initiated
+      noVotes: [],
       players: data.players,
       required: Math.ceil(Object.keys(data.players).length / 2), // Default to majority
+      totalPlayers: Object.keys(data.players).length, // Add total players
     });
 
     // Add system message to chat
@@ -360,11 +431,14 @@ class GameEventHandler {
    * @param {Object} data - Vote update data
    */
   handleTimerVoteUpdated(data) {
-    // Update the vote display
+    // Update the vote display with the yes/no votes directly from playerStateManager event
     this.uiManager.updateTimerVote({
       votes: data.votes,
+      yesVotes: data.yesVotes || [],
+      noVotes: data.noVotes || [],
       players: data.players,
       required: Math.ceil(Object.keys(data.players).length / 2), // Default to majority
+      totalPlayers: Object.keys(data.players).length, // Add total players
     });
 
     // Play a sound for new votes
@@ -474,6 +548,50 @@ class GameEventHandler {
     // Reset the extend timer button (in case it was disabled)
     this.uiManager.resetExtendTimerButton();
     this.setTimerExtendVoted(false); // Reset the voted flag
+  }
+
+  /**
+   * Handle game reset request (from server)
+   * @param {Object} data - Reset data
+   */
+  handleGameReset(data) {
+    // Make sure we're in the lobby
+    if (
+      gameStartScreen &&
+      !gameStartScreen.lobbyElement.classList.contains("hidden")
+    ) {
+      return; // Already in lobby, nothing to do
+    }
+
+    // Hide game UI
+    if (this.uiManager.elements.gameArea) {
+      this.uiManager.elements.gameArea.classList.add("hidden");
+    }
+
+    // Reset any active puzzles
+    const currentController = this.getActivePuzzleController();
+    if (currentController) {
+      currentController.cleanup();
+      this.setActivePuzzleController(null);
+    }
+
+    // Show lobby
+    if (gameStartScreen) {
+      gameStartScreen.showLobby();
+    }
+
+    // Show notification
+    this.notificationSystem.showAlert(
+      "Game reset. Choose your roles to start a new heist!",
+      "info"
+    );
+
+    // Add chat message
+    this.chatManager.addSystemMessage(
+      "Game has been reset. Choose your roles to start a new heist!",
+      false,
+      { type: "game", highlight: true }
+    );
   }
 }
 

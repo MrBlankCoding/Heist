@@ -21,7 +21,7 @@ class PlayerStateManager {
     ]);
 
     // Initialize game state
-    this.gameState = {
+    this.gameState = this._loadPersistedState() || {
       roomCode: null,
       playerId: null,
       playerName: null,
@@ -33,6 +33,7 @@ class PlayerStateManager {
       players: {},
       puzzles: {},
       timerExtendVotes: new Set(),
+      timerVote: { yesVotes: [], noVotes: [] },
       lastServerSync: null,
       lastSyncTimer: null,
     };
@@ -83,6 +84,44 @@ class PlayerStateManager {
   }
 
   /**
+   * Private: Save essential game state to localStorage
+   */
+  _persistState() {
+    const persistedState = {
+      roomCode: this.gameState.roomCode,
+      playerId: this.gameState.playerId,
+      playerName: this.gameState.playerName,
+      playerRole: this.gameState.playerRole,
+      stage: this.gameState.stage,
+      status: this.gameState.status,
+      alertLevel: this.gameState.alertLevel,
+    };
+    localStorage.setItem("heistGameState", JSON.stringify(persistedState));
+  }
+
+  /**
+   * Private: Load persisted game state from localStorage
+   */
+  _loadPersistedState() {
+    const savedState = localStorage.getItem("heistGameState");
+    if (!savedState) return null;
+
+    try {
+      return JSON.parse(savedState);
+    } catch (e) {
+      console.error("Error loading persisted state:", e);
+      return null;
+    }
+  }
+
+  /**
+   * Clear persisted state (used when game ends or player explicitly leaves)
+   */
+  clearPersistedState() {
+    localStorage.removeItem("heistGameState");
+  }
+
+  /**
    * Initialize player state with user information
    * @param {string} roomCode - Game room code
    * @param {string} playerId - Player ID
@@ -94,11 +133,64 @@ class PlayerStateManager {
       return Promise.reject(new Error("Room code and player ID are required"));
     }
 
+    // Update state with new connection info
     this.gameState.roomCode = roomCode;
     this.gameState.playerId = playerId;
     this.gameState.playerName = playerName;
 
+    // Persist the state
+    this._persistState();
+
     return websocketManager.connect(roomCode, playerId);
+  }
+
+  /**
+   * Handle reconnection attempt
+   * @returns {Promise} - Resolves when reconnection is complete
+   */
+  handleReconnection() {
+    const savedState = this._loadPersistedState();
+    if (!savedState || !savedState.roomCode || !savedState.playerId) {
+      return Promise.reject(new Error("No saved game state found"));
+    }
+
+    // Validate saved state to avoid inconsistencies
+    // If the game state has a role but the game isn't in progress,
+    // or if status is corrupted, reset to waiting
+    if (
+      (savedState.playerRole &&
+        savedState.status !== this.GAME_STATUS.IN_PROGRESS) ||
+      (savedState.status !== this.GAME_STATUS.IN_PROGRESS &&
+        savedState.status !== this.GAME_STATUS.WAITING)
+    ) {
+      console.log(
+        "Invalid saved state detected, resetting to waiting state",
+        savedState
+      );
+      savedState.status = this.GAME_STATUS.WAITING;
+      savedState.playerRole = null; // Clear the role as it may be stale
+    }
+
+    // Initialize with validated state
+    return this.initialize(
+      savedState.roomCode,
+      savedState.playerId,
+      savedState.playerName
+    ).then(() => {
+      // Ensure we apply the validated state after initialization
+      this.gameState.status = savedState.status;
+      this.gameState.playerRole = savedState.playerRole;
+      this.gameState.stage = savedState.stage || 1;
+      this.gameState.alertLevel = savedState.alertLevel || 0;
+
+      // Empty players object by default until server sends the real data
+      this.gameState.players = {};
+
+      // Re-persist the validated state
+      this._persistState();
+
+      return Promise.resolve();
+    });
   }
 
   /**
@@ -128,6 +220,7 @@ class PlayerStateManager {
         if (data.type === "role_confirmed") {
           // Update local game state
           this.gameState.playerRole = role;
+          this._persistState(); // Persist after role confirmation
 
           // Trigger event for role selection
           this.trigger("playerRoleSelected", {
@@ -430,8 +523,15 @@ class PlayerStateManager {
    */
   isHost() {
     const currentPlayerId = this.gameState.playerId;
-    const currentPlayer = this.gameState.players[currentPlayerId];
-    return !!(currentPlayer && currentPlayer.is_host);
+    // Make sure gameState.players exists, currentPlayerId exists, and the current player exists in players
+    if (
+      !this.gameState.players ||
+      !currentPlayerId ||
+      !this.gameState.players[currentPlayerId]
+    ) {
+      return false;
+    }
+    return !!this.gameState.players[currentPlayerId].is_host;
   }
 
   /**
@@ -522,23 +622,21 @@ class PlayerStateManager {
       const updatedPlayers = {};
       Object.entries(data.players).forEach(([playerId, playerData]) => {
         updatedPlayers[playerId] = {
-          id: playerId, // Ensure id is always set
+          id: playerId,
           name: playerData.name,
           role: playerData.role,
           connected: playerData.connected,
           is_host: playerData.is_host,
         };
 
-        // If this is the current player, also update playerRole
         if (playerId === this.gameState.playerId && playerData.role) {
           this.gameState.playerRole = playerData.role;
-          console.log(
-            "Updated current player role from game state:",
-            playerData.role
-          );
         }
       });
       this.gameState.players = updatedPlayers;
+
+      // Persist essential state
+      this._persistState();
 
       // Start local timer if game is in progress
       if (data.status === "in_progress" && !this.localTimerInterval) {
@@ -560,13 +658,57 @@ class PlayerStateManager {
       });
     });
 
+    // Game reset event
+    websocketManager.registerMessageHandler("game_reset", (data) => {
+      // Reset game state values
+      this.gameState.playerRole = null;
+      this.gameState.stage = 1;
+      this.gameState.status = this.GAME_STATUS.WAITING;
+      this.gameState.timer = 300;
+      this.gameState.alertLevel = 0;
+      this.gameState.puzzles = {};
+      this.gameState.timerExtendVotes = new Set();
+
+      // Reset all player roles
+      Object.values(this.gameState.players).forEach((player) => {
+        if (player) {
+          player.role = null;
+        }
+      });
+
+      // Stop the local timer
+      if (this.localTimerInterval) {
+        this._stopLocalTimer();
+      }
+
+      // Clear persisted state
+      this.clearPersistedState();
+
+      // Trigger reset event for UI to update
+      this.trigger("gameReset", data);
+
+      // Re-trigger player connected events to refresh UI
+      Object.entries(this.gameState.players).forEach(([playerId, player]) => {
+        this.trigger("playerConnected", {
+          id: playerId,
+          name: player.name,
+          role: null,
+          connected: player.connected,
+          is_host: player.is_host,
+        });
+      });
+    });
+
     // Timer vote initiated
     websocketManager.registerMessageHandler("timer_vote_initiated", (data) => {
-      // Store the vote data for future reference
+      // Initialize the timer vote tracking in game state
       this.gameState.timerVote = {
-        initiator: data.initiator_id,
+        initiatorId: data.initiator_id,
+        initiatorName: data.initiator_name,
+        timeLimit: data.vote_time_limit || 20,
         votes: data.votes || [],
-        voteTimeLimit: data.vote_time_limit || 20,
+        yesVotes: [],
+        noVotes: [],
       };
 
       // Trigger event for UI to show the vote modal
@@ -584,6 +726,19 @@ class PlayerStateManager {
       // Update local vote data
       if (this.gameState.timerVote) {
         this.gameState.timerVote.votes = data.votes || [];
+
+        // Track yes/no votes separately
+        if (data.player_id && data.vote !== undefined) {
+          if (data.vote === true) {
+            if (!this.gameState.timerVote.yesVotes.includes(data.player_id)) {
+              this.gameState.timerVote.yesVotes.push(data.player_id);
+            }
+          } else {
+            if (!this.gameState.timerVote.noVotes.includes(data.player_id)) {
+              this.gameState.timerVote.noVotes.push(data.player_id);
+            }
+          }
+        }
       }
 
       // Trigger event to update UI
@@ -592,6 +747,8 @@ class PlayerStateManager {
         playerId: data.player_id, // Player who just voted
         vote: data.vote, // Yes/no vote
         players: this.gameState.players,
+        yesVotes: this.gameState.timerVote?.yesVotes || [],
+        noVotes: this.gameState.timerVote?.noVotes || [],
       });
     });
 

@@ -5,6 +5,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const roomCodeInput = document.getElementById("roomCode");
   const playerNameInput = document.getElementById("playerName");
 
+  // Clear any potentially stale game state when loading the join page
+  localStorage.removeItem("heistGameState");
+
   joinForm.addEventListener("submit", async (e) => {
     e.preventDefault();
 
@@ -12,6 +15,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const playerName = playerNameInput.value;
 
     try {
+      // Clear any existing game state before joining a new game
+      localStorage.removeItem("heistGameState");
+
       const response = await fetch(
         "/api/rooms/join?" +
           new URLSearchParams({

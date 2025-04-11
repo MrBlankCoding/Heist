@@ -6,6 +6,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const roomCodeDisplay = document.getElementById("roomCode");
   const enterGameBtn = document.getElementById("enterGame");
 
+  // Clear any potentially stale game state when loading the create page
+  localStorage.removeItem("heistGameState");
+
   let playerData = {};
 
   createForm.addEventListener("submit", async (e) => {
@@ -14,6 +17,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const hostName = document.getElementById("hostName").value;
 
     try {
+      // Clear any existing game state before creating a new game
+      localStorage.removeItem("heistGameState");
+
       const response = await fetch(
         "/api/rooms/create?" +
           new URLSearchParams({

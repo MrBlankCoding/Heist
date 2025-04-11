@@ -20,6 +20,7 @@ class GameRoom(BaseModel):
     status: str = "waiting"  # waiting, in_progress, completed, failed
     puzzles: Dict = {}
     next_events_visible: bool = False  # Add field for Lookout power
+    last_power_description: Optional[str] = None  # For storing power descriptions
     # Timer vote related fields
     timer_vote_active: bool = False
     timer_votes: Dict = {"yes": [], "no": []}

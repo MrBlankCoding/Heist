@@ -224,13 +224,16 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
             # For Lookout, broadcasting is handled in handle_lookout_power
             # For other roles, broadcast power usage to all players
             player_name = room.players[player_id].name
+            power_description = getattr(room, 'last_power_description', f"{role} Power")
+            
             await broadcast_to_room(
                 room_code, 
                 {
                     "type": "power_used", 
                     "player_id": player_id, 
                     "player_name": player_name,
-                    "role": role
+                    "role": role,
+                    "powerDescription": power_description
                 }
             )
 
@@ -257,7 +260,16 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
                 "initiator_id": player_id,
                 "initiator_name": room.players[player_id].name,
                 "vote_time_limit": room.timer_vote_time_limit,
-                "votes": []  # No votes yet
+                "votes": [],  # No votes yet
+                "players": {
+                    pid: {
+                        "id": pid,
+                        "name": p.name,
+                        "role": p.role,
+                        "connected": p.connected
+                    }
+                    for pid, p in room.players.items() if p.connected
+                }
             }
         )
         
@@ -297,7 +309,16 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
                 "type": "timer_vote_update",
                 "player_id": player_id,
                 "vote": vote_type == "yes",
-                "votes": all_voters
+                "votes": all_voters,
+                "players": {
+                    pid: {
+                        "id": pid,
+                        "name": p.name,
+                        "role": p.role,
+                        "connected": p.connected
+                    }
+                    for pid, p in room.players.items() if p.connected
+                }
             }
         )
         
@@ -382,19 +403,3 @@ async def process_websocket_message(room_code: str, player_id: str, message: Dic
                 }
             }
         )
-
-
-async def run_vote_timer(room_code: str):
-    """Run timer for vote completion"""
-    room = game_rooms[room_code]
-    
-    # Wait for vote time limit
-    time_remaining = room.timer_vote_time_limit
-    
-    while time_remaining > 0 and room.timer_vote_active:
-        await asyncio.sleep(1)
-        time_remaining -= 1
-    
-    # Process vote result when timer expires
-    if room.timer_vote_active:
-        await process_timer_vote_result(room_code) 

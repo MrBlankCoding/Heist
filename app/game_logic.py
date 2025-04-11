@@ -111,31 +111,83 @@ def validate_puzzle_solution(puzzle: Dict, solution) -> bool:
 
 def handle_power_usage(room: GameRoom, player_id: str, role: str) -> bool:
     """Handle a role's power usage"""
-    # In a real game, this would be more sophisticated
     if role == "Hacker":
-        # Slow down timer
-        room.timer += 30
+        # Enhance Hacker power: Slow down timer and reduce alert level
+        room.timer += 45  # Give more time (45 seconds)
+        if room.alert_level > 0:
+            room.alert_level -= 1  # Reduce alert level as they hack security
+        
+        # Add power description for broadcast
+        room.last_power_description = "Slowed Security Systems - Added 45s and reduced alert level"
         return True
+        
     elif role == "Safe Cracker":
-        # Skip one lock
+        # Enhanced Safe Cracker power: Reveal puzzle solution hints and extend timer
+        room.timer += 30  # Add 30 seconds
+        
+        # Find the player's current puzzle
         if player_id in room.puzzles:
             puzzle = room.puzzles[player_id]
+            # Mark the puzzle as having a hint
+            puzzle["hint_active"] = True
+            
+            # If the puzzle has locks, reduce them
             if "locks" in puzzle and puzzle["locks"] > 0:
                 puzzle["locks"] -= 1
-                return True
-    elif role == "Demolitions":
-        # Create shortcut
-        room.shortcuts = room.shortcuts + 1 if hasattr(room, "shortcuts") else 1
+            
+        # Add power description for broadcast
+        room.last_power_description = "Lock Mastery - Revealed solution hints and added 30s"
         return True
+        
+    elif role == "Demolitions":
+        # Enhanced Demolitions power: Skip barriers in puzzles and temporarily reduce random events
+        room.timer += 20  # Add 20 seconds
+        room.shortcuts = room.shortcuts + 1 if hasattr(room, "shortcuts") else 1
+        
+        # Temporarily reduce random event chance (store original alert level)
+        if not hasattr(room, "original_alert_level"):
+            room.original_alert_level = room.alert_level
+            room.alert_level = max(0, room.alert_level - 2)  # Reduce by 2 (min 0)
+            
+            # Schedule alert level restoration
+            asyncio.create_task(restore_alert_level(room.code, 45))  # 45 second effect
+        
+        # Add power description for broadcast
+        room.last_power_description = "Structural Weakness - Created shortcuts and reduced event chance"
+        return True
+        
     elif role == "Lookout":
-        # Just set the flag, the async function will handle the rest
+        # Enhanced Lookout power: Predict future events and temporarily see security patterns
         room.next_events_visible = True
         
         # Schedule the async part of the Lookout power using the room code
         asyncio.create_task(handle_lookout_power(room_code=room.code, player_id=player_id))
+        
+        # Add power description for broadcast - will be set in handle_lookout_power
+        # This is done to avoid duplicating the broadcast
         return True
 
     return False
+
+
+async def restore_alert_level(room_code: str, delay_seconds: int):
+    """Restore the original alert level after Demolitions power expires"""
+    await asyncio.sleep(delay_seconds)
+    
+    if room_code in game_rooms:
+        room = game_rooms[room_code]
+        if hasattr(room, "original_alert_level"):
+            room.alert_level = room.original_alert_level
+            del room.original_alert_level
+            
+            # Notify players that the effect has expired
+            await broadcast_to_room(
+                room_code,
+                {
+                    "type": "system_message",
+                    "message": "Demolitions effect expired. Alert level restored."
+                }
+            )
 
 
 async def handle_lookout_power(room_code: str, player_id: str):
@@ -152,21 +204,29 @@ async def handle_lookout_power(room_code: str, player_id: str):
         "camera_sweep": "Camera Sweep",
         "system_check": "System Check"
     }
-    predicted_event = random.choice(event_types)
-    predicted_time = random.randint(10, 30)
-    display_name = event_names[predicted_event]
+    
+    # Predict next 2 events
+    predicted_events = []
+    for _ in range(2):
+        event_type = random.choice(event_types)
+        predicted_time = random.randint(10, 30)  # seconds in the future
+        display_name = event_names[event_type]
+        predicted_events.append({
+            "event": event_type,
+            "display_name": display_name,
+            "predicted_time": predicted_time
+        })
     
     # Send special notification only to the Lookout player if connected
     if player_id in connected_players:
         await connected_players[player_id].send_json({
             "type": "lookout_prediction",
-            "event": predicted_event,
-            "display_name": display_name,
-            "predicted_time": predicted_time
+            "events": predicted_events,
+            "duration": 60  # Effect lasts 60 seconds
         })
         
     # Create power description for other players
-    power_description = "Enhanced Security Detection"
+    power_description = "Enhanced Security Detection - Can predict upcoming events"
     
     # Add power description to broadcast
     await broadcast_to_room(
@@ -180,8 +240,38 @@ async def handle_lookout_power(room_code: str, player_id: str):
         }
     )
     
-    # Set timeout to reset the ability after 60 seconds
+    # Add a status boost - temporarily reduce current alert level
+    if room.alert_level > 0:
+        original_level = room.alert_level
+        room.alert_level -= 1
+        
+        # Schedule alert level restoration
+        asyncio.create_task(
+            restore_lookout_effect(room_code, 60, original_level)
+        )
+    
+    # Set timeout to reset the prediction ability after 60 seconds
     await reset_lookout_ability(room_code, 60)
+
+
+async def restore_lookout_effect(room_code: str, delay_seconds: int, original_level: int):
+    """Restore the alert level after Lookout power effect expires"""
+    await asyncio.sleep(delay_seconds)
+    
+    if room_code in game_rooms:
+        room = game_rooms[room_code]
+        # Only restore if current alert level is lower than original
+        if room.alert_level < original_level:
+            room.alert_level = original_level
+            
+            # Notify players that the effect has expired
+            await broadcast_to_room(
+                room_code,
+                {
+                    "type": "system_message",
+                    "message": "Lookout's reduced alert effect has expired."
+                }
+            )
 
 
 async def reset_lookout_ability(room_code: str, delay_seconds: int):
@@ -239,7 +329,10 @@ async def trigger_random_event(room_code: str):
     room = game_rooms[room_code]
 
     # Higher alert level = more chance of events
-    if random.random() < (0.2 + (room.alert_level * 0.1)):
+    # Use original_alert_level if set (from Demolitions power)
+    alert_level = getattr(room, "original_alert_level", room.alert_level)
+    
+    if random.random() < (0.2 + (alert_level * 0.1)):
         event_types = ["security_patrol", "camera_sweep", "system_check"]
         event = random.choice(event_types)
         event_duration = random.randint(5, 15)
@@ -317,6 +410,10 @@ async def process_timer_vote_result(room_code: str):
             },
         )
     
+    # Create detailed result message
+    result_message = "Timer extension vote failed" if not success else "Timer extended successfully"
+    detailed_message = f"{result_message} ({yes_votes} yes / {no_votes} no of {connected_player_count} players)"
+    
     # Broadcast vote completion to all players
     all_voters = room.timer_votes.get("yes", []) + room.timer_votes.get("no", [])
     
@@ -327,7 +424,10 @@ async def process_timer_vote_result(room_code: str):
             "success": success,
             "votes": all_voters,
             "required_votes": required_votes,
-            "message": "Timer extension vote failed" if not success else "Timer extended successfully"
+            "yes_votes": yes_votes,
+            "no_votes": no_votes,
+            "total_players": connected_player_count,
+            "message": detailed_message
         }
     )
     

@@ -1,6 +1,7 @@
 // gameUIManager.js - Handles all UI updates and DOM interactions
 
 import playerStateManager from "./playerStateManager.js";
+import websocketManager from "./websocketManager.js";
 import HackerPuzzleController from "./puzzles/hackerPuzzleController.js";
 import SafeCrackerPuzzleController from "./puzzles/safeCrackerPuzzleController.js";
 import DemolitionsPuzzleController from "./puzzles/demolitionsPuzzleController.js";
@@ -68,46 +69,52 @@ class GameUIManager {
    * @param {number} seconds - Time remaining in seconds
    */
   updateTimer(seconds) {
-    if (!this.elements.timer) return;
+    if (!this.elements || !this.elements.timer) return;
 
     // Only update if the timer has changed
     if (this.currentTimer === seconds) return;
 
-    // Store the previous value for animation
-    const previousTimer = this.currentTimer;
-    this.currentTimer = seconds;
+    try {
+      // Store the previous value for animation
+      const previousTimer = this.currentTimer;
+      this.currentTimer = seconds;
 
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    const formattedTime = `${minutes.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
+      const minutes = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      const formattedTime = `${minutes.toString().padStart(2, "0")}:${secs
+        .toString()
+        .padStart(2, "0")}`;
 
-    // Apply the new time
-    this.elements.timer.textContent = formattedTime;
+      // Apply the new time
+      this.elements.timer.textContent = formattedTime;
 
-    // Change timer color based on urgency
-    this.elements.timer.classList.remove(
-      "text-red-500",
-      "text-yellow-500",
-      "animate-pulse"
-    );
+      // Change timer color based on urgency
+      this.elements.timer.classList.remove(
+        "text-red-500",
+        "text-yellow-500",
+        "animate-pulse"
+      );
 
-    if (seconds <= 30) {
-      this.elements.timer.classList.add("text-red-500", "animate-pulse");
-    } else if (seconds <= 60) {
-      this.elements.timer.classList.add("text-yellow-500");
-    }
+      if (seconds <= 30) {
+        this.elements.timer.classList.add("text-red-500", "animate-pulse");
+      } else if (seconds <= 60) {
+        this.elements.timer.classList.add("text-yellow-500");
+      }
 
-    // Add a brief highlight effect when timer changes
-    if (previousTimer !== undefined && seconds !== previousTimer) {
-      // Apply highlight effect
-      this.elements.timer.classList.add("timer-update");
+      // Add a brief highlight effect when timer changes
+      if (previousTimer !== undefined && seconds !== previousTimer) {
+        // Apply highlight effect
+        this.elements.timer.classList.add("timer-update");
 
-      // Remove the effect after animation completes
-      setTimeout(() => {
-        this.elements.timer.classList.remove("timer-update");
-      }, 500);
+        // Remove the effect after animation completes
+        setTimeout(() => {
+          if (this.elements && this.elements.timer) {
+            this.elements.timer.classList.remove("timer-update");
+          }
+        }, 500);
+      }
+    } catch (error) {
+      console.error("Error updating timer:", error);
     }
   }
 
@@ -116,27 +123,31 @@ class GameUIManager {
    * @param {number} level - Current alert level
    */
   updateAlertLevel(level) {
-    if (!this.elements.alertLevel) return;
+    if (!this.elements || !this.elements.alertLevel) return;
 
-    // Only update if the level has changed
-    if (this.currentAlertLevel === level) return;
-    this.currentAlertLevel = level;
+    try {
+      // Only update if the level has changed
+      if (this.currentAlertLevel === level) return;
+      this.currentAlertLevel = level;
 
-    let alertText = "LOW";
-    let alertClass = "bg-green-900 text-green-200";
+      let alertText = "LOW";
+      let alertClass = "bg-green-900 text-green-200";
 
-    if (level >= 3 && level < 5) {
-      alertText = "MEDIUM";
-      alertClass = "bg-yellow-900 text-yellow-200";
-    } else if (level >= 5) {
-      alertText = "HIGH";
-      alertClass = "bg-red-900 text-red-200";
+      if (level >= 3 && level < 5) {
+        alertText = "MEDIUM";
+        alertClass = "bg-yellow-900 text-yellow-200";
+      } else if (level >= 5) {
+        alertText = "HIGH";
+        alertClass = "bg-red-900 text-red-200";
+      }
+
+      this.elements.alertLevel.textContent = `Alert: ${alertText}`;
+
+      // Update class - Remove all possible classes first
+      this.elements.alertLevel.className = `ml-4 px-3 py-1 rounded-md ${alertClass}`;
+    } catch (error) {
+      console.error("Error updating alert level:", error);
     }
-
-    this.elements.alertLevel.textContent = `Alert: ${alertText}`;
-
-    // Update class - Remove all possible classes first
-    this.elements.alertLevel.className = `ml-4 px-3 py-1 rounded-md ${alertClass}`;
   }
 
   /**
@@ -144,72 +155,84 @@ class GameUIManager {
    */
   updateStageInfo() {
     if (
+      !this.elements ||
       !this.elements.stageNumber ||
       !this.elements.stageName ||
       !this.elements.stageProgress
     )
       return;
 
-    const stageInfo = playerStateManager.getCurrentStageInfo();
-    if (!stageInfo) return;
+    try {
+      const stageInfo = playerStateManager.getCurrentStageInfo();
+      if (!stageInfo) return;
 
-    // Only update if the stage has changed
-    if (this.currentStage === stageInfo.number) return;
-    this.currentStage = stageInfo.number;
+      // Only update if the stage has changed
+      if (this.currentStage === stageInfo.number) return;
+      this.currentStage = stageInfo.number;
 
-    this.elements.stageNumber.textContent = `Stage ${stageInfo.number}/5`;
-    this.elements.stageName.textContent = stageInfo.name;
+      this.elements.stageNumber.textContent = `Stage ${stageInfo.number}/5`;
+      this.elements.stageName.textContent = stageInfo.name;
 
-    // Update progress bar
-    const progressPercent = ((stageInfo.number - 1) / 5) * 100;
-    this.elements.stageProgress.style.width = `${progressPercent}%`;
+      // Update progress bar
+      const progressPercent = ((stageInfo.number - 1) / 5) * 100;
+      this.elements.stageProgress.style.width = `${progressPercent}%`;
+    } catch (error) {
+      console.error("Error updating stage info:", error);
+    }
   }
 
   /**
    * Update team status display
    */
   updateTeamStatus() {
-    if (!this.elements.teamStatus) return;
+    if (!this.elements || !this.elements.teamStatus) return;
 
-    const players = playerStateManager.getAllPlayers();
-    if (!players) return;
+    try {
+      const players = playerStateManager.getAllPlayers();
+      if (!players) return;
 
-    const currentPlayerId = playerStateManager.gameState.playerId;
-    const fragment = document.createDocumentFragment();
+      const currentPlayerId = playerStateManager.gameState.playerId;
+      const fragment = document.createDocumentFragment();
 
-    Object.values(players).forEach((player) => {
-      const roleInfo = playerStateManager.getRoleInfo(player.role);
-      const roleColor = roleInfo ? roleInfo.color : "gray";
-      const isCurrentPlayer = player.id === currentPlayerId;
-      const statusClass = player.connected ? "text-green-400" : "text-red-400";
+      Object.values(players).forEach((player) => {
+        if (!player) return; // Skip invalid players
 
-      const playerEl = document.createElement("div");
-      playerEl.className = "mb-2 flex justify-between items-center";
-      playerEl.innerHTML = `
-        <div class="flex items-center">
-          <span class="text-${roleColor}-400 mr-2">●</span>
-          <div class="flex flex-col">
-            <span class="font-semibold ${
-              isCurrentPlayer ? "text-blue-300" : ""
-            }">${this._escapeHtml(player.name)}${
-        isCurrentPlayer ? " (You)" : ""
-      }</span>
-            <span class="text-xs text-${roleColor}-300">${this._escapeHtml(
-        player.role || ""
-      )}</span>
+        const roleInfo = playerStateManager.getRoleInfo(player.role);
+        const roleColor = roleInfo ? roleInfo.color : "gray";
+        const isCurrentPlayer = player.id === currentPlayerId;
+        const statusClass = player.connected
+          ? "text-green-400"
+          : "text-red-400";
+
+        const playerEl = document.createElement("div");
+        playerEl.className = "mb-2 flex justify-between items-center";
+        playerEl.innerHTML = `
+          <div class="flex items-center">
+            <span class="text-${roleColor}-400 mr-2">●</span>
+            <div class="flex flex-col">
+              <span class="font-semibold ${
+                isCurrentPlayer ? "text-blue-300" : ""
+              }">${this._escapeHtml(player.name || "Unknown")}${
+          isCurrentPlayer ? " (You)" : ""
+        }</span>
+              <span class="text-xs text-${roleColor}-300">${this._escapeHtml(
+          player.role || ""
+        )}</span>
+            </div>
           </div>
-        </div>
-        <div class="${statusClass}">
-          ${player.connected ? "✓" : "✗"}
-        </div>
-      `;
+          <div class="${statusClass}">
+            ${player.connected ? "Connected" : "Disconnected"}
+          </div>
+        `;
+        fragment.appendChild(playerEl);
+      });
 
-      fragment.appendChild(playerEl);
-    });
-
-    // Clear and update in one operation to minimize reflows
-    this.elements.teamStatus.innerHTML = "";
-    this.elements.teamStatus.appendChild(fragment);
+      // Clear and update the team status
+      this.elements.teamStatus.innerHTML = "";
+      this.elements.teamStatus.appendChild(fragment);
+    } catch (error) {
+      console.error("Error updating team status:", error);
+    }
   }
 
   /**
@@ -419,10 +442,113 @@ class GameUIManager {
         message || "The heist has failed.";
     }
 
+    // Set up the Play Again button
+    if (this.elements.playAgainButton) {
+      // Remove any existing event listeners by cloning
+      const newPlayAgainButton = this.elements.playAgainButton.cloneNode(true);
+      this.elements.playAgainButton.parentNode.replaceChild(
+        newPlayAgainButton,
+        this.elements.playAgainButton
+      );
+      this.elements.playAgainButton = newPlayAgainButton;
+
+      // Add click handler
+      this.elements.playAgainButton.addEventListener("click", () => {
+        this._handlePlayAgain();
+      });
+    }
+
+    // Set up the Return Home button
+    if (this.elements.returnHomeButton) {
+      // Remove any existing event listeners by cloning
+      const newReturnHomeButton =
+        this.elements.returnHomeButton.cloneNode(true);
+      this.elements.returnHomeButton.parentNode.replaceChild(
+        newReturnHomeButton,
+        this.elements.returnHomeButton
+      );
+      this.elements.returnHomeButton = newReturnHomeButton;
+
+      // Add click handler
+      this.elements.returnHomeButton.addEventListener("click", () => {
+        this._handleReturnHome();
+      });
+    }
+
     this.elements.gameOverModal.classList.remove("hidden");
 
     // Add animation class if defined in CSS
     this.elements.gameOverModal.classList.add("animate-fadeIn");
+  }
+
+  /**
+   * Handle Play Again button - Resets the game for the same players
+   * @private
+   */
+  _handlePlayAgain() {
+    // First hide the modal
+    this.hideGameOverModal();
+
+    // Clear up any persisted game state
+    playerStateManager.clearPersistedState();
+
+    // Show the lobby with the same players
+    if (gameStartScreen) {
+      // Reset player roles
+      if (
+        playerStateManager.gameState.players &&
+        typeof playerStateManager.gameState.players === "object"
+      ) {
+        Object.values(playerStateManager.gameState.players).forEach(
+          (player) => {
+            if (player) {
+              player.role = null;
+            }
+          }
+        );
+      }
+
+      // Reset player state
+      playerStateManager.gameState.playerRole = null;
+      playerStateManager.gameState.stage = 1;
+      playerStateManager.gameState.status =
+        playerStateManager.GAME_STATUS.WAITING;
+      playerStateManager.gameState.timer = 300;
+      playerStateManager.gameState.alertLevel = 0;
+
+      // Hide game UI and show lobby
+      this.elements.gameArea.classList.add("hidden");
+      gameStartScreen.showLobby();
+
+      // Notify the server we want to reset the game
+      websocketManager
+        .send({
+          type: "reset_game",
+          player_id: playerStateManager.gameState.playerId,
+        })
+        .catch((error) => {
+          console.error("Error resetting game:", error);
+        });
+    } else {
+      console.error("gameStartScreen not found, can't reset game");
+      // Fallback - reload the page
+      window.location.reload();
+    }
+  }
+
+  /**
+   * Handle Return Home button - Redirects to the home page
+   * @private
+   */
+  _handleReturnHome() {
+    // Clear any persisted state
+    playerStateManager.clearPersistedState();
+
+    // Close the WebSocket connection
+    websocketManager.disconnect("User exited game");
+
+    // Redirect to home page
+    window.location.href = "/";
   }
 
   /**
@@ -568,18 +694,31 @@ class GameUIManager {
   updateTimerVote(voteData) {
     if (!this.elements.timerVoteModal) return;
 
+    // Add safety check
+    if (!voteData.players || typeof voteData.players !== "object") {
+      console.error(
+        "Invalid vote data - players object is missing or invalid",
+        voteData
+      );
+      return;
+    }
+
     const totalPlayers = Object.keys(voteData.players).length;
     const votesCount = voteData.votes.length;
     const requiredVotes = voteData.required || Math.ceil(totalPlayers / 2);
 
-    // Update vote count
+    // Get yes and no votes arrays
+    const yesVotes = voteData.yesVotes || [];
+    const noVotes = voteData.noVotes || [];
+
+    // Update vote count - show votes out of total players
     if (this.elements.voteCount) {
-      this.elements.voteCount.textContent = `${votesCount}/${requiredVotes}`;
+      this.elements.voteCount.textContent = `${votesCount}/${totalPlayers}`;
     }
 
-    // Update progress bar (percentage of required votes)
+    // Update progress bar (percentage of total players)
     if (this.elements.voteProgress) {
-      const percentage = Math.min(100, (votesCount / requiredVotes) * 100);
+      const percentage = Math.min(100, (votesCount / totalPlayers) * 100);
       this.elements.voteProgress.style.width = `${percentage}%`;
     }
 
@@ -592,6 +731,14 @@ class GameUIManager {
         const hasVoted = voteData.votes.includes(playerId);
         const isCurrentPlayer =
           playerId === playerStateManager.gameState.playerId;
+
+        // Determine vote type icon
+        let voteIcon = '<span class="text-gray-500">•••</span>';
+        if (yesVotes.includes(playerId)) {
+          voteIcon = '<span class="text-green-400">✓</span>';
+        } else if (noVotes.includes(playerId)) {
+          voteIcon = '<span class="text-red-400">✗</span>';
+        }
 
         const playerEl = document.createElement("div");
         playerEl.className = "flex items-center justify-between";
@@ -607,11 +754,7 @@ class GameUIManager {
             }">${this._escapeHtml(player.name)}</span>
           </div>
           <div>
-            ${
-              hasVoted
-                ? '<span class="text-green-400">✓</span>'
-                : '<span class="text-gray-500">•••</span>'
-            }
+            ${voteIcon}
           </div>
         `;
 
