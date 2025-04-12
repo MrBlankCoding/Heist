@@ -132,6 +132,9 @@ class GameEventHandler {
             type: "request_puzzle",
             player_id: playerStateManager.gameState.playerId,
           })
+          .then((success) => {
+            console.log("Puzzle request sent successfully:", success);
+          })
           .catch((error) => {
             console.error("Error requesting puzzle:", error);
           });
@@ -186,134 +189,220 @@ class GameEventHandler {
    * @param {Object} puzzle - Puzzle data
    */
   handlePuzzleReceived(puzzle) {
-    // Log puzzle data for debugging
-    console.log("Puzzle received:", puzzle);
-
-    // Clean up previous puzzle controller if exists
-    const currentController = this.getActivePuzzleController();
-    if (currentController) {
-      try {
-        currentController.cleanup();
-      } catch (error) {
-        console.error("Error cleaning up previous puzzle:", error);
-      }
-    }
-
-    // Ensure we have required elements
-    if (!this.uiManager.elements.puzzleContent) {
-      console.error("Puzzle content element not found");
-      return;
-    }
-
-    // Set up new puzzle based on player's role and puzzle type
-    let puzzleController = null;
-    const playerRole = playerStateManager.gameState.playerRole;
-
-    if (!playerRole) {
-      console.error("Player role not defined");
-      this.uiManager.elements.puzzleContent.innerHTML = `
-        <div class="text-center p-4">
-          <p class="text-red-400 mb-2">Error: Player role not defined</p>
-          <p class="text-sm text-gray-400">Please try refreshing the page</p>
-        </div>
-      `;
-      return;
-    }
-
-    // Make sure puzzle area is visible
-    this._ensureGameAreaVisible();
-
     try {
-      // Check if this is a team puzzle
-      if (puzzle.type && puzzle.type.includes("team_puzzle")) {
-        console.log("Creating team puzzle controller");
-        puzzle.playerRole = playerRole; // Add player's role to puzzle data
-        puzzle.room_code = playerStateManager.gameState.roomCode; // Add room code for WebSocket messages
-        puzzleController = new TeamPuzzleController(
-          this.uiManager.elements.puzzleContent,
-          puzzle,
-          (solution) => playerStateManager.submitPuzzleSolution(solution),
-          websocketManager
-        );
-      } else {
-        // Create role-specific puzzle controller
-        console.log(
-          "Creating role-specific puzzle controller for:",
-          playerRole
-        );
-        switch (playerRole) {
-          case "Hacker":
-            puzzleController = new HackerPuzzleController(
-              this.uiManager.elements.puzzleContent,
-              puzzle,
-              (solution) => playerStateManager.submitPuzzleSolution(solution)
+      // Clean up previous puzzle controller if exists
+      const currentController = this.getActivePuzzleController();
+      if (currentController) {
+        try {
+          currentController.cleanup();
+        } catch (error) {
+          console.error("Error cleaning up previous puzzle:", error);
+        }
+      }
+
+      // Ensure we have required elements
+      if (!this.uiManager.elements.puzzleContent) {
+        console.error("Puzzle content element not found");
+        return;
+      }
+
+      // Set up new puzzle based on player's role and puzzle type
+      let puzzleController = null;
+      const playerRole = playerStateManager.gameState.playerRole;
+
+      if (!playerRole) {
+        console.error("Player role not defined");
+        this.uiManager.elements.puzzleContent.innerHTML = `
+          <div class="text-center p-4">
+            <p class="text-red-400 mb-2">Error: Player role not defined</p>
+            <p class="text-sm text-gray-400">Please try refreshing the page</p>
+          </div>
+        `;
+        return;
+      }
+
+      // Make sure puzzle area is visible
+      this._ensureGameAreaVisible();
+
+      try {
+        // Check if this is a set of role puzzles by looking for stage_X keys and role property
+        if (
+          puzzle.role &&
+          (puzzle.stage_1 ||
+            puzzle.stage_2 ||
+            puzzle.stage_3 ||
+            puzzle.stage_4 ||
+            puzzle.stage_5)
+        ) {
+          // Get current stage
+          const currentStage = playerStateManager.gameState.stage;
+          const stagePuzzleKey = `stage_${currentStage}`;
+
+          // If we have a puzzle for this stage, use it
+          if (puzzle[stagePuzzleKey]) {
+            // Extract the current stage puzzle from the role puzzles collection
+            puzzle = puzzle[stagePuzzleKey];
+          } else {
+            console.error(
+              `No puzzle found for stage ${currentStage} in role puzzles`
             );
-            break;
-          case "Safe Cracker":
-            puzzleController = new SafeCrackerPuzzleController(
-              this.uiManager.elements.puzzleContent,
-              puzzle,
-              (solution) => playerStateManager.submitPuzzleSolution(solution)
-            );
-            break;
-          case "Demolitions":
-            puzzleController = new DemolitionsPuzzleController(
-              this.uiManager.elements.puzzleContent,
-              puzzle,
-              (solution) => playerStateManager.submitPuzzleSolution(solution)
-            );
-            break;
-          case "Lookout":
-            puzzleController = new LookoutPuzzleController(
-              this.uiManager.elements.puzzleContent,
-              puzzle,
-              (solution) => playerStateManager.submitPuzzleSolution(solution)
-            );
-            break;
-          default:
-            console.error("Unknown role:", playerRole);
             this.uiManager.elements.puzzleContent.innerHTML = `
               <div class="text-center p-4">
-                <p class="text-red-400 mb-2">Error: Unknown role "${playerRole}"</p>
+                <p class="text-red-400 mb-2">Error: No puzzle found for current stage</p>
                 <p class="text-sm text-gray-400">Please try refreshing the page</p>
               </div>
             `;
             return;
+          }
         }
-      }
 
-      // Initialize the puzzle and set as active
-      if (puzzleController) {
-        try {
-          console.log("Initializing puzzle controller");
-          puzzleController.initialize();
-          this.setActivePuzzleController(puzzleController);
-          console.log("Puzzle controller initialized successfully");
-        } catch (initError) {
-          console.error("Error initializing puzzle controller:", initError);
+        // Check if this is a team puzzle
+        if (puzzle.type && puzzle.type.includes("team_puzzle")) {
+          puzzle.playerRole = playerRole; // Add player's role to puzzle data
+          puzzle.room_code = playerStateManager.gameState.roomCode; // Add room code for WebSocket messages
+
+          puzzleController = new TeamPuzzleController(
+            this.uiManager.elements.puzzleContent,
+            puzzle,
+            (solution) => playerStateManager.submitPuzzleSolution(solution),
+            websocketManager
+          );
+        } else {
+          // Create role-specific puzzle controller
+          console.log(
+            "Creating role-specific puzzle controller for:",
+            playerRole
+          );
+
+          switch (playerRole) {
+            case "Hacker":
+              try {
+                puzzleController = new HackerPuzzleController(
+                  this.uiManager.elements.puzzleContent,
+                  puzzle,
+                  (solution) =>
+                    playerStateManager.submitPuzzleSolution(solution)
+                );
+              } catch (error) {
+                console.error(
+                  "Error creating HackerPuzzleController:",
+                  error,
+                  error.stack
+                );
+                throw error;
+              }
+              break;
+            case "Safe Cracker":
+              try {
+                puzzleController = new SafeCrackerPuzzleController(
+                  this.uiManager.elements.puzzleContent,
+                  puzzle,
+                  (solution) =>
+                    playerStateManager.submitPuzzleSolution(solution)
+                );
+              } catch (error) {
+                console.error(
+                  "Error creating SafeCrackerPuzzleController:",
+                  error,
+                  error.stack
+                );
+                throw error;
+              }
+              break;
+            case "Demolitions":
+              try {
+                puzzleController = new DemolitionsPuzzleController(
+                  this.uiManager.elements.puzzleContent,
+                  puzzle,
+                  (solution) =>
+                    playerStateManager.submitPuzzleSolution(solution)
+                );
+              } catch (error) {
+                console.error(
+                  "Error creating DemolitionsPuzzleController:",
+                  error,
+                  error.stack
+                );
+                throw error;
+              }
+              break;
+            case "Lookout":
+              try {
+                puzzleController = new LookoutPuzzleController(
+                  this.uiManager.elements.puzzleContent,
+                  puzzle,
+                  (solution) =>
+                    playerStateManager.submitPuzzleSolution(solution)
+                );
+              } catch (error) {
+                console.error(
+                  "Error creating LookoutPuzzleController:",
+                  error,
+                  error.stack
+                );
+                throw error;
+              }
+              break;
+            default:
+              console.error("Unknown role:", playerRole);
+              this.uiManager.elements.puzzleContent.innerHTML = `
+                <div class="text-center p-4">
+                  <p class="text-red-400 mb-2">Error: Unknown role "${playerRole}"</p>
+                  <p class="text-sm text-gray-400">Please try refreshing the page</p>
+                </div>
+              `;
+              return;
+          }
+        }
+
+        // Initialize the puzzle and set as active
+        if (puzzleController) {
+          try {
+            puzzleController.initialize();
+            this.setActivePuzzleController(puzzleController);
+          } catch (initError) {
+            console.error(
+              "Error initializing puzzle controller:",
+              initError,
+              initError.stack
+            );
+            this.uiManager.elements.puzzleContent.innerHTML = `
+              <div class="text-center p-4">
+                <p class="text-red-400 mb-2">Error initializing puzzle</p>
+                <p class="text-sm text-gray-400">${initError.message}</p>
+                <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
+              </div>
+            `;
+          }
+        } else {
+          console.error("Failed to create puzzle controller");
           this.uiManager.elements.puzzleContent.innerHTML = `
             <div class="text-center p-4">
-              <p class="text-red-400 mb-2">Error initializing puzzle</p>
-              <p class="text-sm text-gray-400">${initError.message}</p>
-              <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
+              <p class="text-red-400 mb-2">Error creating puzzle</p>
+              <p class="text-sm text-gray-400">Please try refreshing the page</p>
             </div>
           `;
         }
-      } else {
-        console.error("Failed to create puzzle controller");
+      } catch (error) {
+        console.error("Error creating puzzle controller:", error, error.stack);
         this.uiManager.elements.puzzleContent.innerHTML = `
           <div class="text-center p-4">
-            <p class="text-red-400 mb-2">Error creating puzzle</p>
-            <p class="text-sm text-gray-400">Please try refreshing the page</p>
+            <p class="text-red-400 mb-2">Error loading puzzle</p>
+            <p class="text-sm text-gray-400">${error.message}</p>
+            <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
           </div>
         `;
       }
-    } catch (error) {
-      console.error("Error creating puzzle controller:", error);
+    } catch (outerError) {
+      console.error(
+        "Outer error in handlePuzzleReceived:",
+        outerError,
+        outerError.stack
+      );
       this.uiManager.elements.puzzleContent.innerHTML = `
         <div class="text-center p-4">
-          <p class="text-red-400 mb-2">Error loading puzzle</p>
-          <p class="text-sm text-gray-400">${error.message}</p>
+          <p class="text-red-400 mb-2">Error processing puzzle</p>
+          <p class="text-sm text-gray-400">${outerError.message}</p>
           <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
         </div>
       `;
@@ -369,8 +458,8 @@ class GameEventHandler {
   }
 
   /**
-   * Handle stage completion
-   * @param {number} nextStage - Next stage number
+   * Handle stage completed event
+   * @param {number} nextStage - The next stage number
    */
   handleStageCompleted(nextStage) {
     // Show stage completion notification
@@ -388,6 +477,66 @@ class GameEventHandler {
         playerStateManager.getCurrentStageInfo().name
       }`
     );
+
+    // Play success sound if available
+    try {
+      const successSound = new Audio("../static/sounds/stage-complete.mp3");
+      successSound.volume = 0.3;
+      successSound
+        .play()
+        .catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play stage complete sound:", e);
+    }
+
+    // Get current puzzles collection
+    const puzzles = playerStateManager.gameState.puzzles;
+    const playerId = playerStateManager.gameState.playerId;
+
+    // If we have a collection of role puzzles, extract the next stage's puzzle
+    if (puzzles && puzzles[playerId] && puzzles[playerId].role) {
+      const rolePuzzles = puzzles[playerId];
+      const nextStagePuzzleKey = `stage_${nextStage}`;
+
+      if (rolePuzzles[nextStagePuzzleKey]) {
+        // We already have the next stage puzzle, just extract and use it
+        this.handlePuzzleReceived(rolePuzzles[nextStagePuzzleKey]);
+      } else {
+        // We don't have the next stage puzzle, show loading
+        this.uiManager.elements.puzzleContent.innerHTML = `
+          <div class="text-center p-4">
+            <p class="text-gray-200">Loading Stage ${nextStage} puzzle...</p>
+            <div class="mt-2 loader mx-auto"></div>
+          </div>
+        `;
+
+        // The server should send us a new puzzle soon
+      }
+    } else {
+      // Legacy mode or no role puzzles available
+      // Show loading state until we receive the next puzzle
+      this.uiManager.elements.puzzleContent.innerHTML = `
+        <div class="text-center p-4">
+          <p class="text-gray-200">Loading Stage ${nextStage} puzzle...</p>
+          <div class="mt-2 loader mx-auto"></div>
+        </div>
+      `;
+
+      // The server should send us a new puzzle, but request one if needed after a delay
+      setTimeout(() => {
+        const puzzleContent = this.uiManager.elements.puzzleContent;
+        if (
+          puzzleContent &&
+          (!puzzleContent.children.length ||
+            puzzleContent.textContent.includes("Loading"))
+        ) {
+          console.log("No puzzle received for new stage, requesting puzzle");
+          playerStateManager.fetchPuzzlesForRole().catch((error) => {
+            console.error("Error fetching role puzzles:", error);
+          });
+        }
+      }, 3000);
+    }
   }
 
   /**
@@ -728,8 +877,6 @@ class GameEventHandler {
    * @param {Object} data - Waiting data with message and stage info
    */
   handlePlayerWaiting(data) {
-    console.log("Player waiting with data:", data);
-
     // Clean up the current puzzle controller
     const currentController = this.getActivePuzzleController();
     if (currentController) {

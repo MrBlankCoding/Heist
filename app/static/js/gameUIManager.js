@@ -2,7 +2,6 @@
 
 import playerStateManager from "./playerStateManager.js";
 import websocketManager from "./websocketManager.js";
-// Fix imports by getting them from main.bundle.js instead of importing directly
 import {
   HackerPuzzleController,
   SafeCrackerPuzzleController,
@@ -13,7 +12,6 @@ import {
 
 class GameUIManager {
   constructor() {
-    // Cache DOM Elements
     this.elements = {
       gameArea: document.getElementById("game-area"),
       timer: document.getElementById("timer"),
@@ -31,7 +29,6 @@ class GameUIManager {
       gameResultMessage: document.getElementById("game-result-message"),
       playAgainButton: document.getElementById("play-again"),
       returnHomeButton: document.getElementById("return-home"),
-      // Timer vote modal elements
       timerVoteModal: document.getElementById("timer-vote-modal"),
       voteCount: document.getElementById("vote-count"),
       voteProgress: document.getElementById("vote-progress"),
@@ -41,35 +38,27 @@ class GameUIManager {
       voteTimer: document.getElementById("vote-timer"),
     };
 
-    // Validation
     this._validateElements();
 
-    // State tracking
     this.currentTimer = 300;
     this.currentAlertLevel = 0;
     this.currentStage = 1;
     this.voteTimerInterval = null;
+    this.cooldownInterval = null;
 
-    // Set up event listeners when document is ready
     document.addEventListener("DOMContentLoaded", () => {
-      this._setupElements();
       this._setupEventListeners();
       this._preloadSoundEffects();
     });
 
-    // Listen for puzzle completion updates
     playerStateManager.on("puzzleCompletionUpdated", () => {
       this.updateTeamStatus();
     });
   }
 
-  /**
-   * Validate that all required DOM elements exist
-   * @private
-   */
   _validateElements() {
     const missingElements = Object.entries(this.elements)
-      .filter(([key, element]) => !element)
+      .filter(([_, element]) => !element)
       .map(([key]) => key);
 
     if (missingElements.length > 0) {
@@ -79,215 +68,152 @@ class GameUIManager {
     }
   }
 
-  /**
-   * Update the timer display
-   * @param {number} seconds - Time remaining in seconds
-   */
   updateTimer(seconds) {
-    if (!this.elements || !this.elements.timer) return;
+    if (!this.elements?.timer || this.currentTimer === seconds) return;
 
-    // Only update if the timer has changed
-    if (this.currentTimer === seconds) return;
+    const previousTimer = this.currentTimer;
+    this.currentTimer = seconds;
 
-    try {
-      // Store the previous value for animation
-      const previousTimer = this.currentTimer;
-      this.currentTimer = seconds;
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    const formattedTime = `${minutes.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
 
-      const minutes = Math.floor(seconds / 60);
-      const secs = seconds % 60;
-      const formattedTime = `${minutes.toString().padStart(2, "0")}:${secs
-        .toString()
-        .padStart(2, "0")}`;
+    this.elements.timer.textContent = formattedTime;
 
-      // Apply the new time
-      this.elements.timer.textContent = formattedTime;
+    this.elements.timer.classList.remove(
+      "text-red-500",
+      "text-yellow-500",
+      "animate-pulse"
+    );
 
-      // Change timer color based on urgency
-      this.elements.timer.classList.remove(
-        "text-red-500",
-        "text-yellow-500",
-        "animate-pulse"
-      );
+    if (seconds <= 30) {
+      this.elements.timer.classList.add("text-red-500", "animate-pulse");
+    } else if (seconds <= 60) {
+      this.elements.timer.classList.add("text-yellow-500");
+    }
 
-      if (seconds <= 30) {
-        this.elements.timer.classList.add("text-red-500", "animate-pulse");
-      } else if (seconds <= 60) {
-        this.elements.timer.classList.add("text-yellow-500");
-      }
-
-      // Add a brief highlight effect when timer changes
-      if (previousTimer !== undefined && seconds !== previousTimer) {
-        // Apply highlight effect
-        this.elements.timer.classList.add("timer-update");
-
-        // Remove the effect after animation completes
-        setTimeout(() => {
-          if (this.elements && this.elements.timer) {
-            this.elements.timer.classList.remove("timer-update");
-          }
-        }, 500);
-      }
-    } catch (error) {
-      console.error("Error updating timer:", error);
+    if (previousTimer !== seconds) {
+      this.elements.timer.classList.add("timer-update");
+      setTimeout(() => {
+        this.elements.timer?.classList.remove("timer-update");
+      }, 500);
     }
   }
 
-  /**
-   * Update the alert level display
-   * @param {number} level - Current alert level
-   */
   updateAlertLevel(level) {
-    if (!this.elements || !this.elements.alertLevel) return;
+    if (!this.elements?.alertLevel || this.currentAlertLevel === level) return;
 
-    try {
-      // Only update if the level has changed
-      if (this.currentAlertLevel === level) return;
-      this.currentAlertLevel = level;
+    this.currentAlertLevel = level;
 
-      let alertText = "LOW";
-      let alertClass = "bg-green-900 text-green-200";
+    let alertText = "LOW";
+    let alertClass = "bg-green-900 text-green-200";
 
-      if (level >= 3 && level < 5) {
-        alertText = "MEDIUM";
-        alertClass = "bg-yellow-900 text-yellow-200";
-      } else if (level >= 5) {
-        alertText = "HIGH";
-        alertClass = "bg-red-900 text-red-200";
-      }
-
-      this.elements.alertLevel.textContent = `Alert: ${alertText}`;
-
-      // Update class - Remove all possible classes first
-      this.elements.alertLevel.className = `ml-4 px-3 py-1 rounded-md ${alertClass}`;
-    } catch (error) {
-      console.error("Error updating alert level:", error);
+    if (level >= 3 && level < 5) {
+      alertText = "MEDIUM";
+      alertClass = "bg-yellow-900 text-yellow-200";
+    } else if (level >= 5) {
+      alertText = "HIGH";
+      alertClass = "bg-red-900 text-red-200";
     }
+
+    this.elements.alertLevel.textContent = `Alert: ${alertText}`;
+    this.elements.alertLevel.className = `ml-4 px-3 py-1 rounded-md ${alertClass}`;
   }
 
-  /**
-   * Update stage information display
-   */
   updateStageInfo() {
     if (
-      !this.elements ||
-      !this.elements.stageNumber ||
-      !this.elements.stageName ||
-      !this.elements.stageProgress
+      !this.elements?.stageNumber ||
+      !this.elements?.stageName ||
+      !this.elements?.stageProgress
     )
       return;
 
-    try {
-      const stageInfo = playerStateManager.getCurrentStageInfo();
-      if (!stageInfo) return;
+    const stageInfo = playerStateManager.getCurrentStageInfo();
+    if (!stageInfo || this.currentStage === stageInfo.number) return;
 
-      // Only update if the stage has changed
-      if (this.currentStage === stageInfo.number) return;
-      this.currentStage = stageInfo.number;
+    this.currentStage = stageInfo.number;
 
-      // Update stage number and name
-      this.elements.stageNumber.textContent = `STAGE ${stageInfo.number}`;
-      this.elements.stageName.textContent = stageInfo.name;
+    this.elements.stageNumber.textContent = `STAGE ${stageInfo.number}`;
+    this.elements.stageName.textContent = stageInfo.name;
 
-      // Update progress bar
-      const progressPercent = ((stageInfo.number - 1) / 5) * 100;
-      this.elements.stageProgress.style.width = `${progressPercent}%`;
-    } catch (error) {
-      console.error("Error updating stage info:", error);
-    }
+    const progressPercent = ((stageInfo.number - 1) / 5) * 100;
+    this.elements.stageProgress.style.width = `${progressPercent}%`;
   }
 
-  /**
-   * Update team status display
-   */
   updateTeamStatus() {
-    if (!this.elements || !this.elements.teamStatus) return;
+    if (!this.elements?.teamStatus) return;
 
-    try {
-      const players = playerStateManager.getAllPlayers();
-      if (!players) return;
+    const players = playerStateManager.getAllPlayers();
+    if (!players) return;
 
-      const currentPlayerId = playerStateManager.gameState.playerId;
-      const fragment = document.createDocumentFragment();
+    const currentPlayerId = playerStateManager.gameState.playerId;
+    const fragment = document.createDocumentFragment();
 
-      // Get current stage puzzle completion status
-      const stageCompletion =
-        playerStateManager.getCurrentStagePuzzleCompletion();
-      const currentStage = playerStateManager.gameState.stage;
+    const stageCompletion =
+      playerStateManager.getCurrentStagePuzzleCompletion();
+    const currentStage = playerStateManager.gameState.stage;
 
-      // Create and add title with stage info
-      const titleEl = document.createElement("div");
-      titleEl.className = "mb-3 border-b border-gray-700 pb-2";
-      titleEl.innerHTML = `
-        <h4 class="font-bold text-blue-400 mb-1">Stage ${currentStage} Progress</h4>
-        <p class="text-xs text-gray-400">Players must complete their puzzle to advance</p>
+    const titleEl = document.createElement("div");
+    titleEl.className = "mb-3 border-b border-gray-700 pb-2";
+    titleEl.innerHTML = `
+      <h4 class="font-bold text-blue-400 mb-1">Stage ${currentStage} Progress</h4>
+      <p class="text-xs text-gray-400">Players must complete their puzzle to advance</p>
+    `;
+    fragment.appendChild(titleEl);
+
+    Object.values(players).forEach((player) => {
+      if (!player) return;
+
+      const roleInfo = playerStateManager.getRoleInfo(player.role);
+      const roleColor = roleInfo ? roleInfo.color : "gray";
+      const isCurrentPlayer = player.id === currentPlayerId;
+      const statusClass = player.connected ? "text-green-400" : "text-red-400";
+
+      const hasCompletedPuzzle = stageCompletion[player.id] || false;
+      const completionClass = hasCompletedPuzzle
+        ? "text-green-500"
+        : "text-yellow-500";
+      const completionIcon = hasCompletedPuzzle
+        ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+
+      const playerEl = document.createElement("div");
+      playerEl.className =
+        "mb-2 flex justify-between items-center p-2 rounded bg-gray-800 bg-opacity-50";
+      playerEl.innerHTML = `
+        <div class="flex items-center">
+          <span class="text-${roleColor}-400 mr-2">●</span>
+          <div class="flex flex-col">
+            <span class="font-semibold ${
+              isCurrentPlayer ? "text-blue-300" : ""
+            }">${this._escapeHtml(player.name || "Unknown")}${
+        isCurrentPlayer ? " (You)" : ""
+      }</span>
+            <span class="text-xs text-${roleColor}-300">${this._escapeHtml(
+        player.role || ""
+      )}</span>
+          </div>
+        </div>
+        <div class="flex items-center">
+          <span class="mr-2 ${statusClass} text-xs">
+            ${player.connected ? "Connected" : "Disconnected"}
+          </span>
+          <span class="${completionClass} ml-2" title="${
+        hasCompletedPuzzle ? "Puzzle completed" : "Puzzle in progress"
+      }">
+            ${completionIcon}
+          </span>
+        </div>
       `;
-      fragment.appendChild(titleEl);
+      fragment.appendChild(playerEl);
+    });
 
-      Object.values(players).forEach((player) => {
-        if (!player) return; // Skip invalid players
-
-        const roleInfo = playerStateManager.getRoleInfo(player.role);
-        const roleColor = roleInfo ? roleInfo.color : "gray";
-        const isCurrentPlayer = player.id === currentPlayerId;
-        const statusClass = player.connected
-          ? "text-green-400"
-          : "text-red-400";
-
-        // Check if this player has completed their puzzle for the current stage
-        const hasCompletedPuzzle = stageCompletion[player.id] || false;
-        const completionClass = hasCompletedPuzzle
-          ? "text-green-500"
-          : "text-yellow-500";
-        const completionIcon = hasCompletedPuzzle
-          ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>'
-          : '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
-
-        const playerEl = document.createElement("div");
-        playerEl.className =
-          "mb-2 flex justify-between items-center p-2 rounded bg-gray-800 bg-opacity-50";
-        playerEl.innerHTML = `
-          <div class="flex items-center">
-            <span class="text-${roleColor}-400 mr-2">●</span>
-            <div class="flex flex-col">
-              <span class="font-semibold ${
-                isCurrentPlayer ? "text-blue-300" : ""
-              }">${this._escapeHtml(player.name || "Unknown")}${
-          isCurrentPlayer ? " (You)" : ""
-        }</span>
-              <span class="text-xs text-${roleColor}-300">${this._escapeHtml(
-          player.role || ""
-        )}</span>
-            </div>
-          </div>
-          <div class="flex items-center">
-            <span class="mr-2 ${statusClass} text-xs">
-              ${player.connected ? "Connected" : "Disconnected"}
-            </span>
-            <span class="${completionClass} ml-2" title="${
-          hasCompletedPuzzle ? "Puzzle completed" : "Puzzle in progress"
-        }">
-              ${completionIcon}
-            </span>
-          </div>
-        `;
-        fragment.appendChild(playerEl);
-      });
-
-      // Clear and update the team status
-      this.elements.teamStatus.innerHTML = "";
-      this.elements.teamStatus.appendChild(fragment);
-    } catch (error) {
-      console.error("Error updating team status:", error);
-    }
+    this.elements.teamStatus.innerHTML = "";
+    this.elements.teamStatus.appendChild(fragment);
   }
 
-  /**
-   * Set up the puzzle UI for the current player
-   * @param {Object} puzzle - The puzzle data
-   * @param {Function} getActivePuzzleController - Function to get active puzzle controller
-   * @returns {Object|null} - The created puzzle controller or null
-   */
   setupPuzzleUI(puzzle, getActivePuzzleController) {
     if (!this.elements.puzzleContent || !this.elements.roleInstruction)
       return null;
@@ -295,75 +221,59 @@ class GameUIManager {
     const role = playerStateManager.gameState.playerRole;
     if (!role) return null;
 
-    // Clear puzzle area and ensure proper styling
     this.elements.puzzleContent.innerHTML = "";
-    this.elements.puzzleContent.style.minHeight = "200px"; // Ensure minimum height for content
-    this.elements.puzzleContent.style.backgroundColor = ""; // Reset any debugging background color
-    this.elements.puzzleContent.style.padding = ""; // Reset any debugging padding
+    this.elements.puzzleContent.style.minHeight = "200px";
+    this.elements.puzzleContent.style.backgroundColor = "";
+    this.elements.puzzleContent.style.padding = "";
 
-    // Set role instruction
     const roleInfo = playerStateManager.getRoleInfo(role);
     if (roleInfo) {
       this.elements.roleInstruction.textContent = `${role} - ${roleInfo.description}`;
       this.elements.roleInstruction.classList.remove("text-gray-400", "italic");
     }
 
-    // Add a loading indicator while puzzle initializes
     const loading = document.createElement("div");
     loading.className = "text-center p-4";
     loading.innerHTML = `<p class="text-blue-400">Loading puzzle...</p>`;
     this.elements.puzzleContent.appendChild(loading);
 
-    let puzzleController = null;
     let PuzzleControllerClass = null;
 
-    // Determine appropriate puzzle controller based on role
     try {
-      // Check if this is a team puzzle
       if (puzzle.type && puzzle.type.includes("team_puzzle")) {
-        puzzle.playerRole = role; // Add player's role to puzzle data
+        puzzle.playerRole = role;
         PuzzleControllerClass = TeamPuzzleController;
       } else {
-        // Handle role-specific puzzles
-        switch (role) {
-          case "Hacker":
-            PuzzleControllerClass = HackerPuzzleController;
-            break;
-          case "Safe Cracker":
-            PuzzleControllerClass = SafeCrackerPuzzleController;
-            break;
-          case "Demolitions":
-            PuzzleControllerClass = DemolitionsPuzzleController;
-            break;
-          case "Lookout":
-            PuzzleControllerClass = LookoutPuzzleController;
-            break;
-          default:
-            console.error("Unknown role:", role);
-            return null;
+        const puzzleControllerMap = {
+          Hacker: HackerPuzzleController,
+          "Safe Cracker": SafeCrackerPuzzleController,
+          Demolitions: DemolitionsPuzzleController,
+          Lookout: LookoutPuzzleController,
+        };
+
+        PuzzleControllerClass = puzzleControllerMap[role];
+        if (!PuzzleControllerClass) {
+          console.error("Unknown role:", role);
+          return null;
         }
       }
 
-      // Create and initialize the puzzle controller
-      if (PuzzleControllerClass) {
-        // Clear the loading indicator
-        this.elements.puzzleContent.innerHTML = "";
+      this.elements.puzzleContent.innerHTML = "";
 
-        puzzleController = new PuzzleControllerClass(
-          this.elements.puzzleContent,
-          puzzle,
-          (solution) => playerStateManager.submitPuzzleSolution(solution)
-        );
+      const puzzleController = new PuzzleControllerClass(
+        this.elements.puzzleContent,
+        puzzle,
+        (solution) => playerStateManager.submitPuzzleSolution(solution)
+      );
 
-        puzzleController.initialize();
-      }
+      puzzleController.initialize();
+      return puzzleController;
     } catch (error) {
       console.error(
         `Error creating puzzle controller for role ${role}:`,
         error
       );
 
-      // Show error message in puzzle content area
       this.elements.puzzleContent.innerHTML = "";
       const errorEl = document.createElement("div");
       errorEl.className = "text-center p-4";
@@ -372,14 +282,10 @@ class GameUIManager {
         <p class="text-sm text-gray-400">Please try refreshing the page</p>
       `;
       this.elements.puzzleContent.appendChild(errorEl);
+      return null;
     }
-
-    return puzzleController;
   }
 
-  /**
-   * Update power button when timer extension vote is cast
-   */
   updateExtendTimerButtonAfterVote() {
     if (!this.elements.extendTimerButton) return;
 
@@ -388,9 +294,6 @@ class GameUIManager {
     this.elements.extendTimerButton.disabled = true;
   }
 
-  /**
-   * Reset the timer extension button after timer is extended
-   */
   resetExtendTimerButton() {
     if (!this.elements.extendTimerButton) return;
 
@@ -399,52 +302,36 @@ class GameUIManager {
     this.elements.extendTimerButton.disabled = false;
   }
 
-  /**
-   * Set power button to cooldown state
-   * @param {number} [cooldownDuration=60] - Cooldown duration in seconds
-   */
   setPowerButtonCooldown(cooldownDuration = 60) {
     if (!this.elements.usePowerButton) return;
 
     this.elements.usePowerButton.disabled = true;
     this.elements.usePowerButton.classList.add("opacity-50");
 
-    // Add visual countdown if needed
     const originalText = this.elements.usePowerButton.textContent;
     this.elements.usePowerButton.dataset.originalText = originalText;
 
-    // Optional: implement countdown display
     this._startCooldownTimer(cooldownDuration);
   }
 
-  /**
-   * Reset power button from cooldown state
-   */
   resetPowerButtonCooldown() {
     if (!this.elements.usePowerButton) return;
 
     this.elements.usePowerButton.disabled = false;
     this.elements.usePowerButton.classList.remove("opacity-50");
 
-    // Restore original text if it was changed
     if (this.elements.usePowerButton.dataset.originalText) {
       this.elements.usePowerButton.textContent =
         this.elements.usePowerButton.dataset.originalText;
       delete this.elements.usePowerButton.dataset.originalText;
     }
 
-    // Clear any ongoing countdown
     if (this.cooldownInterval) {
       clearInterval(this.cooldownInterval);
       this.cooldownInterval = null;
     }
   }
 
-  /**
-   * Start cooldown timer for power button
-   * @param {number} duration - Duration in seconds
-   * @private
-   */
   _startCooldownTimer(duration) {
     if (!this.elements.usePowerButton) return;
 
@@ -465,11 +352,6 @@ class GameUIManager {
     }, 1000);
   }
 
-  /**
-   * Show game over modal with results
-   * @param {string} result - "success" or the failure reason
-   * @param {string} message - Message to display
-   */
   showGameOverModal(result, message) {
     if (
       !this.elements.gameOverModal ||
@@ -478,70 +360,43 @@ class GameUIManager {
     )
       return;
 
-    if (result === "success") {
-      this.elements.gameResult.textContent = "HEIST SUCCESSFUL";
-      this.elements.gameResultMessage.textContent =
-        message ||
-        "You've successfully completed the heist and escaped with the loot!";
-    } else {
-      this.elements.gameResult.textContent = "HEIST FAILED";
-      this.elements.gameResultMessage.textContent =
-        message || "The heist has failed.";
-    }
+    const isSuccess = result === "success";
+    this.elements.gameResult.textContent = isSuccess
+      ? "HEIST SUCCESSFUL"
+      : "HEIST FAILED";
+    this.elements.gameResultMessage.textContent =
+      message ||
+      (isSuccess
+        ? "You've successfully completed the heist and escaped with the loot!"
+        : "The heist has failed.");
 
-    // Set up the Play Again button
-    if (this.elements.playAgainButton) {
-      // Remove any existing event listeners by cloning
-      const newPlayAgainButton = this.elements.playAgainButton.cloneNode(true);
-      this.elements.playAgainButton.parentNode.replaceChild(
-        newPlayAgainButton,
-        this.elements.playAgainButton
-      );
-      this.elements.playAgainButton = newPlayAgainButton;
+    this._replaceButtonWithClone(this.elements.playAgainButton, () => {
+      this._handlePlayAgain();
+    });
 
-      // Add click handler
-      this.elements.playAgainButton.addEventListener("click", () => {
-        this._handlePlayAgain();
-      });
-    }
-
-    // Set up the Return Home button
-    if (this.elements.returnHomeButton) {
-      // Remove any existing event listeners by cloning
-      const newReturnHomeButton =
-        this.elements.returnHomeButton.cloneNode(true);
-      this.elements.returnHomeButton.parentNode.replaceChild(
-        newReturnHomeButton,
-        this.elements.returnHomeButton
-      );
-      this.elements.returnHomeButton = newReturnHomeButton;
-
-      // Add click handler
-      this.elements.returnHomeButton.addEventListener("click", () => {
-        this._handleReturnHome();
-      });
-    }
+    this._replaceButtonWithClone(this.elements.returnHomeButton, () => {
+      this._handleReturnHome();
+    });
 
     this.elements.gameOverModal.classList.remove("hidden");
-
-    // Add animation class if defined in CSS
     this.elements.gameOverModal.classList.add("animate-fadeIn");
   }
 
-  /**
-   * Handle Play Again button - Resets the game for the same players
-   * @private
-   */
-  _handlePlayAgain() {
-    // First hide the modal
-    this.hideGameOverModal();
+  _replaceButtonWithClone(button, clickHandler) {
+    if (!button) return;
 
-    // Clear up any persisted game state
+    const newButton = button.cloneNode(true);
+    button.parentNode.replaceChild(newButton, button);
+    newButton.addEventListener("click", clickHandler);
+
+    return newButton;
+  }
+
+  _handlePlayAgain() {
+    this.hideGameOverModal();
     playerStateManager.clearPersistedState();
 
-    // Show the lobby with the same players
     if (gameStartScreen) {
-      // Reset player roles
       if (
         playerStateManager.gameState.players &&
         typeof playerStateManager.gameState.players === "object"
@@ -555,7 +410,6 @@ class GameUIManager {
         );
       }
 
-      // Reset player state
       playerStateManager.gameState.playerRole = null;
       playerStateManager.gameState.stage = 1;
       playerStateManager.gameState.status =
@@ -563,11 +417,9 @@ class GameUIManager {
       playerStateManager.gameState.timer = 300;
       playerStateManager.gameState.alertLevel = 0;
 
-      // Hide game UI and show lobby
       this.elements.gameArea.classList.add("hidden");
       gameStartScreen.showLobby();
 
-      // Notify the server we want to reset the game
       websocketManager
         .send({
           type: "reset_game",
@@ -578,48 +430,30 @@ class GameUIManager {
         });
     } else {
       console.error("gameStartScreen not found, can't reset game");
-      // Fallback - reload the page
       window.location.reload();
     }
   }
 
-  /**
-   * Handle Return Home button - Redirects to the home page
-   * @private
-   */
   _handleReturnHome() {
-    // Clear any persisted state
     playerStateManager.clearPersistedState();
-
-    // Close the WebSocket connection
     websocketManager.disconnect("User exited game");
-
-    // Redirect to home page
     window.location.href = "/";
   }
 
-  /**
-   * Hide game over modal
-   */
   hideGameOverModal() {
     if (!this.elements.gameOverModal) return;
 
     this.elements.gameOverModal.classList.add("animate-fadeOut");
 
-    // Remove the modal after animation completes
     setTimeout(() => {
       this.elements.gameOverModal.classList.add("hidden");
       this.elements.gameOverModal.classList.remove(
         "animate-fadeIn",
         "animate-fadeOut"
       );
-    }, 300); // Match with CSS animation duration
+    }, 300);
   }
 
-  /**
-   * Play a sound effect
-   * @param {string} type - Sound type
-   */
   playSound(type) {
     const soundMap = {
       success: "success.mp3",
@@ -645,12 +479,6 @@ class GameUIManager {
     }
   }
 
-  /**
-   * Escape HTML to prevent XSS attacks
-   * @param {string} unsafe - Unsafe string
-   * @returns {string} - Escaped string
-   * @private
-   */
   _escapeHtml(unsafe) {
     if (!unsafe) return "";
     return String(unsafe)
@@ -661,16 +489,9 @@ class GameUIManager {
       .replace(/'/g, "&#039;");
   }
 
-  /**
-   * Show the timer extension vote modal
-   * @param {number} voteTimeLimit - Time limit for voting in seconds
-   * @param {Function} onVoteYes - Callback for yes vote
-   * @param {Function} onVoteNo - Callback for no vote
-   */
   showTimerVoteModal(voteTimeLimit = 20, onVoteYes, onVoteNo) {
     if (!this.elements.timerVoteModal) return;
 
-    // Reset vote display
     if (this.elements.voteCount) {
       this.elements.voteCount.textContent = "0/0";
     }
@@ -683,65 +504,49 @@ class GameUIManager {
       this.elements.votePlayerList.innerHTML = "";
     }
 
-    // Set up event listeners for buttons
-    if (this.elements.voteYesButton) {
-      // Remove old event listeners if any
-      const newYesButton = this.elements.voteYesButton.cloneNode(true);
-      this.elements.voteYesButton.parentNode.replaceChild(
-        newYesButton,
-        this.elements.voteYesButton
-      );
-      this.elements.voteYesButton = newYesButton;
+    this._setupVoteButton(
+      this.elements.voteYesButton,
+      this.elements.voteNoButton,
+      onVoteYes
+    );
+    this._setupVoteButton(
+      this.elements.voteNoButton,
+      this.elements.voteYesButton,
+      onVoteNo
+    );
 
-      this.elements.voteYesButton.addEventListener("click", () => {
-        this.elements.voteYesButton.disabled = true;
-        this.elements.voteYesButton.classList.add("opacity-50");
-        this.elements.voteNoButton.disabled = true;
-        this.elements.voteNoButton.classList.add("opacity-50");
-        if (onVoteYes) onVoteYes();
-      });
-    }
-
-    if (this.elements.voteNoButton) {
-      // Remove old event listeners if any
-      const newNoButton = this.elements.voteNoButton.cloneNode(true);
-      this.elements.voteNoButton.parentNode.replaceChild(
-        newNoButton,
-        this.elements.voteNoButton
-      );
-      this.elements.voteNoButton = newNoButton;
-
-      this.elements.voteNoButton.addEventListener("click", () => {
-        this.elements.voteYesButton.disabled = true;
-        this.elements.voteYesButton.classList.add("opacity-50");
-        this.elements.voteNoButton.disabled = true;
-        this.elements.voteNoButton.classList.add("opacity-50");
-        if (onVoteNo) onVoteNo();
-      });
-    }
-
-    // Start vote timer
     this._startVoteTimer(voteTimeLimit);
 
-    // Show the modal
     this.elements.timerVoteModal.classList.remove("hidden");
     this.elements.timerVoteModal.classList.add("animate-fadeIn");
 
-    // Play sound effect
     this.playSound("alert");
   }
 
-  /**
-   * Update the timer extension vote display
-   * @param {Object} voteData - Vote data
-   * @param {Array} voteData.votes - Array of player IDs who have voted
-   * @param {Object} voteData.players - Players object
-   * @param {number} voteData.required - Number of votes required to pass
-   */
+  _setupVoteButton(button, oppositeButton, onClickCallback) {
+    if (!button) return;
+
+    const newButton = button.cloneNode(true);
+    button.parentNode.replaceChild(newButton, button);
+
+    newButton.addEventListener("click", () => {
+      newButton.disabled = true;
+      newButton.classList.add("opacity-50");
+
+      if (oppositeButton) {
+        oppositeButton.disabled = true;
+        oppositeButton.classList.add("opacity-50");
+      }
+
+      if (onClickCallback) onClickCallback();
+    });
+
+    return newButton;
+  }
+
   updateTimerVote(voteData) {
     if (!this.elements.timerVoteModal) return;
 
-    // Add safety check
     if (!voteData.players || typeof voteData.players !== "object") {
       console.error(
         "Invalid vote data - players object is missing or invalid",
@@ -752,34 +557,25 @@ class GameUIManager {
 
     const totalPlayers = Object.keys(voteData.players).length;
     const votesCount = voteData.votes.length;
-    const requiredVotes = voteData.required || Math.ceil(totalPlayers / 2);
-
-    // Get yes and no votes arrays
     const yesVotes = voteData.yesVotes || [];
     const noVotes = voteData.noVotes || [];
 
-    // Update vote count - show votes out of total players
     if (this.elements.voteCount) {
       this.elements.voteCount.textContent = `${votesCount}/${totalPlayers}`;
     }
 
-    // Update progress bar (percentage of total players)
     if (this.elements.voteProgress) {
       const percentage = Math.min(100, (votesCount / totalPlayers) * 100);
       this.elements.voteProgress.style.width = `${percentage}%`;
     }
 
-    // Update player list
     if (this.elements.votePlayerList) {
       this.elements.votePlayerList.innerHTML = "";
 
-      // Create player vote status elements
       Object.entries(voteData.players).forEach(([playerId, player]) => {
-        const hasVoted = voteData.votes.includes(playerId);
         const isCurrentPlayer =
           playerId === playerStateManager.gameState.playerId;
 
-        // Determine vote type icon
         let voteIcon = '<span class="text-gray-500">•••</span>';
         if (yesVotes.includes(playerId)) {
           voteIcon = '<span class="text-green-400">✓</span>';
@@ -810,22 +606,16 @@ class GameUIManager {
     }
   }
 
-  /**
-   * Hide the timer extension vote modal
-   */
   hideTimerVoteModal() {
     if (!this.elements.timerVoteModal) return;
 
-    // Stop the vote timer
     if (this.voteTimerInterval) {
       clearInterval(this.voteTimerInterval);
       this.voteTimerInterval = null;
     }
 
-    // Hide the modal with animation
     this.elements.timerVoteModal.classList.add("animate-fadeOut");
 
-    // Remove the modal after animation completes
     setTimeout(() => {
       this.elements.timerVoteModal.classList.add("hidden");
       this.elements.timerVoteModal.classList.remove(
@@ -833,7 +623,6 @@ class GameUIManager {
         "animate-fadeOut"
       );
 
-      // Reset button states
       if (this.elements.voteYesButton) {
         this.elements.voteYesButton.disabled = false;
         this.elements.voteYesButton.classList.remove("opacity-50");
@@ -846,31 +635,22 @@ class GameUIManager {
     }, 300);
   }
 
-  /**
-   * Start the vote timer countdown
-   * @param {number} duration - Duration in seconds
-   * @private
-   */
   _startVoteTimer(duration) {
     if (!this.elements.voteTimer) return;
 
-    // Clear any existing interval
     if (this.voteTimerInterval) {
       clearInterval(this.voteTimerInterval);
     }
 
-    // Set initial value
     let timeLeft = duration;
     this.elements.voteTimer.textContent = `Vote ends in ${timeLeft}s`;
 
-    // Start interval
     this.voteTimerInterval = setInterval(() => {
       timeLeft--;
 
       if (timeLeft <= 0) {
         clearInterval(this.voteTimerInterval);
         this.voteTimerInterval = null;
-        // Don't auto-hide the modal - the server should tell us when to hide it
       } else {
         this.elements.voteTimer.textContent = `Vote ends in ${timeLeft}s`;
       }

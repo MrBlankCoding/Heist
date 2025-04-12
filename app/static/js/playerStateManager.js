@@ -4,12 +4,11 @@ import websocketManager from "./websocketManager.js";
 
 class PlayerStateManager {
   constructor() {
-    // Create a new instance of the event system for state management
     this.events = {};
     this.handlers = {};
     this.nextHandlerId = 1;
+    this.temporaryHandlers = new Map();
 
-    // All game state will be managed here
     this.gameState = {
       roomCode: "",
       playerId: "",
@@ -20,21 +19,15 @@ class PlayerStateManager {
       players: {},
       timer: 300,
       alertLevel: 0,
-      lastTimerUpdate: 0,
-      lastTimerValue: 0,
+      lastServerSync: 0,
+      lastSyncTimer: 0,
       puzzles: {},
-      // Track player puzzle completion for each stage
-      stagePuzzleCompletion: {}, // Format: { stageNumber: { playerId: true|false } }
+      stagePuzzleCompletion: {},
     };
 
-    // Handlers for temporary WebSocket subscriptions
-    this.temporaryHandlers = new Map();
-
-    // Set up WebSocket handlers
     this._setupWebSocketHandlers();
   }
 
-  // Game status constants
   get GAME_STATUS() {
     return {
       WAITING: "waiting",
@@ -44,79 +37,10 @@ class PlayerStateManager {
     };
   }
 
-  // Private: Save essential game state for reconnection
-  // This method is deprecated as we now use server-side state
-  _persistState() {
-    // This method no longer saves to localStorage
-    // State is maintained on the server via Redis
-    console.log("State persistence now handled by server");
-  }
-
-  // Private: Load persisted game state
-  // This method is deprecated as we now use server-side state
-  _loadPersistedState() {
-    // This method no longer loads from localStorage
-    // State will be retrieved from the server via WebSocket
-    console.log("State now retrieved from server");
-    return false; // Nothing to load locally
-  }
-
-  // Clear persisted state
-  // This method is modified to be a no-op since state is stored on the server
-  clearPersistedState() {
-    // No need to clear local state as we don't store it locally anymore
-    console.log("State management now handled by server");
-  }
-
-  // Initialize game state
-  initialize(roomCode, playerId, playerName) {
-    return new Promise((resolve) => {
-      // Set essential properties
-      this.gameState.roomCode = roomCode;
-      this.gameState.playerId = playerId;
-      this.gameState.playerName = playerName;
-      this.gameState.status = this.GAME_STATUS.WAITING;
-
-      // No need to persist state to localStorage as it's now on the server
-
-      this.trigger("gameStateUpdated", this.gameState);
-      resolve(true);
-    });
-  }
-
-  // Handle reconnection to a game
-  handleReconnection() {
-    return new Promise((resolve, reject) => {
-      // We will rely on server to provide all necessary state
-      // Check if we have essential authentication info
-      if (!this.gameState.playerId) {
-        // No player ID to reconnect with
-        reject(new Error("No player ID available for reconnection"));
-        return;
-      }
-
-      if (!this.gameState.roomCode) {
-        // No room code to reconnect to
-        reject(new Error("No room code available for reconnection"));
-        return;
-      }
-
-      // If we have playerId and roomCode, we can attempt reconnection
-      // The actual state will be populated via WebSocket upon connection
-      resolve(true);
-    });
-  }
-
-  /**
-   * Define valid roles
-   */
   get VALID_ROLES() {
     return Object.freeze(["Hacker", "Safe Cracker", "Demolitions", "Lookout"]);
   }
 
-  /**
-   * Define role information
-   */
   get roleDescriptions() {
     return Object.freeze({
       Hacker: {
@@ -146,9 +70,6 @@ class PlayerStateManager {
     });
   }
 
-  /**
-   * Define stage information
-   */
   get stageInfo() {
     return Object.freeze([
       { number: 1, name: "Perimeter Breach", difficulty: "Easy" },
@@ -159,9 +80,32 @@ class PlayerStateManager {
     ]);
   }
 
-  /**
-   * Get the current stage information
-   */
+  initialize(roomCode, playerId, playerName) {
+    this.gameState.roomCode = roomCode;
+    this.gameState.playerId = playerId;
+    this.gameState.playerName = playerName;
+    this.gameState.status = this.GAME_STATUS.WAITING;
+
+    this.trigger("gameStateUpdated", this.gameState);
+    return Promise.resolve(true);
+  }
+
+  handleReconnection() {
+    if (!this.gameState.playerId) {
+      return Promise.reject(
+        new Error("No player ID available for reconnection")
+      );
+    }
+
+    if (!this.gameState.roomCode) {
+      return Promise.reject(
+        new Error("No room code available for reconnection")
+      );
+    }
+
+    return Promise.resolve(true);
+  }
+
   getCurrentStageInfo() {
     const stageIndex = Math.max(
       0,
@@ -170,39 +114,20 @@ class PlayerStateManager {
     return this.stageInfo[stageIndex];
   }
 
-  /**
-   * Get role information
-   * @param {string} role - Role name
-   * @returns {Object|null} - Role description
-   */
   getRoleInfo(role) {
     return this.roleDescriptions[role] || null;
   }
 
-  /**
-   * Get a player by ID
-   * @param {string} playerId - Player ID
-   * @returns {Object|null} - Player object
-   */
   getPlayer(playerId) {
     return this.gameState.players[playerId] || null;
   }
 
-  /**
-   * Get all players
-   * @returns {Object} - Players object
-   */
   getAllPlayers() {
     return this.gameState.players;
   }
 
-  /**
-   * Check if the current player is the host
-   * @returns {boolean} - True if player is host
-   */
   isHost() {
     const currentPlayerId = this.gameState.playerId;
-    // Make sure gameState.players exists, currentPlayerId exists, and the current player exists in players
     if (
       !this.gameState.players ||
       !currentPlayerId ||
@@ -213,38 +138,20 @@ class PlayerStateManager {
     return !!this.gameState.players[currentPlayerId].is_host;
   }
 
-  /**
-   * Add event listener
-   * @param {string} event - Event name
-   * @param {Function} callback - Callback function
-   * @returns {Function} - Function to remove this listener
-   */
   on(event, callback) {
     if (!this.events[event]) {
       this.events[event] = [];
     }
     this.events[event].push(callback);
-
-    // Return function to remove this specific callback
     return () => this.off(event, callback);
   }
 
-  /**
-   * Remove event listener
-   * @param {string} event - Event name
-   * @param {Function} callback - Callback function
-   */
   off(event, callback) {
     if (this.events[event]) {
       this.events[event] = this.events[event].filter((cb) => cb !== callback);
     }
   }
 
-  /**
-   * Trigger event
-   * @param {string} event - Event name
-   * @param {any} data - Event data
-   */
   trigger(event, data) {
     if (!this.events[event]) return;
 
@@ -258,44 +165,28 @@ class PlayerStateManager {
     }
   }
 
-  /**
-   * Private: Get the next handler ID
-   * @returns {number} - Unique handler ID
-   */
   _getNextHandlerId() {
     return this.nextHandlerId++;
   }
 
-  /**
-   * Private: Clean up temporary handlers
-   * @param {number} handlerId - Handler ID to clean up
-   */
   _cleanupTemporaryHandler(handlerId) {
     const handlers = this.handlers[handlerId];
     if (!handlers) return;
 
-    // Remove all handlers
     Object.entries(handlers).forEach(([type, handler]) => {
       websocketManager.removeMessageHandler(type, handler);
     });
 
-    // Remove from map
     this.handlers[handlerId] = null;
   }
 
-  /**
-   * Private: Set up WebSocket message handlers
-   */
   _setupWebSocketHandlers() {
-    // Game state update
     websocketManager.registerMessageHandler("game_state", (data) => {
-      // Update the stored game state
       this.gameState.stage = data.stage;
       this.gameState.status = data.status;
       this.gameState.timer = data.timer;
       this.gameState.alertLevel = data.alert_level;
 
-      // Update players with proper is_host property
       const updatedPlayers = {};
       Object.entries(data.players).forEach(([playerId, playerData]) => {
         updatedPlayers[playerId] = {
@@ -312,18 +203,12 @@ class PlayerStateManager {
       });
       this.gameState.players = updatedPlayers;
 
-      // Persist essential state
-      this._persistState();
-
-      // Start local timer if game is in progress
       if (data.status === "in_progress" && !this.localTimerInterval) {
         this._startLocalTimer();
       }
 
-      // Trigger events
       this.trigger("gameStateUpdated", data);
 
-      // Trigger player connected events for all players
       Object.entries(data.players).forEach(([playerId, player]) => {
         this.trigger("playerConnected", {
           id: playerId,
@@ -335,36 +220,25 @@ class PlayerStateManager {
       });
     });
 
-    // Game reset event
     websocketManager.registerMessageHandler("game_reset", (data) => {
-      // Reset game state values
       this.gameState.playerRole = null;
       this.gameState.stage = 1;
       this.gameState.status = this.GAME_STATUS.WAITING;
       this.gameState.timer = 300;
       this.gameState.alertLevel = 0;
-      this.gameState.players = {};
-      this.gameState.timerExtendVotes = new Set();
 
-      // Reset all player roles
       Object.values(this.gameState.players).forEach((player) => {
         if (player) {
           player.role = null;
         }
       });
 
-      // Stop the local timer
       if (this.localTimerInterval) {
         this._stopLocalTimer();
       }
 
-      // Clear persisted state
-      this.clearPersistedState();
-
-      // Trigger reset event for UI to update
       this.trigger("gameReset", data);
 
-      // Re-trigger player connected events to refresh UI
       Object.entries(this.gameState.players).forEach(([playerId, player]) => {
         this.trigger("playerConnected", {
           id: playerId,
@@ -376,9 +250,7 @@ class PlayerStateManager {
       });
     });
 
-    // Timer vote initiated
     websocketManager.registerMessageHandler("timer_vote_initiated", (data) => {
-      // Initialize the timer vote tracking in game state
       this.gameState.timerVote = {
         initiatorId: data.initiator_id,
         initiatorName: data.initiator_name,
@@ -388,7 +260,6 @@ class PlayerStateManager {
         noVotes: [],
       };
 
-      // Trigger event for UI to show the vote modal
       this.trigger("timerVoteInitiated", {
         initiatorId: data.initiator_id,
         initiatorName: data.initiator_name,
@@ -398,14 +269,10 @@ class PlayerStateManager {
       });
     });
 
-    // Timer vote update
     websocketManager.registerMessageHandler("timer_vote_update", (data) => {
-      // Update the vote in our state
       if (this.gameState.timerVote) {
-        // Update votes
         this.gameState.timerVote.votes = data.votes || [];
 
-        // Update yes and no votes
         if (data.player_id) {
           if (data.vote) {
             if (!this.gameState.timerVote.yesVotes.includes(data.player_id)) {
@@ -418,7 +285,6 @@ class PlayerStateManager {
           }
         }
 
-        // Trigger event for UI to update the vote display
         this.trigger("timerVoteUpdated", {
           votes: this.gameState.timerVote.votes,
           yesVotes: this.gameState.timerVote.yesVotes,
@@ -430,21 +296,15 @@ class PlayerStateManager {
       }
     });
 
-    // Timer vote completed
     websocketManager.registerMessageHandler("timer_vote_completed", (data) => {
-      // Clear the vote state
       this.gameState.timerVote = null;
-
-      // Trigger event for UI to update
       this.trigger("timerVoteCompleted", {
         success: data.success,
         message: data.message,
       });
     });
 
-    // Power used notification for all players
     websocketManager.registerMessageHandler("power_used", (data) => {
-      // Only trigger event if it's not the current player (they get their own success message)
       if (data.player_id !== this.gameState.playerId) {
         const player = this.getPlayer(data.player_id);
         if (player) {
@@ -459,19 +319,11 @@ class PlayerStateManager {
       }
     });
 
-    // Timer updates
     websocketManager.registerMessageHandler("timer_update", (data) => {
-      // Sync our local timer with the server time
       this.gameState.timer = data.timer;
       this.gameState.lastServerSync = Date.now();
       this.gameState.lastSyncTimer = data.timer;
 
-      // Only log syncs when explicitly requested
-      if (data.sync) {
-        console.log("Timer synced with server:", data.timer);
-      }
-
-      // Make sure local timer is running if not already
       if (!this.localTimerInterval && this.gameState.status === "in_progress") {
         this._startLocalTimer();
       }
@@ -479,13 +331,13 @@ class PlayerStateManager {
       this.trigger("timerUpdated", data.timer);
     });
 
-    // Timer extended
     websocketManager.registerMessageHandler("timer_extended", (data) => {
       this.gameState.timer = data.new_timer;
       this.gameState.alertLevel = data.alert_level;
-      this.gameState.timerExtendVotes.clear();
+      if (this.gameState.timerExtendVotes) {
+        this.gameState.timerExtendVotes.clear();
+      }
 
-      // Update synchronization timestamps
       this.gameState.lastServerSync = Date.now();
       this.gameState.lastSyncTimer = data.new_timer;
 
@@ -495,43 +347,49 @@ class PlayerStateManager {
       });
     });
 
-    // Alert level change
     websocketManager.registerMessageHandler("alert_level_changed", (data) => {
       this.gameState.alertLevel = data.level;
       this.trigger("alertLevelChanged", data.level);
     });
 
-    // Puzzle data
     websocketManager.registerMessageHandler("puzzle_data", (data) => {
-      console.log("Puzzle data received:", data.puzzle);
-      if (!this.gameState.puzzles[this.gameState.playerId]) {
-        this.gameState.puzzles[this.gameState.playerId] = {};
+      try {
+        if (!this.gameState.puzzles[this.gameState.playerId]) {
+          this.gameState.puzzles[this.gameState.playerId] = {};
+        }
+
+        if (data.is_role_puzzles) {
+          this.gameState.puzzles[this.gameState.playerId] = data.puzzle;
+        } else {
+          if (!data.puzzle.type) {
+            data.puzzle.type = "surveillance";
+          }
+          this.gameState.puzzles[this.gameState.playerId] = data.puzzle;
+        }
+
+        this.trigger("puzzleReceived", data.puzzle);
+      } catch (error) {
+        console.error("Error processing puzzle data:", error, error.stack);
       }
-      this.gameState.puzzles[this.gameState.playerId] = data.puzzle;
-      this.trigger("puzzleReceived", data.puzzle);
     });
 
-    // Puzzle completed by a player
     websocketManager.registerMessageHandler("puzzle_completed", (data) => {
       if (this.gameEventHandler) {
         this.gameEventHandler.handlePuzzleCompleted(data);
       }
     });
 
-    // Handle player waiting after completing puzzle
     websocketManager.registerMessageHandler("player_waiting", (data) => {
       if (this.gameEventHandler) {
         this.gameEventHandler.handlePlayerWaiting(data);
       }
     });
 
-    // Stage completed
     websocketManager.registerMessageHandler("stage_completed", (data) => {
       this.gameState.stage = data.next_stage;
       this.trigger("stageCompleted", data.next_stage);
     });
 
-    // Game completed or over events - stop the timer
     websocketManager.registerMessageHandler("game_completed", () => {
       this.gameState.status = this.GAME_STATUS.COMPLETED;
       this._stopLocalTimer();
@@ -544,7 +402,6 @@ class PlayerStateManager {
       this.trigger("gameOver", data.result, data.message, data);
     });
 
-    // Random event
     websocketManager.registerMessageHandler("random_event", (data) => {
       this.trigger("randomEvent", {
         event: data.event,
@@ -552,7 +409,6 @@ class PlayerStateManager {
       });
     });
 
-    // Chat message
     websocketManager.registerMessageHandler("chat_message", (data) => {
       this.trigger("chatMessage", {
         playerId: data.player_id,
@@ -561,7 +417,6 @@ class PlayerStateManager {
       });
     });
 
-    // Player connected
     websocketManager.registerMessageHandler("player_connected", (data) => {
       if (data.player) {
         this.gameState.players[data.player.id] = {
@@ -574,39 +429,20 @@ class PlayerStateManager {
       }
     });
 
-    // Player disconnected
     websocketManager.registerMessageHandler("player_disconnected", (data) => {
       if (!data || !data.player_id) {
         console.warn("Received invalid player_disconnected event:", data);
         return;
       }
 
-      console.log("Player disconnected:", data.player_id);
-
-      // Safety check to ensure players object exists
       if (!this.gameState.players) {
         this.gameState.players = {};
       }
 
-      // If the player exists in our state, mark as disconnected
       if (this.gameState.players[data.player_id]) {
-        // Create a deep copy to prevent accidental mutations
-        const player = {
-          ...this.gameState.players[data.player_id],
-          connected: false,
-        };
-
-        // Update the player in our state
         this.gameState.players[data.player_id].connected = false;
-
-        // Notify subscribers with complete player info
         this.trigger("playerDisconnected", data.player_id);
-
-        console.log("Updated player connection status:", player);
       } else {
-        console.warn("Disconnected player not found in state:", data.player_id);
-
-        // Create a placeholder for the disconnected player
         this.gameState.players[data.player_id] = {
           id: data.player_id,
           connected: false,
@@ -614,84 +450,57 @@ class PlayerStateManager {
           role: null,
           is_host: false,
         };
-
-        // Still trigger the event for subscribers
         this.trigger("playerDisconnected", data.player_id);
       }
     });
 
-    // Player left the game
     websocketManager.registerMessageHandler("player_left", (data) => {
       if (!data || !data.player_id) {
         console.warn("Received invalid player_left event:", data);
         return;
       }
 
-      console.log("Player left the game:", data.player_id, data.player_name);
-
-      // Safety check to ensure players object exists
       if (!this.gameState.players) {
         this.gameState.players = {};
       }
 
-      // If the player exists in our state, remove them
       if (this.gameState.players[data.player_id]) {
-        // Get player information before deleting
         const playerInfo = {
           id: data.player_id,
           name: data.player_name || this.gameState.players[data.player_id].name,
           role: this.gameState.players[data.player_id].role,
         };
 
-        // Remove the player from our state
         delete this.gameState.players[data.player_id];
-
-        // Notify subscribers that the player left
         this.trigger("playerLeft", playerInfo);
 
-        // Show system message in chat that player left
         this.trigger("chatMessage", {
           playerId: "system",
           playerName: "System",
           message: `${playerInfo.name} has left the game.`,
         });
-
-        console.log("Removed player from game state:", playerInfo);
-      } else {
-        console.warn("Player not found in state:", data.player_id);
       }
     });
 
-    // Role selection confirmation
     websocketManager.registerMessageHandler("role_confirmed", (data) => {
-      console.log("WebSocket message: role_confirmed", data);
-
-      // Update the player's role in the game state
       if (data.player_id === this.gameState.playerId) {
         this.gameState.playerRole = data.role;
-        console.log("Updated current player role to:", data.role);
         this.trigger("roleChanged", data.role);
       }
 
-      // Update the player's role in the players object
       if (this.gameState.players[data.player_id]) {
-        const updatedPlayer = {
+        this.gameState.players[data.player_id] = {
           ...this.gameState.players[data.player_id],
-          id: data.player_id, // Ensure id is included
+          id: data.player_id,
           role: data.role,
         };
-        this.gameState.players[data.player_id] = updatedPlayer;
-        console.log("Updated player in players object:", updatedPlayer);
 
-        // Trigger the event with complete player data for UI updates
         this.trigger("playerRoleSelected", {
           playerId: data.player_id,
           role: data.role,
-          player: updatedPlayer, // Include full player object
+          player: this.gameState.players[data.player_id],
         });
       } else {
-        console.warn("Player not found in players object:", data.player_id);
-        // Create the player object if it doesn't exist
         this.gameState.players[data.player_id] = {
           id: data.player_id,
           role: data.role,
@@ -700,7 +509,6 @@ class PlayerStateManager {
           is_host: false,
         };
 
-        // Trigger the event with this new player data
         this.trigger("playerRoleSelected", {
           playerId: data.player_id,
           role: data.role,
@@ -708,88 +516,40 @@ class PlayerStateManager {
         });
       }
 
-      // Update all players if the message includes player data
       if (data.players) {
-        console.log("Received updated players data:", data.players);
         Object.entries(data.players).forEach(([playerId, playerData]) => {
-          if (this.gameState.players[playerId]) {
-            this.gameState.players[playerId] = {
-              ...this.gameState.players[playerId],
-              id: playerId, // Ensure id is included
-              name: playerData.name,
-              role: playerData.role,
-              connected: playerData.connected,
-              is_host: playerData.is_host,
-            };
-            console.log(
-              "Updated player from broadcast data:",
-              playerId,
-              this.gameState.players[playerId]
-            );
-          } else {
-            // Create the player if not found
-            this.gameState.players[playerId] = {
-              id: playerId,
-              name: playerData.name,
-              role: playerData.role,
-              connected: playerData.connected,
-              is_host: playerData.is_host,
-            };
-            console.log(
-              "Added new player from broadcast data:",
-              playerId,
-              this.gameState.players[playerId]
-            );
-          }
+          this.gameState.players[playerId] = {
+            ...(this.gameState.players[playerId] || {}),
+            id: playerId,
+            name: playerData.name,
+            role: playerData.role,
+            connected: playerData.connected,
+            is_host: playerData.is_host,
+          };
         });
       }
     });
 
-    // Game started event
     websocketManager.registerMessageHandler("game_started", (data) => {
-      console.log("Game started event received");
       this.gameState.status = this.GAME_STATUS.IN_PROGRESS;
       this.gameState.stage = data.stage || 1;
       this.gameState.timer = data.timer || 300;
 
-      // Start the local timer if not already running
       if (!this.localTimerInterval) {
         this._startLocalTimer();
       }
 
-      // Trigger event for UI to update
       this.trigger("gameStateUpdated", this.gameState);
       this.trigger("gameStarted", this.gameState);
-
-      // If we don't receive a puzzle within 2 seconds, request it
-      setTimeout(() => {
-        if (!this.gameState.puzzles[this.gameState.playerId]) {
-          console.log(
-            "No puzzle received after game start, requesting puzzle data"
-          );
-
-          // Send a request for puzzle data
-          websocketManager
-            .send({
-              type: "request_puzzle",
-              player_id: this.gameState.playerId,
-            })
-            .catch((error) => {
-              console.error("Error requesting puzzle:", error);
-            });
-        }
-      }, 2000);
+      this.fetchPuzzlesForRole();
     });
 
-    // Error handling
     websocketManager.registerMessageHandler("error", (data) => {
       console.error("Server error:", data);
       this.trigger("error", data);
     });
 
-    // Team puzzle updates for real-time collaboration
     websocketManager.registerMessageHandler("team_puzzle_update", (data) => {
-      // Forward the team puzzle update to any listeners
       this.trigger("teamPuzzleUpdate", {
         playerId: data.player_id,
         puzzleType: data.puzzle_type,
@@ -798,24 +558,15 @@ class PlayerStateManager {
     });
   }
 
-  /**
-   * Start the local timer for real-time updates
-   * @private
-   */
   _startLocalTimer() {
-    // Clear any existing timer first
     this._stopLocalTimer();
 
-    // Store the last sync time
     if (!this.gameState.lastServerSync) {
       this.gameState.lastServerSync = Date.now();
     }
 
-    // Start a new timer that decrements each second
     this.localTimerInterval = setInterval(() => {
-      // Only decrement if the game is in progress
       if (this.gameState.status === this.GAME_STATUS.IN_PROGRESS) {
-        // Check if we've drifted too far from expected time
         const timeSinceSync = Date.now() - this.gameState.lastServerSync;
         const expectedSeconds = Math.floor(timeSinceSync / 1000);
         const drift = Math.abs(
@@ -823,31 +574,22 @@ class PlayerStateManager {
             (this.gameState.lastSyncTimer - this.gameState.timer)
         );
 
-        // If drift is more than 2 seconds, log a warning but continue (server will correct us)
         if (drift > 2) {
           console.warn(`Timer drift detected: ${drift}s`);
         }
 
-        // Decrement the timer by 1 second
         if (this.gameState.timer > 0) {
           this.gameState.timer -= 1;
-
-          // Trigger the timer updated event with the new time
           this.trigger("localTimerUpdated", this.gameState.timer);
         }
 
-        // If timer reaches zero, handle game end
         if (this.gameState.timer <= 0) {
           this._stopLocalTimer();
         }
       }
-    }, 1000); // Update every second
+    }, 1000);
   }
 
-  /**
-   * Stop the local timer
-   * @private
-   */
   _stopLocalTimer() {
     if (this.localTimerInterval) {
       clearInterval(this.localTimerInterval);
@@ -862,15 +604,10 @@ class PlayerStateManager {
         return;
       }
 
-      // Request role selection from server
-      const data = {
-        type: "select_role",
-        role: role,
-      };
+      const data = { type: "select_role", role: role };
 
       const handleResponse = (data) => {
         if (data.error) {
-          // Remove temporary handler
           websocketManager.removeMessageHandler("error", handleError);
           websocketManager.removeMessageHandler(
             "role_confirmed",
@@ -880,26 +617,16 @@ class PlayerStateManager {
           return;
         }
 
-        // Check if the confirmed role is for this player
         if (data.player_id === this.gameState.playerId) {
-          // Update local state
           this.gameState.playerRole = role;
-          this.gameState.players = data.players;
 
-          // Trigger state update event
-          this.trigger("gameStateUpdated", this.gameState);
-
-          // Clean up handlers
           websocketManager.removeMessageHandler("error", handleError);
           websocketManager.removeMessageHandler(
             "role_confirmed",
             handleResponse
           );
 
-          resolve({
-            player: data.player,
-            players: data.players,
-          });
+          resolve({ player: data.player, players: data.players });
         }
       };
 
@@ -914,13 +641,10 @@ class PlayerStateManager {
         }
       };
 
-      // Register temporary handlers
       websocketManager.registerMessageHandler("role_confirmed", handleResponse);
       websocketManager.registerMessageHandler("error", handleError);
 
-      // Send role selection request
       websocketManager.send(data).catch((error) => {
-        // Clean up handlers on send error
         websocketManager.removeMessageHandler("error", handleError);
         websocketManager.removeMessageHandler("role_confirmed", handleResponse);
         reject(error);
@@ -935,28 +659,21 @@ class PlayerStateManager {
         return;
       }
 
-      // Only the host can start the game
       if (!this.isHost()) {
         reject(new Error("Only the host can start the game"));
         return;
       }
 
-      // Request game start from server
-      const data = {
-        type: "start_game",
-      };
+      const data = { type: "start_game" };
 
       const handleResponse = (data) => {
-        // Update local state for game start
         this.gameState.status = this.GAME_STATUS.IN_PROGRESS;
         this.gameState.stage = data.stage || 1;
         this.gameState.timer = data.timer || 300;
 
-        // Trigger events
         this.trigger("gameStateUpdated", this.gameState);
         this.trigger("gameStarted", this.gameState);
 
-        // Clean up handlers
         websocketManager.removeMessageHandler("game_started", handleResponse);
         websocketManager.removeMessageHandler("error", handleError);
 
@@ -965,20 +682,16 @@ class PlayerStateManager {
 
       const handleError = (data) => {
         if (data.context === "game_start") {
-          // Clean up handlers
           websocketManager.removeMessageHandler("game_started", handleResponse);
           websocketManager.removeMessageHandler("error", handleError);
           reject(new Error(data.message));
         }
       };
 
-      // Register temporary handlers
       websocketManager.registerMessageHandler("game_started", handleResponse);
       websocketManager.registerMessageHandler("error", handleError);
 
-      // Send game start request
       websocketManager.send(data).catch((error) => {
-        // Clean up handlers on send error
         websocketManager.removeMessageHandler("game_started", handleResponse);
         websocketManager.removeMessageHandler("error", handleError);
         reject(error);
@@ -998,39 +711,31 @@ class PlayerStateManager {
         return;
       }
 
-      // Request power usage from server
       const data = {
         type: "use_power",
         role: this.gameState.playerRole,
       };
 
       const handleResponse = (data) => {
-        // Check if the power usage is for this player
         if (data.player_id === this.gameState.playerId) {
-          // Clean up handlers
           websocketManager.removeMessageHandler("power_used", handleResponse);
           websocketManager.removeMessageHandler("error", handleError);
-
           resolve(true);
         }
       };
 
       const handleError = (data) => {
         if (data.context === "power_usage") {
-          // Clean up handlers
           websocketManager.removeMessageHandler("power_used", handleResponse);
           websocketManager.removeMessageHandler("error", handleError);
           reject(new Error(data.message));
         }
       };
 
-      // Register temporary handlers
       websocketManager.registerMessageHandler("power_used", handleResponse);
       websocketManager.registerMessageHandler("error", handleError);
 
-      // Send power usage request
       websocketManager.send(data).catch((error) => {
-        // Clean up handlers on send error
         websocketManager.removeMessageHandler("power_used", handleResponse);
         websocketManager.removeMessageHandler("error", handleError);
         reject(error);
@@ -1038,10 +743,6 @@ class PlayerStateManager {
     });
   }
 
-  /**
-   * Initiate a vote to extend the game timer
-   * @returns {Promise<boolean>} - Resolves to true if the vote is initiated
-   */
   initiateTimerExtensionVote() {
     return new Promise((resolve, reject) => {
       if (!this.gameState.roomCode || !this.gameState.playerId) {
@@ -1049,26 +750,20 @@ class PlayerStateManager {
         return;
       }
 
-      // Check if a vote is already in progress
       if (this.gameState.timerVote) {
         reject(new Error("A timer vote is already in progress"));
         return;
       }
 
-      // Request timer extension vote from server
-      const data = {
-        type: "initiate_timer_vote",
-      };
+      const data = { type: "initiate_timer_vote" };
 
       const handleResponse = (data) => {
-        // Clean up handlers
         websocketManager.removeMessageHandler(
           "timer_vote_initiated",
           handleResponse
         );
         websocketManager.removeMessageHandler("error", handleError);
 
-        // Initialize vote state
         this.gameState.timerVote = {
           initiatorId: this.gameState.playerId,
           initiatorName: this.gameState.playerName,
@@ -1083,7 +778,6 @@ class PlayerStateManager {
 
       const handleError = (data) => {
         if (data.context === "timer_vote") {
-          // Clean up handlers
           websocketManager.removeMessageHandler(
             "timer_vote_initiated",
             handleResponse
@@ -1093,16 +787,13 @@ class PlayerStateManager {
         }
       };
 
-      // Register temporary handlers
       websocketManager.registerMessageHandler(
         "timer_vote_initiated",
         handleResponse
       );
       websocketManager.registerMessageHandler("error", handleError);
 
-      // Send timer vote request
       websocketManager.send(data).catch((error) => {
-        // Clean up handlers on send error
         websocketManager.removeMessageHandler(
           "timer_vote_initiated",
           handleResponse
@@ -1113,11 +804,6 @@ class PlayerStateManager {
     });
   }
 
-  /**
-   * Vote on timer extension
-   * @param {boolean} vote - True for yes, false for no
-   * @returns {Promise<boolean>} - Resolves to true if the vote is recorded
-   */
   voteExtendTimer(vote) {
     return new Promise((resolve, reject) => {
       if (!this.gameState.roomCode || !this.gameState.playerId) {
@@ -1125,20 +811,17 @@ class PlayerStateManager {
         return;
       }
 
-      // Check if a vote is in progress
       if (!this.gameState.timerVote) {
         reject(new Error("No timer vote is in progress"));
         return;
       }
 
-      // Request timer vote from server
       const data = {
         type: "extend_timer_vote",
         vote: vote,
       };
 
-      const handleResponse = (data) => {
-        // Clean up handlers
+      const handleResponse = () => {
         websocketManager.removeMessageHandler(
           "timer_vote_update",
           handleResponse
@@ -1149,7 +832,6 @@ class PlayerStateManager {
 
       const handleError = (data) => {
         if (data.context === "timer_vote") {
-          // Clean up handlers
           websocketManager.removeMessageHandler(
             "timer_vote_update",
             handleResponse
@@ -1159,16 +841,13 @@ class PlayerStateManager {
         }
       };
 
-      // Register temporary handlers
       websocketManager.registerMessageHandler(
         "timer_vote_update",
         handleResponse
       );
       websocketManager.registerMessageHandler("error", handleError);
 
-      // Send timer vote request
       websocketManager.send(data).catch((error) => {
-        // Clean up handlers on send error
         websocketManager.removeMessageHandler(
           "timer_vote_update",
           handleResponse
@@ -1179,11 +858,6 @@ class PlayerStateManager {
     });
   }
 
-  /**
-   * Submit a puzzle solution to the server
-   * @param {*} solution - Solution data
-   * @returns {Promise<boolean>} - Resolves to true if solution is correct
-   */
   submitPuzzleSolution(solution) {
     return new Promise((resolve, reject) => {
       if (!this.gameState.roomCode || !this.gameState.playerId) {
@@ -1191,30 +865,24 @@ class PlayerStateManager {
         return;
       }
 
-      // Request to submit solution
       const data = {
         type: "puzzle_solution",
         solution: solution,
       };
 
       const handleResponse = (data) => {
-        // Check if the puzzle completion is for this player
         if (data.player_id === this.gameState.playerId) {
-          // Clean up handlers
           websocketManager.removeMessageHandler(
             "puzzle_completed",
             handleResponse
           );
           websocketManager.removeMessageHandler("error", handleError);
-
-          // Resolve with success
           resolve(true);
         }
       };
 
       const handleError = (data) => {
         if (data.context === "puzzle_solution") {
-          // Clean up handlers
           websocketManager.removeMessageHandler(
             "puzzle_completed",
             handleResponse
@@ -1224,69 +892,48 @@ class PlayerStateManager {
         }
       };
 
-      // Register temporary handlers
       websocketManager.registerMessageHandler(
         "puzzle_completed",
         handleResponse
       );
       websocketManager.registerMessageHandler("error", handleError);
 
-      // Set up a timeout to reject the promise if no response received
       const timeout = setTimeout(() => {
-        // Clean up handlers
         websocketManager.removeMessageHandler(
           "puzzle_completed",
           handleResponse
         );
         websocketManager.removeMessageHandler("error", handleError);
         reject(new Error("Timeout waiting for solution response"));
-      }, 10000); // 10 second timeout
+      }, 10000);
 
-      // Send solution submission
-      websocketManager
-        .send(data)
-        .then(() => {
-          // Solution submitted successfully, but we'll wait for the response
-          // from the server before resolving the promise
-        })
-        .catch((error) => {
-          // Clean up handlers and timeout
-          clearTimeout(timeout);
-          websocketManager.removeMessageHandler(
-            "puzzle_completed",
-            handleResponse
-          );
-          websocketManager.removeMessageHandler("error", handleError);
-          reject(error);
-        });
+      websocketManager.send(data).catch((error) => {
+        clearTimeout(timeout);
+        websocketManager.removeMessageHandler(
+          "puzzle_completed",
+          handleResponse
+        );
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
     });
   }
 
-  /**
-   * Update player puzzle completion status
-   * @param {string} playerId - Player ID that completed the puzzle
-   * @param {number} stage - Stage number
-   * @returns {boolean} - Whether all puzzles in the stage are now completed
-   */
   updatePlayerPuzzleCompletion(playerId, stage) {
-    // Initialize stage tracking if it doesn't exist
     if (!this.gameState.stagePuzzleCompletion[stage]) {
       this.gameState.stagePuzzleCompletion[stage] = {};
     }
 
-    // Mark this player as completed
     this.gameState.stagePuzzleCompletion[stage][playerId] = true;
 
-    // Check if all connected players have completed their puzzles
     const connectedPlayers = Object.entries(this.gameState.players)
-      .filter(([id, player]) => player.connected)
+      .filter(([_, player]) => player.connected)
       .map(([id]) => id);
 
     const allCompleted = connectedPlayers.every(
       (id) => this.gameState.stagePuzzleCompletion[stage][id]
     );
 
-    // Trigger an event to notify UI components
     this.trigger("puzzleCompletionUpdated", {
       playerId,
       stage,
@@ -1297,32 +944,449 @@ class PlayerStateManager {
     return allCompleted;
   }
 
-  /**
-   * Get player puzzle completion for current stage
-   * @returns {Object} - Object mapping player IDs to completion status
-   */
   getCurrentStagePuzzleCompletion() {
     const currentStage = this.gameState.stage;
     return this.gameState.stagePuzzleCompletion[currentStage] || {};
   }
 
-  /**
-   * Check if all players have completed their puzzles for the current stage
-   * @returns {boolean} - Whether all players have completed their puzzles
-   */
   haveAllPlayersCompletedStage() {
     const currentStage = this.gameState.stage;
     const stageCompletion =
       this.gameState.stagePuzzleCompletion[currentStage] || {};
 
     const connectedPlayers = Object.entries(this.gameState.players)
-      .filter(([id, player]) => player.connected)
+      .filter(([_, player]) => player.connected)
       .map(([id]) => id);
 
     return (
       connectedPlayers.length > 0 &&
       connectedPlayers.every((id) => stageCompletion[id])
     );
+  }
+
+  fetchPuzzlesForRole() {
+    if (
+      !this.gameState.roomCode ||
+      !this.gameState.playerId ||
+      !this.gameState.playerRole
+    ) {
+      return Promise.reject(
+        new Error("Game not initialized correctly or role not selected")
+      );
+    }
+
+    return new Promise((resolve, reject) => {
+      // Request puzzles for the player's role
+      const data = {
+        type: "request_role_puzzles",
+        player_id: this.gameState.playerId,
+        role: this.gameState.playerRole,
+      };
+
+      const handleResponse = (data) => {
+        if (data.puzzle) {
+          // Initialize puzzles object if needed
+          if (!this.gameState.puzzles[this.gameState.playerId]) {
+            this.gameState.puzzles[this.gameState.playerId] = {};
+          }
+
+          // Store the puzzle data for the role
+          this.gameState.puzzles[this.gameState.playerId] = data.puzzle;
+
+          // Trigger puzzleReceived event
+          this.trigger("puzzleReceived", data.puzzle);
+
+          // Clean up handler
+          websocketManager.removeMessageHandler("puzzle_data", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+
+          resolve(true);
+        }
+      };
+
+      const handleError = (data) => {
+        if (data.context === "puzzle_request") {
+          // Clean up handlers
+          websocketManager.removeMessageHandler("puzzle_data", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("puzzle_data", handleResponse);
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Set up a timeout to reject the promise if no response received
+      const timeout = setTimeout(() => {
+        // Clean up handlers
+        websocketManager.removeMessageHandler("puzzle_data", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(new Error("Timeout waiting for puzzles"));
+      }, 5000); // 5 second timeout
+
+      // Send request for role-specific puzzles
+      websocketManager
+        .send(data)
+        .then(() => {
+          // Request sent successfully, waiting for response
+        })
+        .catch((error) => {
+          // Clean up handlers and timeout
+          clearTimeout(timeout);
+          websocketManager.removeMessageHandler("puzzle_data", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(error);
+        });
+    });
+  }
+
+  sendChatMessage(message) {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      const data = {
+        type: "chat_message",
+        message: message,
+      };
+
+      websocketManager
+        .send(data)
+        .then(() => resolve(true))
+        .catch((error) => reject(error));
+    });
+  }
+
+  leaveGame() {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      const data = {
+        type: "leave_game",
+      };
+
+      websocketManager
+        .send(data)
+        .then(() => {
+          this.resetGameState();
+          resolve(true);
+        })
+        .catch((error) => reject(error));
+    });
+  }
+
+  resetGameState() {
+    this.gameState = {
+      roomCode: "",
+      playerId: "",
+      playerName: "",
+      playerRole: "",
+      stage: 0,
+      status: this.GAME_STATUS.WAITING,
+      players: {},
+      timer: 300,
+      alertLevel: 0,
+      lastServerSync: 0,
+      lastSyncTimer: 0,
+      puzzles: {},
+      stagePuzzleCompletion: {},
+    };
+
+    if (this.localTimerInterval) {
+      this._stopLocalTimer();
+    }
+
+    this.trigger("gameStateReset");
+  }
+
+  updateTeamPuzzle(puzzleType, updateData) {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      const data = {
+        type: "team_puzzle_update",
+        puzzle_type: puzzleType,
+        update_data: updateData,
+      };
+
+      websocketManager
+        .send(data)
+        .then(() => resolve(true))
+        .catch((error) => reject(error));
+    });
+  }
+
+  requestSyncGameState() {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      const data = {
+        type: "sync_request",
+      };
+
+      const handleResponse = (data) => {
+        // Update game state with synced data
+        this.gameState.stage = data.stage;
+        this.gameState.status = data.status;
+        this.gameState.timer = data.timer;
+        this.gameState.alertLevel = data.alert_level;
+
+        // Update player data
+        const updatedPlayers = {};
+        Object.entries(data.players).forEach(([playerId, playerData]) => {
+          updatedPlayers[playerId] = {
+            id: playerId,
+            name: playerData.name,
+            role: playerData.role,
+            connected: playerData.connected,
+            is_host: playerData.is_host,
+          };
+
+          if (playerId === this.gameState.playerId && playerData.role) {
+            this.gameState.playerRole = playerData.role;
+          }
+        });
+        this.gameState.players = updatedPlayers;
+
+        // Update sync timestamps
+        this.gameState.lastServerSync = Date.now();
+        this.gameState.lastSyncTimer = data.timer;
+
+        // Clean up handlers
+        websocketManager.removeMessageHandler("game_state", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+
+        // Trigger events
+        this.trigger("gameStateUpdated", this.gameState);
+        resolve(true);
+      };
+
+      const handleError = (data) => {
+        if (data.context === "sync_request") {
+          // Clean up handlers
+          websocketManager.removeMessageHandler("game_state", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("game_state", handleResponse);
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Set up a timeout to reject the promise if no response received
+      const timeout = setTimeout(() => {
+        // Clean up handlers
+        websocketManager.removeMessageHandler("game_state", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(new Error("Timeout waiting for game state sync"));
+      }, 5000); // 5 second timeout
+
+      // Send sync request
+      websocketManager.send(data).catch((error) => {
+        // Clean up handlers and timeout
+        clearTimeout(timeout);
+        websocketManager.removeMessageHandler("game_state", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
+    });
+  }
+
+  registerGameEventHandler(handler) {
+    this.gameEventHandler = handler;
+  }
+
+  unregisterGameEventHandler() {
+    this.gameEventHandler = null;
+  }
+
+  getGameStateSummary() {
+    return {
+      roomCode: this.gameState.roomCode,
+      playerId: this.gameState.playerId,
+      playerName: this.gameState.playerName,
+      playerRole: this.gameState.playerRole,
+      stage: this.gameState.stage,
+      status: this.gameState.status,
+      timer: this.gameState.timer,
+      alertLevel: this.gameState.alertLevel,
+      playerCount: Object.keys(this.gameState.players).length,
+      connectedPlayerCount: Object.values(this.gameState.players).filter(
+        (p) => p.connected
+      ).length,
+      stageInfo: this.getCurrentStageInfo(),
+      isHost: this.isHost(),
+    };
+  }
+
+  getPuzzleCompletionPercentage() {
+    const currentStage = this.gameState.stage;
+    const stageCompletion =
+      this.gameState.stagePuzzleCompletion[currentStage] || {};
+
+    const connectedPlayers = Object.entries(this.gameState.players)
+      .filter(([_, player]) => player.connected)
+      .map(([id]) => id);
+
+    if (connectedPlayers.length === 0) return 0;
+
+    const completedCount = connectedPlayers.filter(
+      (id) => stageCompletion[id]
+    ).length;
+    return (completedCount / connectedPlayers.length) * 100;
+  }
+
+  resetGame() {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      if (!this.isHost()) {
+        reject(new Error("Only the host can reset the game"));
+        return;
+      }
+
+      const data = {
+        type: "reset_game",
+      };
+
+      const handleResponse = () => {
+        // Game reset is handled by the game_reset event handler
+        websocketManager.removeMessageHandler("game_reset", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        resolve(true);
+      };
+
+      const handleError = (data) => {
+        if (data.context === "game_reset") {
+          websocketManager.removeMessageHandler("game_reset", handleResponse);
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      // Register temporary handlers
+      websocketManager.registerMessageHandler("game_reset", handleResponse);
+      websocketManager.registerMessageHandler("error", handleError);
+
+      // Send reset request
+      websocketManager.send(data).catch((error) => {
+        websocketManager.removeMessageHandler("game_reset", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
+    });
+  }
+
+  sendTeamPuzzleAction(action, puzzleId, actionData) {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      const data = {
+        type: "team_puzzle_action",
+        action: action,
+        puzzle_id: puzzleId,
+        action_data: actionData,
+      };
+
+      websocketManager
+        .send(data)
+        .then(() => resolve(true))
+        .catch((error) => reject(error));
+    });
+  }
+
+  requestHint() {
+    return new Promise((resolve, reject) => {
+      if (!this.gameState.roomCode || !this.gameState.playerId) {
+        reject(new Error("Game not initialized correctly"));
+        return;
+      }
+
+      const data = {
+        type: "request_hint",
+      };
+
+      const handleResponse = (data) => {
+        websocketManager.removeMessageHandler("hint_response", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        resolve(data.hint);
+      };
+
+      const handleError = (data) => {
+        if (data.context === "hint_request") {
+          websocketManager.removeMessageHandler(
+            "hint_response",
+            handleResponse
+          );
+          websocketManager.removeMessageHandler("error", handleError);
+          reject(new Error(data.message));
+        }
+      };
+
+      websocketManager.registerMessageHandler("hint_response", handleResponse);
+      websocketManager.registerMessageHandler("error", handleError);
+
+      const timeout = setTimeout(() => {
+        websocketManager.removeMessageHandler("hint_response", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(new Error("Timeout waiting for hint"));
+      }, 5000);
+
+      websocketManager.send(data).catch((error) => {
+        clearTimeout(timeout);
+        websocketManager.removeMessageHandler("hint_response", handleResponse);
+        websocketManager.removeMessageHandler("error", handleError);
+        reject(error);
+      });
+    });
+  }
+
+  setGameEventCallback(event, callback) {
+    if (typeof callback !== "function") {
+      throw new Error("Callback must be a function");
+    }
+
+    const handlerId = this._getNextHandlerId();
+
+    if (!this.handlers[handlerId]) {
+      this.handlers[handlerId] = {};
+    }
+
+    // Store the original callback and event for cleanup
+    this.handlers[handlerId][event] = callback;
+
+    // Register the event listener
+    this.on(event, callback);
+
+    // Return a function to remove this specific handler
+    return () => {
+      this.off(event, callback);
+      delete this.handlers[handlerId][event];
+
+      // If this was the last handler for this ID, clean up
+      if (Object.keys(this.handlers[handlerId]).length === 0) {
+        delete this.handlers[handlerId];
+      }
+    };
   }
 }
 

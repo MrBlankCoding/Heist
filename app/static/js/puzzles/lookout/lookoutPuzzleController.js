@@ -1,5 +1,6 @@
 // lookoutPuzzleController.js - Controls puzzles for the Lookout role
 
+// Import puzzle modules
 import SurveillancePuzzle from "./SurveillancePuzzle.js";
 import PatrolPatternPuzzle from "./PatrolPatternPuzzle.js";
 import SecuritySystemPuzzle from "./SecuritySystemPuzzle.js";
@@ -69,20 +70,16 @@ class LookoutPuzzleController {
       `;
       wrapper.appendChild(this.loadingElement);
 
-      // Initialize the appropriate puzzle after a short delay
-      // This gives the loading animation time to show and improves perceived performance
+      // If the puzzle type is missing, initialize with a default type
+      if (!this.puzzleData.type) {
+        this.puzzleData.type = "surveillance";
+      }
+
+      // Use a shorter delay for initialization
       setTimeout(() => {
-        try {
-          this._initializePuzzle(wrapper, header);
-        } catch (error) {
-          console.error("Error initializing puzzle:", error);
-          this._showErrorMessage(
-            "Failed to initialize puzzle. Please try refreshing the page."
-          );
-        }
-      }, 800);
+        this._initializePuzzle(wrapper, header);
+      }, 200); // Reduced from 800ms to 200ms
     } catch (error) {
-      console.error("Error in LookoutPuzzleController initialization:", error);
       this.containerElement.innerHTML = `
         <div class="bg-red-900 bg-opacity-20 p-4 rounded text-red-400 text-center">
           <p class="font-bold mb-2">Error initializing puzzle</p>
@@ -106,7 +103,6 @@ class LookoutPuzzleController {
       try {
         this.activePuzzle.showSuccess();
       } catch (error) {
-        console.error("Error showing success in puzzle:", error);
         this._showSuccessFallback();
       }
     } else {
@@ -143,7 +139,6 @@ class LookoutPuzzleController {
       try {
         this.activePuzzle.handleRandomEvent(eventType, duration);
       } catch (error) {
-        console.error("Error handling random event in puzzle:", error);
         this._showRandomEventFallback(eventType, duration);
       }
     } else {
@@ -277,9 +272,6 @@ class LookoutPuzzleController {
           break;
         default:
           // Default to surveillance puzzle for unknown types
-          console.warn(
-            `Unknown puzzle type: ${puzzleType}, defaulting to surveillance`
-          );
           this.activePuzzle = new SurveillancePuzzle(
             wrapper,
             this.puzzleData,
@@ -295,14 +287,18 @@ class LookoutPuzzleController {
         try {
           this.activePuzzle.initialize();
         } catch (error) {
-          console.error(`Error initializing puzzle ${puzzleType}:`, error);
           this._showErrorMessage(
             "Error initializing puzzle. Please try again."
           );
         }
+      } else {
+        console.error(
+          "Missing activePuzzle or initialize method",
+          this.activePuzzle
+        );
+        this._showErrorMessage("Error setting up puzzle. Please try again.");
       }
     } catch (error) {
-      console.error(`Error creating puzzle ${puzzleType}:`, error);
       this._showErrorMessage("Error loading puzzle. Please try again.");
     }
   }
@@ -313,8 +309,6 @@ class LookoutPuzzleController {
    * @private
    */
   _showErrorMessage(message) {
-    console.error(message);
-
     if (this.messageElement) {
       this.messageElement.textContent = message;
       this.messageElement.className =

@@ -8,12 +8,7 @@ import {
   GameUIManager,
   GameEventHandler,
   NotificationSystem,
-  ChatManager,
-  HackerPuzzleController,
-  SafeCrackerPuzzleController,
-  DemolitionsPuzzleController,
-  LookoutPuzzleController,
-  TeamPuzzleController,
+  ChatManager
 } from "./main.bundle.js";
 
 // Main Game Controller
@@ -199,7 +194,6 @@ class GameController {
 
       // Puzzle events - these are critical for puzzle display
       playerStateManager.on("puzzleReceived", (puzzle) => {
-        console.log("Puzzle received event triggered", puzzle);
         this.eventHandler.handlePuzzleReceived(puzzle);
       });
       playerStateManager.on("puzzleCompleted", (data) =>

@@ -4,21 +4,20 @@ import uuid
 import asyncio
 import json
 
-# Use absolute imports 
+# Use absolute imports
 import app.models
 import app.utils
 import app.game_logic
-import app.redis_client
 
 # Import Redis functions
 from app.redis_client import (
-    store_room_data, 
+    store_room_data,
     get_room_data,
     store_player_data,
     get_player_data,
     associate_player_with_room,
     get_player_room,
-    cleanup_player_data
+    cleanup_player_data,
 )
 
 # Get references to shared resources
@@ -62,17 +61,12 @@ async def join_game_with_code(request: Request, room_code: str):
     room_data = get_room_data(room_code)
     if not room_data:
         return templates.TemplateResponse(
-            "error.html", 
-            {"request": request, "message": "Game room not found"}
+            "error.html", {"request": request, "message": "Game room not found"}
         )
-    
+
     # Pass room_code to the template
     return templates.TemplateResponse(
-        "join.html", 
-        {
-            "request": request,
-            "room_code": room_code
-        }
+        "join.html", {"request": request, "room_code": room_code}
     )
 
 
@@ -80,31 +74,27 @@ async def join_game_with_code(request: Request, room_code: str):
 async def game_page(request: Request, room_code: str):
     # Get player_id from query parameters
     player_id = request.query_params.get("player_id")
-    
+
     # Check if room exists in Redis
     room_data = get_room_data(room_code)
     if not room_data:
         return templates.TemplateResponse(
             "error.html", {"request": request, "message": "Game room not found"}
         )
-    
+
     # Check if player is in the room (if player_id is provided)
     if player_id:
         player_room = get_player_room(player_id)
         if not player_room or player_room != room_code:
             return templates.TemplateResponse(
-                "error.html", 
-                {"request": request, "message": "Player not found in this room"}
+                "error.html",
+                {"request": request, "message": "Player not found in this room"},
             )
-    
+
     # Pass room_code and player_id to the template
     return templates.TemplateResponse(
-        "game.html", 
-        {
-            "request": request, 
-            "room_code": room_code,
-            "player_id": player_id
-        }
+        "game.html",
+        {"request": request, "room_code": room_code, "player_id": player_id},
     )
 
 
@@ -124,24 +114,24 @@ async def create_room(host_name: str):
 
     # Create game room
     game_room = GameRoom(code=room_code, players={player_id: player})
-    
+
     # Store in Redis
     room_data = game_room.dict()
     player_data = player.dict()
-    
+
     store_room_data(room_code, room_data)
     store_player_data(player_id, player_data)
     associate_player_with_room(player_id, room_code)
-    
+
     # Also keep in memory for now (for compatibility)
     game_rooms[room_code] = game_room
 
     # Return data that client needs
     return {
-        "room_code": room_code, 
-        "player_id": player_id, 
+        "room_code": room_code,
+        "player_id": player_id,
         "player_name": host_name,
-        "session_id": player_id  # This will be used for authentication
+        "session_id": player_id,  # This will be used for authentication
     }
 
 
@@ -168,12 +158,12 @@ async def join_room(room_code: str, player_name: str):
 
     # Update players in room
     room.players[player_id] = player
-    
+
     # Update in Redis
     store_room_data(room_code, room.dict())
     store_player_data(player_id, player.dict())
     associate_player_with_room(player_id, room_code)
-    
+
     # Update in-memory for compatibility
     if room_code in game_rooms:
         game_rooms[room_code].players[player_id] = player
@@ -181,10 +171,10 @@ async def join_room(room_code: str, player_name: str):
         game_rooms[room_code] = room
 
     return {
-        "room_code": room_code, 
-        "player_id": player_id, 
+        "room_code": room_code,
+        "player_id": player_id,
         "player_name": player_name,
-        "session_id": player_id  # This will be used for authentication
+        "session_id": player_id,  # This will be used for authentication
     }
 
 
@@ -197,7 +187,7 @@ async def select_role(player_id: str, room_code: str, role: str):
 
     # Create room object
     room = GameRoom(**room_data)
-    
+
     # Check if player is in room
     if player_id not in room.players:
         return {"error": "Player not found"}
@@ -213,23 +203,27 @@ async def select_role(player_id: str, room_code: str, role: str):
         room.players[player_id]["role"] = role
     else:
         room.players[player_id].role = role
-        
+
     # Update player data in Redis
     player_data = get_player_data(player_id)
     if player_data:
         player_data["role"] = role
         store_player_data(player_id, player_data)
-    
+
     # Update room data in Redis
     store_room_data(room_code, room.dict())
-    
+
     # Update in-memory for compatibility
     if room_code in game_rooms:
         if player_id in game_rooms[room_code].players:
             game_rooms[room_code].players[player_id].role = role
 
     # Prepare player data for response
-    player_obj = Player(**room.players[player_id]) if isinstance(room.players[player_id], dict) else room.players[player_id]
+    player_obj = (
+        Player(**room.players[player_id])
+        if isinstance(room.players[player_id], dict)
+        else room.players[player_id]
+    )
     player_data = {
         "id": player_id,
         "name": player_obj.name,
@@ -252,21 +246,17 @@ async def select_role(player_id: str, room_code: str, role: str):
 
     # Broadcast role confirmation to all players
     await broadcast_to_room(
-        room_code, 
+        room_code,
         {
-            "type": "role_confirmed", 
-            "player_id": player_id, 
+            "type": "role_confirmed",
+            "player_id": player_id,
             "role": role,
             "player": player_data,
-            "players": all_players
-        }
+            "players": all_players,
+        },
     )
 
-    return {
-        "success": True, 
-        "player": player_data,
-        "players": all_players
-    }
+    return {"success": True, "player": player_data, "players": all_players}
 
 
 @router.post("/api/game/start")
@@ -278,28 +268,32 @@ async def start_game(room_code: str, player_id: str = None):
 
     # Create room object
     room = GameRoom(**room_data)
-    
+
     # If player_id is provided, verify the player is the host
     if player_id:
         player_in_room = False
         is_host = False
-        
+
         for pid, player_data in room.players.items():
             if pid == player_id:
                 player_in_room = True
-                player = Player(**player_data) if isinstance(player_data, dict) else player_data
+                player = (
+                    Player(**player_data)
+                    if isinstance(player_data, dict)
+                    else player_data
+                )
                 is_host = player.is_host
                 break
-                
+
         if not player_in_room:
             return {"error": "Player not found"}
         if not is_host:
             return {"error": "Only the host can start the game"}
-    
+
     # Check if the game is already in progress
     if room.status != "waiting":
         return {"error": "Game is already in progress"}
-    
+
     # Check if there are at least 2 players
     if len(room.players) < 2:
         return {"error": "At least 2 players are required to start the game"}
@@ -310,7 +304,7 @@ async def start_game(room_code: str, player_id: str = None):
         player = Player(**player_data) if isinstance(player_data, dict) else player_data
         if not player.role:
             players_without_roles.append(player.name)
-    
+
     if players_without_roles:
         return {
             "error": f"Not all players have selected roles: {', '.join(players_without_roles)}"
@@ -327,7 +321,7 @@ async def start_game(room_code: str, player_id: str = None):
 
     # Update room in Redis
     store_room_data(room_code, room.dict())
-    
+
     # Update in-memory for compatibility
     if room_code in game_rooms:
         game_rooms[room_code] = room
@@ -354,26 +348,25 @@ async def leave_game(player_id: str):
         room_code = get_player_room(player_id)
         if not room_code:
             return {"error": "Player not in a room"}
-        
+
         # Get player data to send in the notification
         player_data = get_player_data(player_id)
         if not player_data:
             return {"error": "Player data not found"}
-        
+
         # Clean up the player data
         cleanup_result = cleanup_player_data(player_id)
-        
+
         # Notify other players that this player has left
         await broadcast_to_room(
-            room_code, 
+            room_code,
             {
-                "type": "player_left", 
+                "type": "player_left",
                 "player_id": player_id,
                 "player_name": player_data.get("name", "Unknown player"),
-            }
+            },
         )
-        
+
         return {"success": cleanup_result}
     except Exception as e:
-        print(f"Error while handling player leave: {e}")
-        return {"error": str(e)} 
+        return {"error": str(e)}
