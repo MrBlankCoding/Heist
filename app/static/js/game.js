@@ -1,6 +1,5 @@
 // game.js - Main game script that ties everything together
 
-// Import all modules from the bundle instead of individual files
 import {
   websocketManager,
   playerStateManager,
@@ -8,10 +7,9 @@ import {
   GameUIManager,
   GameEventHandler,
   NotificationSystem,
-  ChatManager
+  ChatManager,
 } from "./main.bundle.js";
 
-// Main Game Controller
 class GameController {
   constructor() {
     // Game components
@@ -24,23 +22,14 @@ class GameController {
     this.activePuzzleController = null;
     this.powerCooldown = false;
     this.timerExtendVoted = false;
-    this.activeRandomEvents = [];
 
-    // Initialize
     this._init();
-
-    // Make GameController globally accessible for debugging
     window.GameController = this;
   }
 
-  /**
-   * Initialize the game controller
-   */
   _init() {
-    // Initialize start screen
     gameStartScreen.initialize();
 
-    // Initialize event handler
     this.eventHandler = new GameEventHandler(
       this.uiManager,
       this.notificationSystem,
@@ -52,21 +41,12 @@ class GameController {
       () => (this.timerExtendVoted = true)
     );
 
-    // Set up event listeners
     this._setupEventListeners();
-
-    // Register for player state events
     this._registerPlayerStateEvents();
-
-    // Initialize UI
     this._initializeUI();
   }
 
-  /**
-   * Set up DOM event listeners
-   */
   _setupEventListeners() {
-    // Use power button
     this.uiManager.elements.usePowerButton.addEventListener("click", () => {
       if (this.powerCooldown) {
         this.notificationSystem.showAlert("Power is on cooldown!", "error");
@@ -75,7 +55,6 @@ class GameController {
       this.eventHandler.handleUsePower();
     });
 
-    // Extend timer button
     this.uiManager.elements.extendTimerButton.addEventListener("click", () => {
       if (this.timerExtendVoted) {
         this.notificationSystem.showAlert(
@@ -87,38 +66,34 @@ class GameController {
       this.eventHandler.handleExtendTimer();
     });
 
-    // Leave game button
+    this._setupLeaveGameListeners();
+  }
+
+  _setupLeaveGameListeners() {
     const leaveGameButton = document.getElementById("leave-game");
     const leaveGameModal = document.getElementById("leave-game-modal");
     const confirmLeaveButton = document.getElementById("confirm-leave");
     const cancelLeaveButton = document.getElementById("cancel-leave");
 
-    if (leaveGameButton && leaveGameModal) {
-      // Show modal when leave button is clicked
-      leaveGameButton.addEventListener("click", () => {
-        leaveGameModal.classList.remove("hidden");
+    if (!leaveGameButton || !leaveGameModal) return;
+
+    leaveGameButton.addEventListener("click", () => {
+      leaveGameModal.classList.remove("hidden");
+    });
+
+    if (cancelLeaveButton) {
+      cancelLeaveButton.addEventListener("click", () => {
+        leaveGameModal.classList.add("hidden");
       });
+    }
 
-      // Hide modal when cancel is clicked
-      if (cancelLeaveButton) {
-        cancelLeaveButton.addEventListener("click", () => {
-          leaveGameModal.classList.add("hidden");
-        });
-      }
-
-      // Handle leave game confirmation
-      if (confirmLeaveButton) {
-        confirmLeaveButton.addEventListener("click", () =>
-          this._handleLeaveGame()
-        );
-      }
+    if (confirmLeaveButton) {
+      confirmLeaveButton.addEventListener("click", () =>
+        this._handleLeaveGame()
+      );
     }
   }
 
-  /**
-   * Handle leave game confirmation
-   * @private
-   */
   _handleLeaveGame() {
     const playerId = document.getElementById("player-id")?.value;
 
@@ -127,7 +102,6 @@ class GameController {
       return;
     }
 
-    // Send leave game message through WebSocket
     websocketManager
       .send({
         type: "leave_game",
@@ -137,12 +111,9 @@ class GameController {
         console.error("Error sending leave game message:", error);
       });
 
-    // Wait a short time to allow the leave message to be sent
     setTimeout(() => {
-      // Disconnect WebSocket
       websocketManager.disconnect("User manually left the game");
 
-      // Call the leave API
       fetch(`/api/game/leave?player_id=${playerId}`, {
         method: "POST",
       })
@@ -151,10 +122,7 @@ class GameController {
           if (data.error) {
             this.notificationSystem.showAlert(`Error: ${data.error}`, "error");
           } else {
-            // Clear any local state
             playerStateManager.clearPersistedState();
-
-            // Redirect to home page
             window.location.href = "/";
           }
         })
@@ -164,19 +132,14 @@ class GameController {
             "Failed to leave game properly. Redirecting to home...",
             "error"
           );
-          // Redirect anyway after a delay
           setTimeout(() => {
             window.location.href = "/";
           }, 2000);
         });
-    }, 300); // Small delay to ensure message is sent
+    }, 300);
   }
 
-  /**
-   * Register for player state events
-   */
   _registerPlayerStateEvents() {
-    // Add try-catch to prevent errors in event registration
     try {
       // Game state events
       playerStateManager.on("gameStateUpdated", (data) =>
@@ -192,10 +155,10 @@ class GameController {
         this.eventHandler.handleAlertLevelChanged(level)
       );
 
-      // Puzzle events - these are critical for puzzle display
-      playerStateManager.on("puzzleReceived", (puzzle) => {
-        this.eventHandler.handlePuzzleReceived(puzzle);
-      });
+      // Puzzle events
+      playerStateManager.on("puzzleReceived", (puzzle) =>
+        this.eventHandler.handlePuzzleReceived(puzzle)
+      );
       playerStateManager.on("puzzleCompleted", (data) =>
         this.eventHandler.handlePuzzleCompleted(data)
       );
@@ -224,11 +187,7 @@ class GameController {
 
       // Team puzzle real-time updates
       playerStateManager.on("teamPuzzleUpdate", (data) => {
-        // If we have an active puzzle controller, pass the update to it
-        if (
-          this.activePuzzleController &&
-          typeof this.activePuzzleController.handleUpdate === "function"
-        ) {
+        if (this.activePuzzleController?.handleUpdate) {
           this.activePuzzleController.handleUpdate(
             data.updateData,
             data.playerId
@@ -253,43 +212,40 @@ class GameController {
         this.eventHandler.handlePowerUsedByOthers(data)
       );
 
-      // Game started event - handles transition from lobby to game
+      // Game started event
       playerStateManager.on("gameStarted", () => {
-        console.log("Game started event triggered");
         gameStartScreen.hideLobby();
         if (this.uiManager.elements.gameArea) {
           this.uiManager.elements.gameArea.classList.remove("hidden");
-          console.log("Game area made visible");
         }
 
-        // Update role instruction text
-        const playerRole = playerStateManager.gameState.playerRole;
-        if (playerRole) {
-          const roleInfo = playerStateManager.getRoleInfo(playerRole);
-          if (roleInfo && this.uiManager.elements.roleInstruction) {
-            this.uiManager.elements.roleInstruction.textContent = `${playerRole} - ${roleInfo.description}`;
-            this.uiManager.elements.roleInstruction.classList.remove(
-              "text-gray-400",
-              "italic"
-            );
-          }
-        }
+        this._updateRoleInstructions();
       });
     } catch (error) {
       console.error("Error registering player state events:", error);
     }
   }
 
-  /**
-   * Initialize UI with current state
-   */
+  _updateRoleInstructions() {
+    const playerRole = playerStateManager.gameState.playerRole;
+    if (playerRole && this.uiManager.elements.roleInstruction) {
+      const roleInfo = playerStateManager.getRoleInfo(playerRole);
+      if (roleInfo) {
+        this.uiManager.elements.roleInstruction.textContent = `${playerRole} - ${roleInfo.description}`;
+        this.uiManager.elements.roleInstruction.classList.remove(
+          "text-gray-400",
+          "italic"
+        );
+      }
+    }
+  }
+
   _initializeUI() {
     this.uiManager.updateTimer(playerStateManager.gameState.timer);
     this.uiManager.updateAlertLevel(playerStateManager.gameState.alertLevel);
     this.uiManager.updateStageInfo();
     this.uiManager.updateTeamStatus();
 
-    // Ensure puzzle area is visible when game starts
     if (
       playerStateManager.gameState.status ===
       playerStateManager.GAME_STATUS.IN_PROGRESS
@@ -302,59 +258,41 @@ class GameController {
   }
 }
 
-// Create and initialize the game controller
 document.addEventListener("DOMContentLoaded", () => {
   const game = new GameController();
 
-  // Initialize WebSocket connection
   const roomCodeElement = document.getElementById("room-code");
   const roomCode = roomCodeElement
     ? roomCodeElement.textContent.split(": ")[1]
-    : null; // Extract room code
+    : null;
 
-  // Get player ID from hidden input field
   const playerIdElement = document.getElementById("player-id");
   const playerId = playerIdElement ? playerIdElement.value : null;
 
   if (!playerId || !roomCode) {
     console.error("Missing player ID or room code");
-    // Show error message to user
-    if (game.notificationSystem) {
-      game.notificationSystem.showAlert(
-        "Error: Missing player information. Please return to the home page and try again.",
-        "error",
-        0 // Duration 0 means it stays until dismissed
-      );
-    }
+    game.notificationSystem?.showAlert(
+      "Error: Missing player information. Please return to the home page and try again.",
+      "error",
+      0
+    );
     return;
   }
 
-  // Initialize connection with server-provided state
   playerStateManager
-    .initialize(roomCode, playerId, "") // playerName will be provided by server
+    .initialize(roomCode, playerId, "")
+    .then(() => websocketManager.connect(roomCode, playerId))
     .then(() => {
-      return websocketManager.connect(roomCode, playerId);
-    })
-    .then(() => {
-      // Connection established
-      // The WebSocket handler will provide all necessary game state
       console.log("Connected to game server");
-
-      // Always show the lobby initially - if game is in progress,
-      // the websocket handler will update the UI appropriately
       gameStartScreen.showLobby();
     })
     .catch((error) => {
       console.error("Error connecting to game:", error);
-
-      // Show error to user
-      if (game.notificationSystem) {
-        game.notificationSystem.showAlert(
-          "Failed to connect to game. Please refresh the page or try again later.",
-          "error",
-          0 // Duration 0 means it stays until dismissed
-        );
-      }
+      game.notificationSystem?.showAlert(
+        "Failed to connect to game. Please refresh the page or try again later.",
+        "error",
+        0
+      );
     });
 });
 

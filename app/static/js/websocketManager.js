@@ -23,36 +23,21 @@ class WebSocketManager {
     this.messageHandlers = {};
   }
 
-  /**
-   * Connect to WebSocket server
-   * @param {string} roomCode - The game room code
-   * @param {string} playerId - The player's unique ID
-   * @returns {Promise} - Resolves when connection is established
-   */
   connect(roomCode, playerId) {
     return new Promise((resolve, reject) => {
-      if (this.connected && this.socket?.readyState === WebSocket.OPEN) {
+      if (this.isConnected()) {
         resolve();
         return;
       }
 
-      // Clear any existing reconnect timer
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = null;
-      }
-
-      // Store connection info for reconnection
+      this._clearReconnectTimer();
       this.connectionDetails = { roomCode, playerId };
 
-      // Create WebSocket with proper error handling
       try {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const wsUrl = `${protocol}//${window.location.host}/ws/${roomCode}/${playerId}`;
-
         this.socket = new WebSocket(wsUrl);
 
-        // Setup event handlers
         this.socket.onopen = (event) => {
           this.connected = true;
           this.reconnectAttempts = 0;
@@ -69,7 +54,6 @@ class WebSocketManager {
           this.connected = false;
           this._triggerCallbacks("onClose", event);
 
-          // Only attempt reconnect if we were previously connected and it wasn't a normal closure
           if (wasConnected && event.code !== 1000) {
             this._attemptReconnect();
           }
@@ -79,7 +63,6 @@ class WebSocketManager {
           console.error("WebSocket error:", error);
           this._triggerCallbacks("onError", error);
 
-          // Only reject the promise if we're in the connection phase
           if (!this.connected) {
             reject(error);
           }
@@ -91,18 +74,9 @@ class WebSocketManager {
     });
   }
 
-  /**
-   * Send data through the WebSocket
-   * @param {Object} data - Data to send
-   * @returns {Promise<boolean>} - Resolves to success status
-   */
   send(data) {
     return new Promise((resolve) => {
-      if (
-        !this.connected ||
-        !this.socket ||
-        this.socket.readyState !== WebSocket.OPEN
-      ) {
+      if (!this.isConnected()) {
         console.error("Cannot send message: WebSocket not connected");
         resolve(false);
         return;
@@ -118,16 +92,8 @@ class WebSocketManager {
     });
   }
 
-  /**
-   * Disconnect from WebSocket server
-   * @param {string} [reason="User disconnected"] - Reason for disconnection
-   */
   disconnect(reason = "User disconnected") {
-    // Clear any pending reconnection attempts
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
+    this._clearReconnectTimer();
 
     if (this.socket && this.socket.readyState !== WebSocket.CLOSED) {
       try {
@@ -140,21 +106,13 @@ class WebSocketManager {
     }
   }
 
-  /**
-   * Register a callback for a specific event type
-   * @param {string} event - Event type ('onOpen', 'onMessage', 'onClose', 'onError', 'onReconnect', 'onReconnectFailed')
-   * @param {Function} callback - Callback function
-   * @returns {Function} - Function to remove this specific callback
-   */
   on(event, callback) {
     if (!this.callbacks[event]) {
       console.error(`Unknown event type: ${event}`);
-      return () => {}; // Return no-op function
+      return () => {};
     }
 
     this.callbacks[event].push(callback);
-
-    // Return function to remove this specific callback
     return () => {
       this.callbacks[event] = this.callbacks[event].filter(
         (cb) => cb !== callback
@@ -162,11 +120,6 @@ class WebSocketManager {
     };
   }
 
-  /**
-   * Register a handler for a specific message type
-   * @param {string} messageType - Type of message to handle
-   * @param {Function} handler - Handler function
-   */
   registerMessageHandler(messageType, handler) {
     if (!this.messageHandlers[messageType]) {
       this.messageHandlers[messageType] = [];
@@ -174,11 +127,6 @@ class WebSocketManager {
     this.messageHandlers[messageType].push(handler);
   }
 
-  /**
-   * Remove a specific handler for a message type
-   * @param {string} messageType - Type of message
-   * @param {Function} [handler] - Handler to remove. If not provided, removes all handlers for this type.
-   */
   removeMessageHandler(messageType, handler = null) {
     if (!this.messageHandlers[messageType]) {
       return;
@@ -190,30 +138,22 @@ class WebSocketManager {
       this.messageHandlers[messageType] = this.messageHandlers[
         messageType
       ].filter((h) => h !== handler);
+
       if (this.messageHandlers[messageType].length === 0) {
         delete this.messageHandlers[messageType];
       }
     }
   }
 
-  /**
-   * Check if WebSocket connection is active
-   * @returns {boolean} - True if connected and ready
-   */
   isConnected() {
     return this.connected && this.socket?.readyState === WebSocket.OPEN;
   }
 
-  /**
-   * Private: Handle incoming messages
-   * @param {MessageEvent} event - WebSocket message event
-   */
   _handleMessage(event) {
     try {
       const data = JSON.parse(event.data);
       this._triggerCallbacks("onMessage", data);
 
-      // Route to specific handlers if registered
       if (data.type && this.messageHandlers[data.type]) {
         for (const handler of this.messageHandlers[data.type]) {
           try {
@@ -231,17 +171,11 @@ class WebSocketManager {
     }
   }
 
-  /**
-   * Private: Trigger callbacks for a specific event
-   * @param {string} event - Event type
-   * @param {any} data - Event data
-   */
   _triggerCallbacks(event, data) {
     if (!this.callbacks[event]) {
       return;
     }
 
-    // Create a copy of the callbacks array to prevent issues if callbacks are added/removed during iteration
     const callbacks = [...this.callbacks[event]];
     for (const callback of callbacks) {
       try {
@@ -252,9 +186,6 @@ class WebSocketManager {
     }
   }
 
-  /**
-   * Private: Attempt to reconnect to the WebSocket server
-   */
   _attemptReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       console.error("Maximum reconnection attempts reached");
@@ -281,6 +212,13 @@ class WebSocketManager {
         // Connection failed, will retry automatically if attempts remain
       });
     }, delay);
+  }
+
+  _clearReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 }
 
