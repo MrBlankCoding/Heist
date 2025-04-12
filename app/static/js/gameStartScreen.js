@@ -12,10 +12,15 @@ class GameStartScreen {
     this.startGameButton = document.getElementById("start-game");
     this.gameAreaElement = document.getElementById("game-area");
 
+    // Tab elements
+    this.tabButtons = document.querySelectorAll(".tab-button");
+    this.tabContents = document.querySelectorAll(".tab-content");
+
     // State
     this.selectedRole = null;
     this.roleCards = document.querySelectorAll(".role-card");
     this.playerElements = {};
+    this.activeTab = "agent-selection"; // Default active tab
 
     // Initialize
     this._setupEventListeners();
@@ -30,6 +35,9 @@ class GameStartScreen {
     this.roleCards.forEach((card) => {
       card.addEventListener("click", () => this._handleRoleSelection(card));
     });
+
+    // Set up tab switching
+    this._initTabSwitching();
 
     // Set up start game button
     this.startGameButton.addEventListener("click", () =>
@@ -117,6 +125,85 @@ class GameStartScreen {
    */
   hideLobby() {
     this.lobbyElement.classList.add("hidden");
+  }
+
+  /**
+   * Initialize tab switching functionality
+   * @private
+   */
+  _initTabSwitching() {
+    // Check if tab buttons exist
+    if (!this.tabButtons || this.tabButtons.length === 0) {
+      console.warn("Tab buttons not found for initialization");
+      return;
+    }
+
+    // Add click event listeners to all tab buttons
+    this.tabButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const tabId = button.dataset.tab;
+        if (tabId) {
+          this._switchTab(tabId);
+        }
+      });
+    });
+  }
+
+  /**
+   * Switch to the specified tab
+   * @param {string} tabId - The ID of the tab to switch to
+   * @private
+   */
+  _switchTab(tabId) {
+    if (tabId === this.activeTab) return; // Already on this tab
+
+    console.log(`Switching to tab: ${tabId}`);
+
+    // Update active tab state
+    this.activeTab = tabId;
+
+    // Update tab button styling
+    this.tabButtons.forEach((button) => {
+      const buttonTabId = button.dataset.tab;
+      if (buttonTabId === tabId) {
+        // Active tab styling
+        button.classList.add(
+          "active",
+          "bg-blue-900/50",
+          "text-blue-300",
+          "border-blue-700/50"
+        );
+        button.classList.remove(
+          "bg-gray-800/50",
+          "text-gray-400",
+          "border-gray-700/50"
+        );
+      } else {
+        // Inactive tab styling
+        button.classList.remove(
+          "active",
+          "bg-blue-900/50",
+          "text-blue-300",
+          "border-blue-700/50"
+        );
+        button.classList.add(
+          "bg-gray-800/50",
+          "text-gray-400",
+          "border-gray-700/50"
+        );
+      }
+    });
+
+    // Show the selected tab content and hide others
+    this.tabContents.forEach((content) => {
+      if (content.id === tabId) {
+        content.classList.remove("hidden");
+        content.classList.add("active");
+      } else {
+        content.classList.add("hidden");
+        content.classList.remove("active");
+      }
+    });
   }
 
   /**

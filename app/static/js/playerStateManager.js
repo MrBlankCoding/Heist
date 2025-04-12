@@ -23,6 +23,8 @@ class PlayerStateManager {
       lastTimerUpdate: 0,
       lastTimerValue: 0,
       puzzles: {},
+      // Track player puzzle completion for each stage
+      stagePuzzleCompletion: {}, // Format: { stageNumber: { playerId: true|false } }
     };
 
     // Handlers for temporary WebSocket subscriptions
@@ -509,13 +511,18 @@ class PlayerStateManager {
       this.trigger("puzzleReceived", data.puzzle);
     });
 
-    // Puzzle completed
+    // Puzzle completed by a player
     websocketManager.registerMessageHandler("puzzle_completed", (data) => {
-      console.log("Puzzle completed event:", data);
-      this.trigger("puzzleCompleted", {
-        playerId: data.player_id,
-        role: data.role,
-      });
+      if (this.gameEventHandler) {
+        this.gameEventHandler.handlePuzzleCompleted(data);
+      }
+    });
+
+    // Handle player waiting after completing puzzle
+    websocketManager.registerMessageHandler("player_waiting", (data) => {
+      if (this.gameEventHandler) {
+        this.gameEventHandler.handlePlayerWaiting(data);
+      }
     });
 
     // Stage completed
@@ -534,7 +541,7 @@ class PlayerStateManager {
     websocketManager.registerMessageHandler("game_over", (data) => {
       this.gameState.status = this.GAME_STATUS.FAILED;
       this._stopLocalTimer();
-      this.trigger("gameOver", data.result);
+      this.trigger("gameOver", data.result, data.message, data);
     });
 
     // Random event
@@ -1253,6 +1260,69 @@ class PlayerStateManager {
           reject(error);
         });
     });
+  }
+
+  /**
+   * Update player puzzle completion status
+   * @param {string} playerId - Player ID that completed the puzzle
+   * @param {number} stage - Stage number
+   * @returns {boolean} - Whether all puzzles in the stage are now completed
+   */
+  updatePlayerPuzzleCompletion(playerId, stage) {
+    // Initialize stage tracking if it doesn't exist
+    if (!this.gameState.stagePuzzleCompletion[stage]) {
+      this.gameState.stagePuzzleCompletion[stage] = {};
+    }
+
+    // Mark this player as completed
+    this.gameState.stagePuzzleCompletion[stage][playerId] = true;
+
+    // Check if all connected players have completed their puzzles
+    const connectedPlayers = Object.entries(this.gameState.players)
+      .filter(([id, player]) => player.connected)
+      .map(([id]) => id);
+
+    const allCompleted = connectedPlayers.every(
+      (id) => this.gameState.stagePuzzleCompletion[stage][id]
+    );
+
+    // Trigger an event to notify UI components
+    this.trigger("puzzleCompletionUpdated", {
+      playerId,
+      stage,
+      completion: this.gameState.stagePuzzleCompletion[stage],
+      allCompleted,
+    });
+
+    return allCompleted;
+  }
+
+  /**
+   * Get player puzzle completion for current stage
+   * @returns {Object} - Object mapping player IDs to completion status
+   */
+  getCurrentStagePuzzleCompletion() {
+    const currentStage = this.gameState.stage;
+    return this.gameState.stagePuzzleCompletion[currentStage] || {};
+  }
+
+  /**
+   * Check if all players have completed their puzzles for the current stage
+   * @returns {boolean} - Whether all players have completed their puzzles
+   */
+  haveAllPlayersCompletedStage() {
+    const currentStage = this.gameState.stage;
+    const stageCompletion =
+      this.gameState.stagePuzzleCompletion[currentStage] || {};
+
+    const connectedPlayers = Object.entries(this.gameState.players)
+      .filter(([id, player]) => player.connected)
+      .map(([id]) => id);
+
+    return (
+      connectedPlayers.length > 0 &&
+      connectedPlayers.every((id) => stageCompletion[id])
+    );
   }
 }
 

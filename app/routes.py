@@ -56,6 +56,26 @@ async def join_game(request: Request):
     return templates.TemplateResponse("join.html", {"request": request})
 
 
+@router.get("/join/{room_code}", response_class=HTMLResponse)
+async def join_game_with_code(request: Request, room_code: str):
+    # Check if room exists in Redis
+    room_data = get_room_data(room_code)
+    if not room_data:
+        return templates.TemplateResponse(
+            "error.html", 
+            {"request": request, "message": "Game room not found"}
+        )
+    
+    # Pass room_code to the template
+    return templates.TemplateResponse(
+        "join.html", 
+        {
+            "request": request,
+            "room_code": room_code
+        }
+    )
+
+
 @router.get("/game/{room_code}", response_class=HTMLResponse)
 async def game_page(request: Request, room_code: str):
     # Get player_id from query parameters

@@ -2,44 +2,401 @@
 
 {% block title %}The Heist - Create Game{% endblock %}
 
+{% block head %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&display=swap');
+    
+    :root {
+        --primary: #60a5fa;
+        --primary-dark: #2563eb;
+        --accent: #f59e0b;
+        --danger: #ef4444;
+        --success: #10b981;
+        --dark: #0f172a;
+        --darker: #030712;
+    }
+    
+    body {
+        overflow-x: hidden;
+        background-color: var(--darker);
+        font-family: 'Share Tech Mono', monospace;
+    }
+    
+    .page-title {
+        font-family: 'Orbitron', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.3em;
+        font-weight: 700;
+        position: relative;
+        display: inline-block;
+        text-shadow: 0 0 10px rgba(96, 165, 250, 0.7);
+    }
+    
+    .page-title::after {
+        content: '';
+        position: absolute;
+        bottom: -8px;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--primary), transparent);
+    }
+    
+    .laser-grid {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -2;
+        background-color: var(--darker);
+        background-image: 
+            linear-gradient(rgba(96, 165, 250, 0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(96, 165, 250, 0.05) 1px, transparent 1px);
+        background-size: 30px 30px;
+        animation: gridPulse 8s infinite linear;
+    }
+    
+    @keyframes gridPulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 0.8; }
+    }
+    
+    .form-container {
+        position: relative;
+        background: rgba(31, 41, 55, 0.7);
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(96, 165, 250, 0.3);
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.3);
+        border-radius: 8px;
+        overflow: hidden;
+        transform: translateY(20px);
+        opacity: 0;
+        animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards 0.3s;
+    }
+    
+    .form-container::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 3px;
+        background: linear-gradient(90deg, var(--primary-dark), var(--primary), var(--primary-dark));
+        background-size: 200% 100%;
+        animation: shimmer 2s infinite linear;
+    }
+    
+    @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: 0 0; }
+    }
+    
+    @keyframes slideUp {
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .heist-input {
+        background: rgba(17, 24, 39, 0.7);
+        border: 1px solid rgba(75, 85, 99, 0.5);
+        color: white;
+        padding: 0.75rem 1rem;
+        font-family: 'Share Tech Mono', monospace;
+        letter-spacing: 0.05em;
+        transition: all 0.3s ease;
+    }
+    
+    .heist-input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+        outline: none;
+    }
+    
+    .heist-input::placeholder {
+        color: rgba(156, 163, 175, 0.5);
+    }
+    
+    .heist-label {
+        color: var(--primary);
+        font-size: 0.875rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+    
+    .heist-button {
+        position: relative;
+        background: rgba(37, 99, 235, 0.2);
+        border: 2px solid var(--primary);
+        color: white;
+        padding: 0.75rem 1.5rem;
+        font-family: 'Orbitron', sans-serif;
+        font-weight: 600;
+        font-size: 1rem;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        overflow: hidden;
+        z-index: 1;
+        clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+    }
+    
+    .heist-button::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
+        z-index: -1;
+        transform: scaleX(0);
+        transform-origin: right;
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    .heist-button:hover::before {
+        transform: scaleX(1);
+        transform-origin: left;
+    }
+    
+    .heist-button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+        border-color: white;
+    }
+    
+    .success-container {
+        position: relative;
+        background: rgba(31, 41, 55, 0.7);
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(16, 185, 129, 0.4);
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.3), 0 0 15px rgba(16, 185, 129, 0.2);
+        transform: scale(0.95);
+        opacity: 0;
+        transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    
+    .success-container.active {
+        opacity: 1;
+        transform: scale(1);
+    }
+    
+    .room-code {
+        font-family: 'Orbitron', sans-serif;
+        letter-spacing: 0.5em;
+        font-weight: 700;
+        color: var(--accent);
+        text-shadow: 0 0 10px rgba(245, 158, 11, 0.5);
+        position: relative;
+        display: inline-block;
+    }
+    
+    .room-code::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: -30px;
+        width: 20px;
+        height: 2px;
+        background-color: var(--accent);
+        animation: blink 1.5s infinite;
+    }
+    
+    .room-code::after {
+        content: "";
+        position: absolute;
+        top: 50%;
+        right: -30px;
+        width: 20px;
+        height: 2px;
+        background-color: var(--accent);
+        animation: blink 1.5s infinite 0.5s;
+    }
+    
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+    
+    .back-link {
+        position: relative;
+        color: var(--primary);
+        text-transform: uppercase;
+        font-size: 0.875rem;
+        letter-spacing: 0.1em;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        opacity: 0;
+        animation: fadeIn 0.8s forwards 1s;
+    }
+    
+    .back-link::before {
+        content: "←";
+        margin-right: 0.5rem;
+        transition: transform 0.3s ease;
+    }
+    
+    .back-link:hover {
+        color: white;
+    }
+    
+    .back-link:hover::before {
+        transform: translateX(-5px);
+    }
+    
+    @keyframes fadeIn {
+        to { opacity: 1; }
+    }
+    
+    .blueprint-highlight {
+        position: fixed;
+        top: 30%;
+        left: 30%;
+        width: 40%;
+        height: 40%;
+        z-index: -3;
+        background: radial-gradient(ellipse at center, rgba(96, 165, 250, 0.05) 0%, transparent 70%);
+        animation: highlightMove 20s infinite alternate ease-in-out;
+    }
+    
+    @keyframes highlightMove {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(10%, -10%); }
+        50% { transform: translate(-10%, 10%); }
+        75% { transform: translate(-5%, -15%); }
+        100% { transform: translate(5%, 5%); }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="flex flex-col items-center justify-center min-h-screen py-12">
+<div class="laser-grid"></div>
+<div class="blueprint-highlight"></div>
+
+<div class="flex flex-col items-center justify-center min-h-screen py-12 px-4 sm:px-6 lg:px-8 relative z-10">
     <div class="text-center mb-8">
-        <h1 class="text-4xl font-bold text-blue-500 mb-4">CREATE A HEIST</h1>
-        <p class="text-xl">Set up a new game and invite your crew</p>
+        <h1 class="page-title text-4xl font-bold text-blue-500 mb-4">CREATE A HEIST</h1>
+        <p class="text-xl text-gray-300 opacity-80">Set up a new operation and recruit your crew</p>
     </div>
 
-    <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <form id="createGameForm" class="space-y-4">
+    <div class="form-container bg-gray-800 rounded-lg p-8 w-full max-w-md">
+        <form id="createGameForm" class="space-y-6">
             <div>
-                <label for="hostName" class="block text-sm font-medium mb-1">Your Codename</label>
-                <input type="text" id="hostName" name="hostName" class="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50" required>
+                <label for="hostName" class="heist-label">Your Codename</label>
+                <input type="text" id="hostName" name="hostName" class="heist-input w-full rounded focus:ring-2 focus:ring-blue-500" placeholder="Enter your alias" required>
+                <div class="text-xs text-gray-400 mt-1">This is how other players will identify you</div>
             </div>
 
             <div class="pt-4">
                 <button type="submit" class="heist-button w-full">
-                    Create Game
+                    Initiate Operation
                 </button>
             </div>
         </form>
     </div>
 
-    <div id="gameCreated" class="hidden mt-8 bg-gray-800 rounded-lg p-6 w-full max-w-md text-center">
-        <h2 class="text-2xl font-bold text-green-400 mb-4">Game Created!</h2>
-        <div class="mb-4">
-            <p class="text-sm text-gray-400 mb-1">Room Code:</p>
-            <p id="roomCode" class="text-3xl font-mono tracking-wider"></p>
+    <div id="gameCreated" class="hidden success-container mt-8 bg-gray-800 rounded-lg p-8 w-full max-w-md text-center">
+        <div class="text-success text-4xl mb-4">✓</div>
+        <h2 class="text-2xl font-bold text-green-400 mb-4">Operation Ready</h2>
+        <div class="mb-6">
+            <p class="text-sm text-gray-400 mb-2">Security Clearance Code:</p>
+            <p id="roomCode" class="room-code text-3xl"></p>
         </div>
-        <p class="mb-4">Share this code with your team to join the heist.</p>
+        <p class="mb-6 text-gray-300">Share this code with your team to join the operation.</p>
         <button id="enterGame" class="heist-button w-full">
-            Enter Lobby
+            Enter Command Center
         </button>
     </div>
 
-    <a href="/" class="mt-8 text-blue-400 hover:text-blue-300">Back to Home</a>
+    <a href="/" class="back-link mt-8">Return to Base</a>
 </div>
-{% endblock %}
 
-{% block scripts %}
-<script type="module" src="{{ url_for('static', path='js/createGame.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('createGameForm');
+    const successContainer = document.getElementById('gameCreated');
+    
+    // Add click effect to button
+    const button = document.querySelector('.heist-button');
+    if (button) {
+        button.addEventListener('mousedown', () => {
+            button.style.transform = 'translateY(-1px)';
+        });
+        
+        button.addEventListener('mouseup', () => {
+            button.style.transform = 'translateY(-3px)';
+        });
+        
+        button.addEventListener('mouseleave', () => {
+            button.style.transform = '';
+        });
+    }
+    
+    // Original form submission logic
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const hostName = document.getElementById('hostName').value;
+        
+        try {
+            // First approach: Pass host_name as query parameter
+            const response = await fetch(`/api/rooms/create?host_name=${encodeURIComponent(hostName)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                document.getElementById('roomCode').textContent = data.room_code;
+                form.closest('.form-container').style.animation = 'slideUp 0.5s reverse forwards';
+                
+                setTimeout(() => {
+                    form.closest('.form-container').style.display = 'none';
+                    successContainer.classList.remove('hidden');
+                    successContainer.classList.add('active');
+                }, 500);
+                
+                document.getElementById('enterGame').addEventListener('click', () => {
+                    // Store player data in session storage
+                    sessionStorage.setItem("player_id", data.player_id);
+                    sessionStorage.setItem("player_name", data.player_name);
+                    sessionStorage.setItem("session_id", data.session_id);
+                    
+                    // Redirect to game page
+                    window.location.href = `/game/${data.room_code}?player_id=${data.player_id}`;
+                });
+            } else {
+                alert(data.error || 'Error creating game');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to create game. Please try again.');
+        }
+    });
+    
+    // Add parallax effect
+    window.addEventListener('mousemove', (e) => {
+        const mouseX = e.clientX / window.innerWidth;
+        const mouseY = e.clientY / window.innerHeight;
+        
+        const laserGrid = document.querySelector('.laser-grid');
+        if (laserGrid) {
+            laserGrid.style.transform = `translate(${mouseX * -15}px, ${mouseY * -15}px)`;
+        }
+        
+        const blueprintHighlight = document.querySelector('.blueprint-highlight');
+        if (blueprintHighlight) {
+            blueprintHighlight.style.transform = `translate(${mouseX * -30}px, ${mouseY * -30}px)`;
+        }
+    });
+});
+</script>
 {% endblock %}

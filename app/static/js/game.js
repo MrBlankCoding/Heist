@@ -132,36 +132,49 @@ class GameController {
       return;
     }
 
-    // Disconnect WebSocket first
-    websocketManager.disconnect("User manually left the game");
-
-    // Call the leave API
-    fetch(`/api/game/leave?player_id=${playerId}`, {
-      method: "POST",
-    })
-      .then((response) => response.json())
-      .then((data) => {
-        if (data.error) {
-          this.notificationSystem.showAlert(`Error: ${data.error}`, "error");
-        } else {
-          // Clear any local state
-          playerStateManager.clearPersistedState();
-
-          // Redirect to home page
-          window.location.href = "/";
-        }
+    // Send leave game message through WebSocket
+    websocketManager
+      .send({
+        type: "leave_game",
+        player_id: playerId,
       })
       .catch((error) => {
-        console.error("Error leaving game:", error);
-        this.notificationSystem.showAlert(
-          "Failed to leave game properly. Redirecting to home...",
-          "error"
-        );
-        // Redirect anyway after a delay
-        setTimeout(() => {
-          window.location.href = "/";
-        }, 2000);
+        console.error("Error sending leave game message:", error);
       });
+
+    // Wait a short time to allow the leave message to be sent
+    setTimeout(() => {
+      // Disconnect WebSocket
+      websocketManager.disconnect("User manually left the game");
+
+      // Call the leave API
+      fetch(`/api/game/leave?player_id=${playerId}`, {
+        method: "POST",
+      })
+        .then((response) => response.json())
+        .then((data) => {
+          if (data.error) {
+            this.notificationSystem.showAlert(`Error: ${data.error}`, "error");
+          } else {
+            // Clear any local state
+            playerStateManager.clearPersistedState();
+
+            // Redirect to home page
+            window.location.href = "/";
+          }
+        })
+        .catch((error) => {
+          console.error("Error leaving game:", error);
+          this.notificationSystem.showAlert(
+            "Failed to leave game properly. Redirecting to home...",
+            "error"
+          );
+          // Redirect anyway after a delay
+          setTimeout(() => {
+            window.location.href = "/";
+          }, 2000);
+        });
+    }, 300); // Small delay to ensure message is sent
   }
 
   /**

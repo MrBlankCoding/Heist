@@ -326,11 +326,21 @@ class GameEventHandler {
    */
   handlePuzzleCompleted(data) {
     const player = playerStateManager.getPlayer(data.playerId);
+    const currentStage = playerStateManager.gameState.stage;
 
     // Add a message to the chat
     this.chatManager.addSystemMessage(
       `${player.name} (${data.role}) completed their task!`
     );
+
+    // Update the player's puzzle completion status for the current stage
+    const allCompleted = playerStateManager.updatePlayerPuzzleCompletion(
+      data.playerId,
+      currentStage
+    );
+
+    // Update the team status UI to reflect the completion
+    this.uiManager.updateTeamStatus();
 
     // If it's the current player, show success state
     if (
@@ -338,6 +348,23 @@ class GameEventHandler {
       this.getActivePuzzleController()
     ) {
       this.getActivePuzzleController().showSuccess();
+    }
+
+    // If all players have completed their puzzles, notify the server to advance to the next stage
+    if (allCompleted) {
+      // Only the host should send the stage completion message to avoid multiple requests
+      if (playerStateManager.isHost()) {
+        console.log("All players completed stage - advancing to next stage");
+        // Send message to server to advance stage
+        websocketManager.send({
+          action: "complete_stage",
+          data: {
+            roomCode: playerStateManager.gameState.roomCode,
+            playerId: playerStateManager.gameState.playerId,
+            currentStage: currentStage,
+          },
+        });
+      }
     }
   }
 
@@ -381,8 +408,10 @@ class GameEventHandler {
   /**
    * Handle game over (failure)
    * @param {string} result - Reason for failure
+   * @param {string} [customMessage] - Optional custom message from server
+   * @param {Object} [data] - Additional data about game over state
    */
-  handleGameOver(result) {
+  handleGameOver(result, customMessage, data) {
     let resultMessage = "Your heist has failed.";
 
     if (result === "time_expired") {
@@ -392,6 +421,18 @@ class GameEventHandler {
         "Security alarm triggered! Guards have flooded the building.";
     } else if (result === "team_caught") {
       resultMessage = "Your team has been caught by security.";
+    } else if (result === "insufficient_players") {
+      resultMessage =
+        customMessage ||
+        "Not enough players to continue the heist. Game ended.";
+
+      // Add details about remaining players if available
+      if (data && data.remaining_players && data.remaining_players.length > 0) {
+        const playersList = data.remaining_players.join(", ");
+        resultMessage += ` Remaining player${
+          data.remaining_players.length === 1 ? "" : "s"
+        }: ${playersList}`;
+      }
     }
 
     // Show failure modal
@@ -665,43 +706,164 @@ class GameEventHandler {
    * @param {Object} data - Reset data
    */
   handleGameReset(data) {
-    // Make sure we're in the lobby
-    if (
-      gameStartScreen &&
-      !gameStartScreen.lobbyElement.classList.contains("hidden")
-    ) {
-      return; // Already in lobby, nothing to do
+    console.log("Game reset with data:", data);
+    // Reset local game state
+    playerStateManager.resetGameState();
+    // Clear any UI elements
+    if (this.uiManager) {
+      this.uiManager.resetUI();
     }
+    // Show notification
+    this.notificationSystem.showNotification(
+      "Game has been reset. Returning to lobby."
+    );
+    // Redirect to lobby after a delay
+    setTimeout(() => {
+      window.location.href = "/lobby";
+    }, 3000);
+  }
 
-    // Hide game UI
-    if (this.uiManager.elements.gameArea) {
-      this.uiManager.elements.gameArea.classList.add("hidden");
-    }
+  /**
+   * Handle player waiting after completing a puzzle
+   * @param {Object} data - Waiting data with message and stage info
+   */
+  handlePlayerWaiting(data) {
+    console.log("Player waiting with data:", data);
 
-    // Reset any active puzzles
+    // Clean up the current puzzle controller
     const currentController = this.getActivePuzzleController();
     if (currentController) {
-      currentController.cleanup();
-      this.setActivePuzzleController(null);
+      try {
+        currentController.cleanup();
+      } catch (error) {
+        console.error("Error cleaning up puzzle controller:", error);
+      }
+    }
+    this.setActivePuzzleController(null);
+
+    // Get the puzzle content element
+    const puzzleContent = this.uiManager.elements.puzzleContent;
+    if (!puzzleContent) {
+      console.error("Puzzle content element not found");
+      return;
     }
 
-    // Show lobby
-    if (gameStartScreen) {
-      gameStartScreen.showLobby();
-    }
+    // Clear existing content
+    puzzleContent.innerHTML = "";
 
-    // Show notification
-    this.notificationSystem.showAlert(
-      "Game reset. Choose your roles to start a new heist!",
-      "info"
+    // Get current stage information
+    const stageInfo = playerStateManager.getCurrentStageInfo();
+    const stageName = stageInfo
+      ? stageInfo.name
+      : `Stage ${data.current_stage}`;
+    const isTeamPuzzle = data.team_puzzle === true;
+
+    // Determine what type of puzzle was completed
+    const puzzleType = isTeamPuzzle ? "Team Task" : "Personal Task";
+
+    // Get completion status of all players
+    const stageCompletionData =
+      playerStateManager.gameState.stagePuzzleCompletion[data.current_stage] ||
+      {};
+    const connectedPlayers = Object.values(
+      playerStateManager.gameState.players
+    ).filter((p) => p.connected);
+    const completedCount = Object.keys(stageCompletionData).length;
+    const totalPlayers = connectedPlayers.length;
+
+    // Create waiting message with enhanced visuals
+    const waitingContainer = document.createElement("div");
+    waitingContainer.className =
+      "waiting-container flex flex-col items-center justify-center p-8 h-full";
+    waitingContainer.style.minHeight = "300px";
+
+    // Create SVG success checkmark
+    const successIcon = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "svg"
+    );
+    successIcon.setAttribute("viewBox", "0 0 24 24");
+    successIcon.setAttribute("width", "80");
+    successIcon.setAttribute("height", "80");
+    successIcon.setAttribute("fill", "none");
+    successIcon.setAttribute("stroke", "#10B981"); // Emerald-500
+    successIcon.setAttribute("stroke-width", "2");
+    successIcon.setAttribute("stroke-linecap", "round");
+    successIcon.setAttribute("stroke-linejoin", "round");
+    successIcon.setAttribute("class", "mb-4 animate-pulse");
+
+    const checkPath = document.createElementNS(
+      "http://www.w3.org/2000/svg",
+      "path"
+    );
+    checkPath.setAttribute("d", "M20 6L9 17L4 12");
+    successIcon.appendChild(checkPath);
+
+    // Title with animation
+    const waitingTitle = document.createElement("h2");
+    waitingTitle.className =
+      "text-2xl font-bold mb-2 text-emerald-500 animate-bounce";
+    waitingTitle.textContent = `${puzzleType} Completed!`;
+
+    // Subtitle
+    const waitingSubtitle = document.createElement("h3");
+    waitingSubtitle.className = "text-xl font-semibold mb-4 text-yellow-400";
+    waitingSubtitle.textContent = stageName;
+
+    // Main message
+    const waitingMessage = document.createElement("p");
+    waitingMessage.className = "text-lg mb-6 text-center max-w-md";
+    waitingMessage.textContent =
+      data.message || "Waiting for other players to finish their puzzles...";
+
+    // Create progress indicator
+    const progressContainer = document.createElement("div");
+    progressContainer.className =
+      "w-64 mb-6 bg-gray-700 rounded-full h-4 overflow-hidden";
+
+    const progressBar = document.createElement("div");
+    const progressPercent = Math.round((completedCount / totalPlayers) * 100);
+    progressBar.className =
+      "h-full bg-gradient-to-r from-yellow-400 to-emerald-500 transition-all duration-500";
+    progressBar.style.width = `${progressPercent}%`;
+
+    progressContainer.appendChild(progressBar);
+
+    // Progress text
+    const progressText = document.createElement("p");
+    progressText.className = "text-sm text-gray-300 mb-4";
+    progressText.textContent = `${completedCount} of ${totalPlayers} players ready (${progressPercent}%)`;
+
+    // Create animated spinner with gradient
+    const spinnerContainer = document.createElement("div");
+    spinnerContainer.className = "mt-4";
+
+    const spinner = document.createElement("div");
+    spinner.className =
+      "animate-spin rounded-full h-16 w-16 border-4 border-t-yellow-400 border-r-emerald-500 border-b-blue-500 border-l-purple-500";
+
+    spinnerContainer.appendChild(spinner);
+
+    // Assemble the waiting UI
+    waitingContainer.appendChild(successIcon);
+    waitingContainer.appendChild(waitingTitle);
+    waitingContainer.appendChild(waitingSubtitle);
+    waitingContainer.appendChild(waitingMessage);
+    waitingContainer.appendChild(progressContainer);
+    waitingContainer.appendChild(progressText);
+    waitingContainer.appendChild(spinnerContainer);
+
+    // Add to puzzle content
+    puzzleContent.appendChild(waitingContainer);
+
+    // Show a notification
+    this.notificationSystem.showNotification(
+      `${puzzleType} completed! Waiting for other players.`,
+      "success"
     );
 
-    // Add chat message
-    this.chatManager.addSystemMessage(
-      "Game has been reset. Choose your roles to start a new heist!",
-      false,
-      { type: "game", highlight: true }
-    );
+    // Play success sound
+    this.uiManager.playSound("success");
   }
 }
 

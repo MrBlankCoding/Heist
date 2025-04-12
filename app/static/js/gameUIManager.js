@@ -18,8 +18,8 @@ class GameUIManager {
       gameArea: document.getElementById("game-area"),
       timer: document.getElementById("timer"),
       alertLevel: document.getElementById("alert-level"),
-      stageNumber: document.getElementById("stage-number"),
-      stageName: document.getElementById("stage-name"),
+      stageNumber: document.getElementById("current-stage"),
+      stageName: document.getElementById("stage-title"),
       stageProgress: document.getElementById("stage-progress"),
       teamStatus: document.getElementById("team-status"),
       puzzleContent: document.getElementById("puzzle-content"),
@@ -49,6 +49,18 @@ class GameUIManager {
     this.currentAlertLevel = 0;
     this.currentStage = 1;
     this.voteTimerInterval = null;
+
+    // Set up event listeners when document is ready
+    document.addEventListener("DOMContentLoaded", () => {
+      this._setupElements();
+      this._setupEventListeners();
+      this._preloadSoundEffects();
+    });
+
+    // Listen for puzzle completion updates
+    playerStateManager.on("puzzleCompletionUpdated", () => {
+      this.updateTeamStatus();
+    });
   }
 
   /**
@@ -173,7 +185,8 @@ class GameUIManager {
       if (this.currentStage === stageInfo.number) return;
       this.currentStage = stageInfo.number;
 
-      this.elements.stageNumber.textContent = `Stage ${stageInfo.number}/5`;
+      // Update stage number and name
+      this.elements.stageNumber.textContent = `STAGE ${stageInfo.number}`;
       this.elements.stageName.textContent = stageInfo.name;
 
       // Update progress bar
@@ -197,6 +210,20 @@ class GameUIManager {
       const currentPlayerId = playerStateManager.gameState.playerId;
       const fragment = document.createDocumentFragment();
 
+      // Get current stage puzzle completion status
+      const stageCompletion =
+        playerStateManager.getCurrentStagePuzzleCompletion();
+      const currentStage = playerStateManager.gameState.stage;
+
+      // Create and add title with stage info
+      const titleEl = document.createElement("div");
+      titleEl.className = "mb-3 border-b border-gray-700 pb-2";
+      titleEl.innerHTML = `
+        <h4 class="font-bold text-blue-400 mb-1">Stage ${currentStage} Progress</h4>
+        <p class="text-xs text-gray-400">Players must complete their puzzle to advance</p>
+      `;
+      fragment.appendChild(titleEl);
+
       Object.values(players).forEach((player) => {
         if (!player) return; // Skip invalid players
 
@@ -207,8 +234,18 @@ class GameUIManager {
           ? "text-green-400"
           : "text-red-400";
 
+        // Check if this player has completed their puzzle for the current stage
+        const hasCompletedPuzzle = stageCompletion[player.id] || false;
+        const completionClass = hasCompletedPuzzle
+          ? "text-green-500"
+          : "text-yellow-500";
+        const completionIcon = hasCompletedPuzzle
+          ? '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>'
+          : '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>';
+
         const playerEl = document.createElement("div");
-        playerEl.className = "mb-2 flex justify-between items-center";
+        playerEl.className =
+          "mb-2 flex justify-between items-center p-2 rounded bg-gray-800 bg-opacity-50";
         playerEl.innerHTML = `
           <div class="flex items-center">
             <span class="text-${roleColor}-400 mr-2">●</span>
@@ -223,8 +260,15 @@ class GameUIManager {
         )}</span>
             </div>
           </div>
-          <div class="${statusClass}">
-            ${player.connected ? "Connected" : "Disconnected"}
+          <div class="flex items-center">
+            <span class="mr-2 ${statusClass} text-xs">
+              ${player.connected ? "Connected" : "Disconnected"}
+            </span>
+            <span class="${completionClass} ml-2" title="${
+          hasCompletedPuzzle ? "Puzzle completed" : "Puzzle in progress"
+        }">
+              ${completionIcon}
+            </span>
           </div>
         `;
         fragment.appendChild(playerEl);

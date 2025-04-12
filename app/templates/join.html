@@ -3,51 +3,418 @@
 
 {% block title %}The Heist - Join Game{% endblock %}
 
-{% block content %}
-<div class="flex flex-col items-center justify-center min-h-screen py-12">
-    <div class="text-center mb-8">
-        <h1 class="text-4xl font-bold text-blue-500 mb-4">JOIN A HEIST</h1>
-        <p class="text-xl">Enter the room code to join an existing game</p>
-    </div>
+{% block head %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&display=swap');
     
-    <div class="bg-gray-800 rounded-lg p-6 w-full max-w-md">
-        <form id="joinGameForm" class="space-y-4">
-            <div>
-                <label for="roomCode" class="block text-sm font-medium mb-1">Room Code</label>
-                <input type="text" id="roomCode" name="roomCode" class="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50" required>
-            </div>
-            
-            <div>
-                <label for="playerName" class="block text-sm font-medium mb-1">Your Codename</label>
-                <input type="text" id="playerName" name="playerName" class="w-full p-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:ring focus:ring-blue-500 focus:ring-opacity-50" required>
-            </div>
-            
-            <div class="pt-4">
-                <button type="submit" class="heist-button w-full">
-                    Join Game
-                </button>
-            </div>
-        </form>
-        
-        <!-- Game joined confirmation - initially hidden -->
-        <div id="gameJoined" class="hidden space-y-4 text-center">
-            <div class="py-4">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-green-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <h2 class="text-xl font-bold mt-2">Game Joined Successfully</h2>
-                <p class="text-gray-400 mt-1">Click the button below to enter the game room</p>
-            </div>
-            <button id="enterGame" class="heist-button w-full">
-                Enter Game
-            </button>
-        </div>
-    </div>
+    :root {
+        --primary: #60a5fa;
+        --primary-dark: #2563eb;
+        --accent: #f59e0b;
+        --danger: #ef4444;
+        --success: #10b981;
+        --dark: #0f172a;
+        --darker: #030712;
+    }
     
-    <a href="/" class="mt-8 text-blue-400 hover:text-blue-300">Back to Home</a>
-</div>
+    body {
+        overflow-x: hidden;
+        background-color: var(--darker);
+        font-family: 'Share Tech Mono', monospace;
+    }
+    
+    .page-title {
+        font-family: 'Orbitron', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        font-weight: 700;
+        position: relative;
+        background: linear-gradient(90deg, var(--primary), #ffffff, var(--primary));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-size: 200% auto;
+        animation: gradientText 4s linear infinite;
+        text-shadow: 0 0 20px rgba(96, 165, 250, 0.4);
+    }
+    
+    @keyframes gradientText {
+        0% { background-position: 0 0; }
+        100% { background-position: 200% 0; }
+    }
+    
+    .laser-grid {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -2;
+        background-color: var(--darker);
+        background-image: 
+            linear-gradient(rgba(96, 165, 250, 0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(96, 165, 250, 0.05) 1px, transparent 1px);
+        background-size: 30px 30px;
+        animation: gridPulse 8s infinite linear;
+    }
+    
+    @keyframes gridPulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 0.8; }
+    }
+    
+    .form-container {
+        position: relative;
+        background: rgba(31, 41, 55, 0.7);
+        backdrop-filter: blur(5px);
+        border: 1px solid rgba(96, 165, 250, 0.3);
+        box-shadow: 0 0 30px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
+        transform: translateY(20px);
+        opacity: 0;
+        animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards 0.3s;
+    }
+    
+    @keyframes slideUp {
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .form-container::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 5px;
+        height: 100%;
+        background: linear-gradient(180deg, var(--primary-dark), var(--primary), var(--primary-dark));
+        background-size: 100% 200%;
+        animation: shimmerVertical 3s infinite linear;
+    }
+    
+    @keyframes shimmerVertical {
+        0% { background-position: 0 200%; }
+        100% { background-position: 0 0; }
+    }
+    
+    .heist-input {
+        background: rgba(17, 24, 39, 0.7);
+        border: 1px solid rgba(75, 85, 99, 0.5);
+        color: white;
+        padding: 0.75rem 1rem;
+        font-family: 'Share Tech Mono', monospace;
+        letter-spacing: 0.05em;
+        transition: all 0.3s ease;
+    }
+    
+    .heist-input:focus {
+        border-color: var(--primary);
+        box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+        outline: none;
+    }
+    
+    .heist-input::placeholder {
+        color: rgba(156, 163, 175, 0.5);
+    }
+    
+    .heist-label {
+        color: var(--primary);
+        font-size: 0.875rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        margin-bottom: 0.5rem;
+        display: block;
+    }
+    
+    .heist-button {
+        position: relative;
+        background: rgba(37, 99, 235, 0.2);
+        border: 2px solid var(--primary);
+        color: white;
+        padding: 0.75rem 1.5rem;
+        font-family: 'Orbitron', sans-serif;
+        font-weight: 600;
+        font-size: 1rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        overflow: hidden;
+        z-index: 1;
+        clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+    }
+    
+    .heist-button::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
+        z-index: -1;
+        transform: scaleX(0);
+        transform-origin: right;
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    .heist-button:hover::before {
+        transform: scaleX(1);
+        transform-origin: left;
+    }
+    
+    .heist-button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+        border-color: white;
+    }
+    
+    .back-link {
+        position: relative;
+        color: var(--primary);
+        text-transform: uppercase;
+        font-size: 0.875rem;
+        letter-spacing: 0.1em;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        opacity: 0;
+        animation: fadeIn 0.8s forwards 1s;
+    }
+    
+    .back-link::before {
+        content: "←";
+        margin-right: 0.5rem;
+        transition: transform 0.3s ease;
+    }
+    
+    .back-link:hover {
+        color: white;
+    }
+    
+    .back-link:hover::before {
+        transform: translateX(-5px);
+    }
+    
+    @keyframes fadeIn {
+        to { opacity: 1; }
+    }
+    
+    .blueprint-highlight {
+        position: fixed;
+        top: 30%;
+        left: 30%;
+        width: 40%;
+        height: 40%;
+        z-index: -3;
+        background: radial-gradient(ellipse at center, rgba(96, 165, 250, 0.05) 0%, transparent 70%);
+        animation: highlightMove 20s infinite alternate ease-in-out;
+    }
+    
+    @keyframes highlightMove {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(10%, -10%); }
+        50% { transform: translate(-10%, 10%); }
+        75% { transform: translate(-5%, -15%); }
+        100% { transform: translate(5%, 5%); }
+    }
+    
+    .code-emphasis {
+        letter-spacing: 0.2em;
+        font-family: 'Orbitron', sans-serif;
+        color: var(--accent);
+        position: relative;
+        display: inline-block;
+    }
+    
+    .code-emphasis::before {
+        content: "{";
+        margin-right: 0.5rem;
+        color: var(--primary);
+    }
+    
+    .code-emphasis::after {
+        content: "}";
+        margin-left: 0.5rem;
+        color: var(--primary);
+    }
+    
+    .security-cam {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--dark);
+        border: 2px solid var(--danger);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        animation: camScan 5s infinite alternate ease-in-out;
+        z-index: 10;
+    }
+    
+    .security-cam::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        background: var(--danger);
+        border-radius: 50%;
+        animation: camBlink 2s infinite;
+    }
+    
+    @keyframes camScan {
+        0% { transform: rotate(-20deg); }
+        100% { transform: rotate(20deg); }
+    }
+    
+    @keyframes camBlink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+</style>
 {% endblock %}
 
-{% block scripts %}
-<script type="module" src="{{ url_for('static', path='js/joinGame.js') }}"></script>
+{% block content %}
+<div class="laser-grid"></div>
+<div class="blueprint-highlight"></div>
+<div class="security-cam"></div>
+
+<div class="min-h-screen flex flex-col items-center justify-center py-12 px-4 sm:px-6 lg:px-8 relative z-10">
+    <div class="max-w-md w-full space-y-8">
+        <div class="text-center">
+            <h1 class="page-title text-4xl font-extrabold mb-4">
+                THE HEIST
+            </h1>
+            <p class="mt-2 text-gray-400">Infiltrate an active operation</p>
+        </div>
+        
+        <div class="form-container mt-8 bg-gray-800 py-8 px-6 shadow-xl rounded-lg sm:px-10 border border-gray-700">
+            <form id="join-form" class="space-y-6">
+                <div>
+                    <label for="room-code" class="heist-label">
+                        Access Code
+                    </label>
+                    <div class="mt-1">
+                        <input id="room-code" name="room-code" type="text" required
+                            class="heist-input appearance-none block w-full px-3 py-3 rounded-md shadow-sm placeholder-gray-400 focus:ring-2 focus:ring-blue-500 sm:text-sm"
+                            value="{{ room_code if room_code else '' }}"
+                            placeholder="Enter the operation code">
+                    </div>
+                    {% if room_code %}
+                    <p class="mt-2 text-xs text-gray-400">Joining operation: <span class="code-emphasis">{{ room_code }}</span></p>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <label for="player-name" class="heist-label">
+                        Your Codename
+                    </label>
+                    <div class="mt-1">
+                        <input id="player-name" name="player-name" type="text" required
+                            class="heist-input appearance-none block w-full px-3 py-3 rounded-md shadow-sm placeholder-gray-400 focus:ring-2 focus:ring-blue-500 sm:text-sm"
+                            placeholder="Enter your alias">
+                    </div>
+                    <p class="mt-1 text-xs text-gray-400">This is how the team will identify you</p>
+                </div>
+
+                <div class="pt-4">
+                    <button type="submit" class="heist-button w-full">
+                        Infiltrate Operation
+                    </button>
+                </div>
+            </form>
+            
+            <div class="mt-6 text-center">
+                <a href="/" class="back-link">Return to Base</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('join-form');
+    
+    // Add click effect to button
+    const button = document.querySelector('.heist-button');
+    if (button) {
+        button.addEventListener('mousedown', () => {
+            button.style.transform = 'translateY(-1px)';
+        });
+        
+        button.addEventListener('mouseup', () => {
+            button.style.transform = 'translateY(-3px)';
+        });
+        
+        button.addEventListener('mouseleave', () => {
+            button.style.transform = '';
+        });
+    }
+    
+    // Original form submission logic
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const roomCode = document.getElementById('room-code').value;
+        const playerName = document.getElementById('player-name').value;
+        
+        try {
+            // Pass parameters as query parameters, which is what FastAPI expects
+            const response = await fetch(`/api/rooms/join?room_code=${encodeURIComponent(roomCode)}&player_name=${encodeURIComponent(playerName)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                // Store player data in session storage
+                sessionStorage.setItem("player_id", data.player_id);
+                sessionStorage.setItem("player_name", data.player_name);
+                sessionStorage.setItem("session_id", data.session_id);
+                
+                // Redirect to game page
+                window.location.href = `/game/${roomCode}?player_id=${data.player_id}`;
+            } else {
+                alert(data.error || 'Failed to join game');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Failed to join game. Please check the room code and try again.');
+        }
+    });
+    
+    // Add parallax effect
+    window.addEventListener('mousemove', (e) => {
+        const mouseX = e.clientX / window.innerWidth;
+        const mouseY = e.clientY / window.innerHeight;
+        
+        const laserGrid = document.querySelector('.laser-grid');
+        if (laserGrid) {
+            laserGrid.style.transform = `translate(${mouseX * -15}px, ${mouseY * -15}px)`;
+        }
+        
+        const blueprintHighlight = document.querySelector('.blueprint-highlight');
+        if (blueprintHighlight) {
+            blueprintHighlight.style.transform = `translate(${mouseX * -30}px, ${mouseY * -30}px)`;
+        }
+    });
+    
+    // Focus effect on inputs
+    const inputs = document.querySelectorAll('.heist-input');
+    inputs.forEach(input => {
+        input.addEventListener('focus', () => {
+            input.style.boxShadow = '0 0 15px rgba(96, 165, 250, 0.3)';
+        });
+        
+        input.addEventListener('blur', () => {
+            input.style.boxShadow = '';
+        });
+    });
+});
+</script>
 {% endblock %}

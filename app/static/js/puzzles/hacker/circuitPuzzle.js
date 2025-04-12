@@ -19,8 +19,20 @@ class CircuitPuzzle {
   initialize() {
     // Get puzzle data
     const { grid_size, start_point, end_point, barriers, switches } =
-      this.puzzleData.data;
+      this.puzzleData.data || {};
+
+    // Set default values for missing data
     this.gridSize = grid_size || 5;
+
+    // Default values if data is missing
+    const defaultStartPoint = [0, 0];
+    const defaultEndPoint = [this.gridSize - 1, this.gridSize - 1];
+    const safeStartPoint = Array.isArray(start_point)
+      ? start_point
+      : defaultStartPoint;
+    const safeEndPoint = Array.isArray(end_point) ? end_point : defaultEndPoint;
+    const safeBarriers = Array.isArray(barriers) ? barriers : [];
+    const safeSwitches = Array.isArray(switches) ? switches : [];
 
     // Create grid
     this.grid = Array(this.gridSize)
@@ -28,17 +40,21 @@ class CircuitPuzzle {
       .map(() => Array(this.gridSize).fill(0));
 
     // Set start and end points
-    this.grid[start_point[0]][start_point[1]] = 2; // Start
-    this.grid[end_point[0]][end_point[1]] = 3; // End
+    this.grid[safeStartPoint[0]][safeStartPoint[1]] = 2; // Start
+    this.grid[safeEndPoint[0]][safeEndPoint[1]] = 3; // End
 
     // Set barriers
-    barriers.forEach(([x, y]) => {
-      this.grid[x][y] = 4; // Barrier
+    safeBarriers.forEach(([x, y]) => {
+      if (x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize) {
+        this.grid[x][y] = 4; // Barrier
+      }
     });
 
     // Set switches
-    switches.forEach(([x, y]) => {
-      this.grid[x][y] = 5; // Switch
+    safeSwitches.forEach(([x, y]) => {
+      if (x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize) {
+        this.grid[x][y] = 5; // Switch
+      }
     });
 
     // Create the grid element
@@ -370,18 +386,31 @@ class CircuitPuzzle {
    * @returns {boolean} - Whether the solution is valid
    */
   validateSolution(solution) {
-    const { start_point, end_point, switches } = this.puzzleData.data;
+    // Extract puzzle data with defaults for safety
+    const data = this.puzzleData.data || {};
+    const { start_point, end_point, switches } = data;
+
+    const safeStartPoint = Array.isArray(start_point) ? start_point : [0, 0];
+    const safeEndPoint = Array.isArray(end_point)
+      ? end_point
+      : [this.gridSize - 1, this.gridSize - 1];
+    const safeSwitches = Array.isArray(switches) ? switches : [];
+
+    // Ensure solution starts at start point
+    if (!solution || solution.length < 2) {
+      return false;
+    }
 
     // Verify path contains start and end points
     const hasStart = solution.some(
-      ([x, y]) => x === start_point[0] && y === start_point[1]
+      ([x, y]) => x === safeStartPoint[0] && y === safeStartPoint[1]
     );
     const hasEnd = solution.some(
-      ([x, y]) => x === end_point[0] && y === end_point[1]
+      ([x, y]) => x === safeEndPoint[0] && y === safeEndPoint[1]
     );
 
     // Verify path contains all switches
-    const allSwitchesIncluded = switches.every(([x, y]) =>
+    const allSwitchesIncluded = safeSwitches.every(([x, y]) =>
       solution.some(([sX, sY]) => sX === x && sY === y)
     );
 
@@ -393,18 +422,26 @@ class CircuitPuzzle {
    * @returns {string} - Error message
    */
   getErrorMessage() {
-    const { start_point, end_point, switches } = this.puzzleData.data;
+    // Extract puzzle data with defaults for safety
+    const data = this.puzzleData.data || {};
+    const { start_point, end_point, switches } = data;
+
+    const safeStartPoint = Array.isArray(start_point) ? start_point : [0, 0];
+    const safeEndPoint = Array.isArray(end_point)
+      ? end_point
+      : [this.gridSize - 1, this.gridSize - 1];
+    const safeSwitches = Array.isArray(switches) ? switches : [];
 
     // Check each condition separately
     const hasStart = this.currentPath.some(
-      (cell) => cell.x === start_point[0] && cell.y === start_point[1]
+      (cell) => cell.x === safeStartPoint[0] && cell.y === safeStartPoint[1]
     );
     const hasEnd = this.currentPath.some(
-      (cell) => cell.x === end_point[0] && cell.y === end_point[1]
+      (cell) => cell.x === safeEndPoint[0] && cell.y === safeEndPoint[1]
     );
 
     // Verify path contains all switches
-    const missingSwitches = switches.filter(
+    const missingSwitches = safeSwitches.filter(
       ([x, y]) => !this.currentPath.some((cell) => cell.x === x && cell.y === y)
     );
 

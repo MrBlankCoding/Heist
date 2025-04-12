@@ -11,8 +11,6 @@ import app.redis_client
 from app.redis_client import (
     store_room_data,
     get_room_data,
-    store_player_data,
-    get_player_data,
     cleanup_room_if_ended
 )
 
@@ -24,6 +22,53 @@ broadcast_to_room = app.utils.broadcast_to_room
 # Use GameRoom from app.models
 GameRoom = app.models.GameRoom
 Player = app.models.Player
+
+# Update the GameRoom model in app/models.py to include stage completion tracking
+import pydantic
+
+# Add this to the GameRoom model initialization or update it to track stage completion
+app.models.GameRoom.__pydantic_extra__ = pydantic.Extra.allow
+if not hasattr(app.models.GameRoom, "stage_completion"):
+    setattr(app.models.GameRoom, "stage_completion", {})
+
+def have_all_players_completed_stage(room, stage_number: int) -> bool:
+    """Check if all connected players have completed their puzzles for a stage
+    
+    Args:
+        room: The GameRoom object
+        stage_number: The stage number to check
+        
+    Returns:
+        bool: True if all connected players have completed their puzzles
+    """
+    # Convert stage to string for dictionary key
+    stage = str(stage_number)
+    
+    # Get stage completion data
+    stage_completion = getattr(room, "stage_completion", {}).get(stage, {})
+    
+    # Get all connected players
+    connected_players_ids = []
+    for player_id, player in room.players.items():
+        is_connected = False
+        if isinstance(player, dict):
+            is_connected = player.get("connected", False)
+        else:
+            is_connected = player.connected
+            
+        if is_connected:
+            connected_players_ids.append(player_id)
+    
+    # If no connected players, return False
+    if not connected_players_ids:
+        return False
+        
+    # Check if all connected players have completed their puzzles
+    for player_id in connected_players_ids:
+        if player_id not in stage_completion or not stage_completion[player_id]:
+            return False
+            
+    return True
 
 
 def generate_puzzles(room, stage: int) -> Dict:

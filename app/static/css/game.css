@@ -1,18 +1,35 @@
 /* Prevent page scrolling */
 html, body {
     height: 100%;
+    width: 100%;
     overflow: hidden;
     margin: 0;
     padding: 0;
+    box-sizing: border-box;
+    position: fixed;
+    top: 0;
+    left: 0;
+}
+
+*, *::before, *::after {
+    box-sizing: border-box;
 }
 
 /* Main content container to handle scrolling within the app if needed */
 .game-container {
     height: 100vh;
-    overflow-y: auto;
-    padding: 1.5rem;
+    width: 100vw;
+    overflow: hidden;
+    padding: 0;
+    margin: 0;
     scrollbar-width: thin;
     scrollbar-color: rgba(96, 165, 250, 0.5) rgba(17, 24, 39, 0.7);
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    max-width: 100vw;
 }
 
 /* Custom scrollbar for content container */
@@ -29,10 +46,80 @@ html, body {
     border-radius: 6px;
 }
 
+/* Game content wrapper layout */
+.game-content-wrapper {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    position: relative;
+}
+
+/* Game main area positioning */
+.game-main-area {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+}
+
+/* Chat area positioning */
+.game-chat-area {
+    width: 250px;
+    border-left: 1px solid rgba(96, 165, 250, 0.3);
+    background: rgba(17, 24, 39, 0.8);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 0;
+}
+
 /* Additional game-specific styles */
 .blueprint-grid {
     background-image: radial-gradient(circle, #304060 1px, transparent 1px);
     background-size: 20px 20px;
+}
+
+/* Tab navigation styles */
+.tab-button {
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.tab-button::after {
+    content: '';
+    position: absolute;
+    right: -4px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 0;
+    background-color: rgba(59, 130, 246, 0.7);
+    border-radius: 2px;
+    transition: height 0.2s ease;
+}
+
+.tab-button.active::after {
+    height: 70%;
+}
+
+.tab-button:hover {
+    transform: translateX(2px);
+}
+
+.tab-content {
+    animation: fadeTabIn 0.3s ease forwards;
+}
+
+@keyframes fadeTabIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 /* Role card styling */
@@ -495,20 +582,147 @@ html, body {
     border-radius: 0.5rem;
 }
 
+/* Chat Window Styles */
 .chat-window {
-    height: 250px;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(96, 165, 250, 0.5) rgba(17, 24, 39, 0.7);
-}
-
-#puzzle-content {
-    min-height: 300px;
-    padding: 1rem;
     display: flex;
     flex-direction: column;
+    gap: 0.75rem;
+    padding: 1rem;
+    height: calc(100vh - 220px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    scroll-behavior: smooth;
+}
+
+/* Message Bubble Styles */
+.message {
+    display: flex;
+    flex-direction: column;
+    max-width: 85%;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    position: relative;
+    word-wrap: break-word;
+    animation: fadeIn 0.3s ease-out;
+}
+
+.message.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: white;
+    border-bottom-right-radius: 0.25rem;
+}
+
+.message.system {
+    align-self: center;
+    background: rgba(75, 85, 99, 0.5);
+    color: #e5e7eb;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    max-width: 90%;
+}
+
+.message.other {
+    align-self: flex-start;
+    background: #374151;
+    color: #e5e7eb;
+    border-bottom-left-radius: 0.25rem;
+}
+
+/* Message Metadata */
+.message-meta {
+    display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+}
+
+.message.user .message-meta {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.message.other .message-meta {
+    color: #9ca3af;
+}
+
+.message-content {
+    line-height: 1.4;
+}
+
+/* Timestamp */
+.message-timestamp {
+    font-size: 0.7rem;
+    opacity: 0.7;
+}
+
+/* Chat Input Styles */
+#chat-form {
+    position: relative;
+    margin-top: 0.75rem;
+}
+
+#chat-input {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    padding-right: 3rem;
+    background: #1f2937;
+    border: 1px solid #374151;
+    border-radius: 0.75rem;
+    color: #e5e7eb;
+    transition: all 0.2s ease;
+}
+
+#chat-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+#chat-form button {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #3b82f6;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    color: white;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#chat-form button:hover {
+    background: #2563eb;
+}
+
+#chat-form button:active {
+    transform: translateY(-50%) scale(0.95);
+}
+
+/* Responsive Adjustments */
+@media (max-width: 1024px) {
+    .chat-window {
+        height: calc(100vh - 280px);
+    }
+    
+    .message {
+        max-width: 90%;
+    }
+}
+
+@media (max-width: 640px) {
+    .message {
+        max-width: 95%;
+    }
+    
+    .message.system {
+        max-width: 100%;
+        font-size: 0.8125rem;
+    }
 }
 
 /* Role-specific puzzle styling */

@@ -19,6 +19,7 @@ class GameRoom(BaseModel):
     timer: int = 300  # 5 minutes default
     status: str = "waiting"  # waiting, in_progress, completed, failed
     puzzles: Dict = {}
+    stage_completion: Dict[str, Dict[str, bool]] = {}  # Format: {stage: {player_id: True/False}}
     next_events_visible: bool = False  # Add field for Lookout power
     last_power_description: Optional[str] = None  # For storing power descriptions
     # Timer vote related fields

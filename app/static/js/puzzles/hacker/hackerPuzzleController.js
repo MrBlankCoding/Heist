@@ -67,6 +67,24 @@ class HackerPuzzleController {
   _initializePuzzle(container) {
     const puzzleType = this.puzzleData.type;
 
+    // Ensure puzzleData has a data property
+    if (!this.puzzleData.data) {
+      this.puzzleData.data = {};
+    }
+
+    // If it's a circuit puzzle, ensure required data is present
+    if (puzzleType === "circuit" || !puzzleType) {
+      // Add default circuit puzzle data if missing
+      if (!this.puzzleData.data.grid_size) this.puzzleData.data.grid_size = 5;
+      if (!this.puzzleData.data.start_point)
+        this.puzzleData.data.start_point = [0, 0];
+      if (!this.puzzleData.data.end_point)
+        this.puzzleData.data.end_point = [4, 4];
+      if (!this.puzzleData.data.barriers) this.puzzleData.data.barriers = [];
+      if (!this.puzzleData.data.switches)
+        this.puzzleData.data.switches = [[2, 2]];
+    }
+
     // Create the appropriate puzzle
     switch (puzzleType) {
       case "circuit":

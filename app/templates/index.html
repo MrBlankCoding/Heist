@@ -3,44 +3,594 @@
 
 {% block title %}The Heist - Welcome{% endblock %}
 
+{% block head %}
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&display=swap');
+    
+    :root {
+        --primary: #60a5fa;
+        --primary-dark: #2563eb;
+        --accent: #f59e0b;
+        --danger: #ef4444;
+        --success: #10b981;
+        --dark: #0f172a;
+        --darker: #030712;
+    }
+    
+    body {
+        overflow-x: hidden;
+        background-color: var(--darker);
+        font-family: 'Share Tech Mono', monospace;
+    }
+    
+    .main-container {
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .heist-title {
+        font-family: 'Orbitron', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.5em;
+        font-weight: 900;
+        position: relative;
+        padding: 0 0.5em;
+        text-shadow: 0 0 10px rgba(96, 165, 250, 0.7),
+                     0 0 20px rgba(96, 165, 250, 0.5),
+                     0 0 30px rgba(96, 165, 250, 0.3);
+    }
+    
+    .heist-subtitle {
+        font-family: 'Share Tech Mono', monospace;
+        letter-spacing: 0.2em;
+        opacity: 0.8;
+    }
+    
+    .laser-grid {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -2;
+        background-color: var(--darker);
+        background-image: 
+            linear-gradient(rgba(96, 165, 250, 0.05) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(96, 165, 250, 0.05) 1px, transparent 1px);
+        background-size: 30px 30px;
+        perspective: 1000px;
+        transform-style: preserve-3d;
+        animation: gridPulse 8s infinite linear;
+    }
+    
+    @keyframes gridPulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 0.8; }
+    }
+    
+    .heist-button {
+        position: relative;
+        background: rgba(37, 99, 235, 0.1);
+        border: 2px solid var(--primary);
+        color: white;
+        padding: 1.2rem 2.5rem;
+        border-radius: 0;
+        font-family: 'Orbitron', sans-serif;
+        font-weight: 700;
+        font-size: 1.2rem;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        overflow: hidden;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 15px rgba(37, 99, 235, 0.3);
+        clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+    }
+    
+    .heist-button::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
+        z-index: -1;
+        transform: scaleX(0);
+        transform-origin: right;
+        transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    .heist-button:hover::before {
+        transform: scaleX(1);
+        transform-origin: left;
+    }
+    
+    .heist-button:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 30px rgba(37, 99, 235, 0.5);
+        border-color: white;
+        letter-spacing: 0.25em;
+    }
+    
+    .heist-button svg {
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        margin-right: 0.5rem;
+    }
+    
+    .heist-button:hover svg {
+        transform: translateX(-5px) scale(1.2);
+    }
+    
+    .security-cam {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--dark);
+        border: 2px solid var(--danger);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        animation: camScan 5s infinite alternate ease-in-out;
+        z-index: 10;
+    }
+    
+    .security-cam::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        background: var(--danger);
+        border-radius: 50%;
+        animation: camBlink 2s infinite;
+    }
+    
+    @keyframes camScan {
+        0% { transform: rotate(-20deg); }
+        100% { transform: rotate(20deg); }
+    }
+    
+    @keyframes camBlink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+    
+    .role-card {
+        position: relative;
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(96, 165, 250, 0.3);
+        overflow: hidden;
+        transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+        transform-style: preserve-3d;
+        perspective: 1000px;
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    
+    .role-card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, 
+            transparent, 
+            rgba(96, 165, 250, 0.1), 
+            transparent);
+        transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+    
+    .role-card:hover::before {
+        left: 100%;
+    }
+    
+    .role-card:hover {
+        transform: translateY(-15px) rotateY(10deg);
+        box-shadow: 
+            20px 20px 30px rgba(0, 0, 0, 0.4),
+            0 0 30px rgba(96, 165, 250, 0.2);
+        border-color: var(--primary);
+    }
+    
+    .role-icon {
+        font-size: 3rem;
+        transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+    
+    .role-card:hover .role-icon {
+        transform: scale(1.2) rotate(-10deg);
+    }
+    
+    .role-card:hover .role-title {
+        color: white;
+    }
+    
+    .alarm-lights {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1;
+        pointer-events: none;
+        opacity: 0;
+        background: radial-gradient(ellipse at center, 
+            rgba(239, 68, 68, 0) 0%, 
+            rgba(239, 68, 68, 0.1) 70%, 
+            rgba(3, 7, 18, 0.5) 100%);
+        animation: alarmPulse 8s 4s infinite alternate;
+    }
+    
+    @keyframes alarmPulse {
+        0%, 25%, 75%, 100% { opacity: 0; }
+        50% { opacity: 0.7; }
+    }
+    
+    .play-now {
+        position: relative;
+        display: inline-block;
+        overflow: hidden;
+        text-transform: uppercase;
+        letter-spacing: 0.3em;
+        font-weight: bold;
+        color: var(--accent);
+        animation: pulseText 1.5s infinite alternate;
+    }
+    
+    @keyframes pulseText {
+        0% { opacity: 0.4; }
+        100% { opacity: 1; }
+    }
+    
+    .vault-texture {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -3;
+        background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect x="0" y="0" width="100" height="100" fill="%23030712"/><circle cx="50" cy="50" r="40" stroke="%232563eb" stroke-width="0.5" fill="none" opacity="0.1"/><circle cx="50" cy="50" r="30" stroke="%232563eb" stroke-width="0.5" fill="none" opacity="0.1"/><circle cx="50" cy="50" r="20" stroke="%232563eb" stroke-width="0.5" fill="none" opacity="0.1"/></svg>');
+        opacity: 0.05;
+    }
+    
+    .blueprint-highlight {
+        position: absolute;
+        top: 20%;
+        left: 20%;
+        width: 60%;
+        height: 60%;
+        z-index: -4;
+        background: radial-gradient(ellipse at center, rgba(96, 165, 250, 0.05) 0%, transparent 70%);
+        animation: highlightMove 20s infinite alternate ease-in-out;
+    }
+    
+    @keyframes highlightMove {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(10%, -10%); }
+        50% { transform: translate(-10%, 10%); }
+        75% { transform: translate(-5%, -15%); }
+        100% { transform: translate(5%, 5%); }
+    }
+    
+    .cursor-highlight {
+        position: fixed;
+        width: 30vw;
+        height: 30vw;
+        border-radius: 50%;
+        background: radial-gradient(circle at center, rgba(96, 165, 250, 0.05) 0%, transparent 70%);
+        pointer-events: none;
+        z-index: -1;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+    }
+    
+    .typing-text::after {
+        content: "|";
+        animation: blink 1s infinite;
+    }
+    
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0; }
+    }
+    
+    .countdown-container {
+        position: relative;
+        margin-top: 2rem;
+        overflow: hidden;
+        border: 1px solid rgba(96, 165, 250, 0.3);
+        border-radius: 4px;
+    }
+    
+    .countdown-bar {
+        height: 5px;
+        width: 100%;
+        background: linear-gradient(90deg, var(--primary-dark), var(--primary));
+        animation: countdown 60s linear forwards;
+        transform-origin: left;
+    }
+    
+    @keyframes countdown {
+        0% { transform: scaleX(1); }
+        100% { transform: scaleX(0); }
+    }
+    
+    .entrance-animation {
+        opacity: 0;
+        transform: translateY(20px);
+        transition: all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    
+    .roles-container {
+        opacity: 0;
+        transform: translateY(30px);
+        transition: all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.5s;
+    }
+    
+    .tagline {
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-size: 1.5rem;
+        font-weight: bold;
+        letter-spacing: 0.1em;
+    }
+    
+    .how-to-play {
+        position: relative;
+        display: inline-block;
+        overflow: hidden;
+    }
+    
+    .how-to-play::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background: linear-gradient(90deg, var(--primary), transparent);
+    }
+    
+    .terminal-container {
+        background: rgba(3, 7, 18, 0.7);
+        border: 1px solid rgba(96, 165, 250, 0.3);
+        padding: 1.5rem;
+        font-family: 'Share Tech Mono', monospace;
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .terminal-container::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: repeating-linear-gradient(
+            0deg,
+            rgba(0, 0, 0, 0.1),
+            rgba(0, 0, 0, 0.1) 1px,
+            transparent 1px,
+            transparent 2px
+        );
+        pointer-events: none;
+    }
+
+    .terminal-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 1rem;
+        border-bottom: 1px solid rgba(96, 165, 250, 0.3);
+        padding-bottom: 0.5rem;
+    }
+    
+    .terminal-icon {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--danger);
+        margin-right: 8px;
+    }
+    
+    .terminal-icon:nth-child(2) {
+        background: var(--accent);
+    }
+    
+    .terminal-icon:nth-child(3) {
+        background: var(--success);
+    }
+    
+    .terminal-title {
+        margin-left: 10px;
+        font-size: 0.8rem;
+        opacity: 0.7;
+    }
+    
+    .typing-animation {
+        overflow: hidden;
+        white-space: nowrap;
+        margin: 0 auto;
+        letter-spacing: 0.1em;
+        animation: typing 3.5s steps(40, end);
+    }
+    
+    @keyframes typing {
+        from { width: 0 }
+        to { width: 100% }
+    }
+    
+    .fingerprint-scanner {
+        width: 40px;
+        height: 60px;
+        background: rgba(96, 165, 250, 0.1);
+        border: 1px solid var(--primary);
+        border-radius: 4px;
+        margin: 0 auto;
+        position: relative;
+        overflow: hidden;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    
+    .fingerprint-scanner:hover {
+        background: rgba(96, 165, 250, 0.2);
+        transform: scale(1.05);
+    }
+    
+    .scanner-light {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 5px;
+        background: var(--primary);
+        animation: scan 2s infinite;
+    }
+    
+    @keyframes scan {
+        0% { top: 0; opacity: 0.8; }
+        50% { opacity: 1; }
+        100% { top: 100%; opacity: 0.8; }
+    }
+    
+    .fingerprint-scanner.scanning {
+        border-color: var(--accent);
+    }
+    
+    .fingerprint-scanner.scanning .scanner-light {
+        background: var(--accent);
+        animation: scan 0.5s infinite;
+    }
+    
+    .fingerprint-scanner.authenticated {
+        border-color: var(--success);
+        background: rgba(16, 185, 129, 0.1);
+    }
+    
+    .fingerprint-scanner.authenticated .scanner-light {
+        background: var(--success);
+    }
+    
+    .role-power {
+        opacity: 0;
+        transform: translateY(4px);
+        transition: all 0.3s ease;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="flex flex-col items-center justify-center min-h-screen py-12">
-    <div class="text-center mb-8">
-        <h1 class="text-5xl font-bold text-blue-500 mb-4">THE HEIST</h1>
-        <p class="text-xl">A cooperative multiplayer puzzle game</p>
-    </div>
-    
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl">
-        <a href="/create" class="heist-button">
-            Create Game
-        </a>
-        <a href="/join" class="heist-button">
-            Join Game
-        </a>
-    </div>
-    
-    <div class="mt-16 max-w-2xl text-center">
-        <h2 class="text-2xl font-bold text-blue-400 mb-4">How to Play</h2>
-        <p class="mb-4">Team up with friends and pull off the perfect heist! Each player takes on a critical role with unique abilities and puzzles.</p>
+<div class="laser-grid"></div>
+<div class="vault-texture"></div>
+<div class="blueprint-highlight"></div>
+<div class="alarm-lights"></div>
+<div class="cursor-highlight"></div>
+
+<div class="main-container min-h-screen flex flex-col items-center justify-center py-12 relative z-10">
+    <div class="text-center mb-16 px-4 entrance-animation">
+        <h1 class="heist-title text-7xl font-bold text-blue-500 mb-6 tracking-wider">THE HEIST</h1>
+        <p class="heist-subtitle text-2xl mt-6 text-gray-300">A cooperative multiplayer puzzle game</p>
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
-            <div class="bg-gray-800 rounded-lg p-4">
-                <h3 class="text-xl font-bold text-blue-300 mb-2">Hacker</h3>
-                <p>Break into electronic systems with circuit puzzles and code breaking challenges.</p>
+        <div class="tagline mt-4">YOUR SKILLS. YOUR CREW. ONE SHOT.</div>
+        
+        <div class="countdown-container mt-6 mx-auto w-32">
+            <div class="countdown-bar"></div>
+        </div>
+        
+        <div class="terminal-container mt-8 mx-auto max-w-lg text-left">
+            <div class="terminal-header">
+                <div class="terminal-icon"></div>
+                <div class="terminal-icon"></div>
+                <div class="terminal-icon"></div>
+                <div class="terminal-title">secure_terminal.sh</div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-4">
-                <h3 class="text-xl font-bold text-blue-300 mb-2">Safe Cracker</h3>
-                <p>Listen for audio cues and solve tactile lock puzzles to access secured areas.</p>
+            <div class="terminal-typing typing-animation text-green-400 text-sm">> Infiltrating bank security systems...</div>
+            <div class="terminal-typing text-blue-400 text-sm mt-2">> Team communication established</div>
+            <div class="terminal-typing text-yellow-400 text-sm mt-2">> Alarm systems detected</div>
+            <div class="text-red-400 text-sm mt-2 typing-text">> Ready to breach vault</div>
+            
+            <div class="fingerprint-scanner mt-4 mx-auto">
+                <div class="scanner-light"></div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-4">
-                <h3 class="text-xl font-bold text-blue-300 mb-2">Demolitions</h3>
-                <p>Wire fuses and solve timing puzzles to create controlled explosions.</p>
+            
+            <div class="text-center mt-4 text-gray-400 text-xs fingerprint-text">PLACE FINGER TO AUTHENTICATE</div>
+        </div>
+    </div>
+    
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-2xl mx-auto mb-16 entrance-animation">
+        <a href="/create" class="heist-button group">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Assemble Crew
+        </a>
+        <a href="/join" class="heist-button group">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14" />
+            </svg>
+            Join Team
+        </a>
+    </div>
+    
+    <div class="mt-8 max-w-6xl mx-auto text-center px-4 roles-container" id="roles-section">
+        <h2 class="how-to-play text-3xl font-bold text-blue-400 mb-8 relative inline-block">
+            SELECT YOUR SPECIALIST
+        </h2>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mt-10">
+            <div class="role-card bg-gray-900 rounded-xl p-8 border-2 border-opacity-30" data-role="hacker">
+                <div class="role-icon text-blue-400 mb-4">💻</div>
+                <h3 class="role-title text-2xl font-bold text-blue-300 mb-3">Hacker</h3>
+                <p class="text-gray-400 mb-4">Break into electronic systems with circuit puzzles and code breaking challenges.</p>
+                <div class="role-power text-blue-400 text-sm mt-4">
+                    BONUS: Slow security timers
+                </div>
             </div>
-            <div class="bg-gray-800 rounded-lg p-4">
-                <h3 class="text-xl font-bold text-blue-300 mb-2">Lookout</h3>
-                <p>Monitor surveillance systems and solve pattern recognition puzzles.</p>
+            
+            <div class="role-card bg-gray-900 rounded-xl p-8 border-2 border-opacity-30" data-role="safe-cracker">
+                <div class="role-icon text-green-400 mb-4">🔒</div>
+                <h3 class="role-title text-2xl font-bold text-green-300 mb-3">Safe Cracker</h3>
+                <p class="text-gray-400 mb-4">Listen for audio cues and solve tactile lock puzzles to access secured areas.</p>
+                <div class="role-power text-green-400 text-sm mt-4">
+                    BONUS: Skip one lock per heist
+                </div>
+            </div>
+            
+            <div class="role-card bg-gray-900 rounded-xl p-8 border-2 border-opacity-30" data-role="demolitions">
+                <div class="role-icon text-red-400 mb-4">💣</div>
+                <h3 class="role-title text-2xl font-bold text-red-300 mb-3">Demolitions</h3>
+                <p class="text-gray-400 mb-4">Wire fuses and solve timing puzzles to create controlled explosions.</p>
+                <div class="role-power text-red-400 text-sm mt-4">
+                    BONUS: Break walls for shortcuts
+                </div>
+            </div>
+            
+            <div class="role-card bg-gray-900 rounded-xl p-8 border-2 border-opacity-30" data-role="lookout">
+                <div class="role-icon text-yellow-400 mb-4">👁️</div>
+                <h3 class="role-title text-2xl font-bold text-yellow-300 mb-3">Lookout</h3>
+                <p class="text-gray-400 mb-4">Monitor surveillance systems and solve pattern recognition puzzles.</p>
+                <div class="role-power text-yellow-400 text-sm mt-4">
+                    BONUS: Detect traps in advance
+                </div>
             </div>
         </div>
     </div>
+    
+    <div class="mt-16 text-center">
+        <div class="play-now text-xl">
+            Time is running out
+        </div>
+    </div>
 </div>
+
+<script src="{{ url_for('static', path='js/landingPage.js') }}"></script>
 {% endblock %}
