@@ -2,13 +2,8 @@
 
 import playerStateManager from "./playerStateManager.js";
 import websocketManager from "./websocketManager.js";
-import {
-  HackerPuzzleController,
-  SafeCrackerPuzzleController,
-  DemolitionsPuzzleController,
-  LookoutPuzzleController,
-  TeamPuzzleController,
-} from "./main.bundle.js";
+import puzzleLoader from "./puzzleLoader.js";
+// Puzzle controllers are now loaded dynamically via puzzleLoader.js
 
 class GameUIManager {
   constructor() {
@@ -215,74 +210,74 @@ class GameUIManager {
   }
 
   setupPuzzleUI(puzzle, getActivePuzzleController) {
-    if (!this.elements.puzzleContent || !this.elements.roleInstruction)
-      return null;
-
-    const role = playerStateManager.gameState.playerRole;
-    if (!role) return null;
+    if (!this.elements?.puzzleContent)
+      return Promise.reject(new Error("Puzzle content element not found"));
 
     this.elements.puzzleContent.innerHTML = "";
-    this.elements.puzzleContent.style.minHeight = "200px";
-    this.elements.puzzleContent.style.backgroundColor = "";
-    this.elements.puzzleContent.style.padding = "";
 
-    const roleInfo = playerStateManager.getRoleInfo(role);
-    if (roleInfo) {
-      this.elements.roleInstruction.textContent = `${role} - ${roleInfo.description}`;
-      this.elements.roleInstruction.classList.remove("text-gray-400", "italic");
+    // Show loading indicator while we load the controller
+    const loadingElement = document.createElement("div");
+    loadingElement.className = "text-center py-8";
+    loadingElement.innerHTML = `
+      <div class="loader mx-auto mb-4"></div>
+      <p class="text-gray-300">Loading puzzle...</p>
+    `;
+    this.elements.puzzleContent.appendChild(loadingElement);
+
+    const role = playerStateManager.gameState.playerRole;
+    if (!role) {
+      console.error("No role assigned");
+      this.elements.puzzleContent.innerHTML = `
+        <div class="text-center py-8">
+          <p class="text-red-500">Error: No role assigned</p>
+          <p class="text-gray-400 mt-2">Please refresh the page</p>
+        </div>
+      `;
+      return Promise.reject(new Error("No role assigned"));
     }
 
-    const loading = document.createElement("div");
-    loading.className = "text-center p-4";
-    loading.innerHTML = `<p class="text-blue-400">Loading puzzle...</p>`;
-    this.elements.puzzleContent.appendChild(loading);
-
-    let PuzzleControllerClass = null;
-
     try {
-      if (puzzle.type && puzzle.type.includes("team_puzzle")) {
-        puzzle.playerRole = role;
-        PuzzleControllerClass = TeamPuzzleController;
-      } else {
-        const puzzleControllerMap = {
-          Hacker: HackerPuzzleController,
-          "Safe Cracker": SafeCrackerPuzzleController,
-          Demolitions: DemolitionsPuzzleController,
-          Lookout: LookoutPuzzleController,
-        };
-
-        PuzzleControllerClass = puzzleControllerMap[role];
-        if (!PuzzleControllerClass) {
-          console.error("Unknown role:", role);
-          return null;
-        }
-      }
-
-      this.elements.puzzleContent.innerHTML = "";
-
-      const puzzleController = new PuzzleControllerClass(
-        this.elements.puzzleContent,
-        puzzle,
-        (solution) => playerStateManager.submitPuzzleSolution(solution)
-      );
-
-      puzzleController.initialize();
-      return puzzleController;
+      // Use puzzleLoader to create the controller instead of direct instantiation
+      return puzzleLoader
+        .createPuzzleController(
+          role,
+          puzzle,
+          this.elements.puzzleContent,
+          (solution) => playerStateManager.submitPuzzleSolution(solution),
+          websocketManager
+        )
+        .then((puzzleController) => {
+          // Clear loading indicator
+          this.elements.puzzleContent.innerHTML = "";
+          // Initialize the controller
+          puzzleController.initialize();
+          // Return the controller so it can be stored
+          return puzzleController;
+        })
+        .catch((error) => {
+          console.error(
+            `Error creating puzzle controller for role ${role}:`,
+            error
+          );
+          this.elements.puzzleContent.innerHTML = `
+          <div class="text-center py-8">
+            <p class="text-red-500">Error loading puzzle</p>
+            <p class="text-gray-400 mt-2">${error.message}</p>
+            <p class="text-gray-400 mt-2">Please refresh the page</p>
+          </div>
+        `;
+          throw error; // Rethrow the error to be caught by the caller
+        });
     } catch (error) {
-      console.error(
-        `Error creating puzzle controller for role ${role}:`,
-        error
-      );
-
-      this.elements.puzzleContent.innerHTML = "";
-      const errorEl = document.createElement("div");
-      errorEl.className = "text-center p-4";
-      errorEl.innerHTML = `
-        <p class="text-red-400 mb-2">Error loading puzzle</p>
-        <p class="text-sm text-gray-400">Please try refreshing the page</p>
+      console.error(`Error in setupPuzzleUI:`, error);
+      this.elements.puzzleContent.innerHTML = `
+        <div class="text-center py-8">
+          <p class="text-red-500">Error setting up puzzle</p>
+          <p class="text-gray-400 mt-2">${error.message}</p>
+          <p class="text-gray-400 mt-2">Please refresh the page</p>
+        </div>
       `;
-      this.elements.puzzleContent.appendChild(errorEl);
-      return null;
+      return Promise.reject(error);
     }
   }
 

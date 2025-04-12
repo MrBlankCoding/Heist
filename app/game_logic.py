@@ -474,71 +474,91 @@ async def run_game_timer(room_code: str):
     room = GameRoom(**room_data)
 
     # Send initial timer to ensure everyone is synchronized
-    await broadcast_to_room(
-        room_code, {"type": "timer_update", "timer": room.timer, "sync": True}
-    )
+    try:
+        await broadcast_to_room(
+            room_code, {"type": "timer_update", "timer": room.timer, "sync": True}
+        )
+    except Exception as e:
+        print(f"Error sending initial timer update: {e}")
 
     while True:
-        # Refresh room data from Redis for each iteration
-        room_data = get_room_data(room_code)
-        if not room_data:
-            break
+        try:
+            # Refresh room data from Redis for each iteration
+            room_data = get_room_data(room_code)
+            if not room_data:
+                break
 
-        room = GameRoom(**room_data)
+            room = GameRoom(**room_data)
 
-        # Check if timer has expired or game is no longer in progress
-        if room.timer <= 0 or room.status != "in_progress":
-            break
+            # Check if timer has expired or game is no longer in progress
+            if room.timer <= 0 or room.status != "in_progress":
+                break
 
-        await asyncio.sleep(1)
-        room.timer -= 1
+            await asyncio.sleep(1)
+            room.timer -= 1
 
-        # Update Redis with new timer value
-        store_room_data(room_code, room.dict())
-
-        # Update in-memory for compatibility
-        if room_code in game_rooms:
-            game_rooms[room_code].timer = room.timer
-
-        # Only send timer updates at specific intervals to reduce traffic:
-        # - Every 15 seconds for regular updates
-        # - Every 5 seconds when under 30 seconds
-        # - Every second when under 10 seconds
-        # - When random events occur
-        # - When timer is paused/resumed
-        should_send = (
-            room.timer % 15 == 0  # Every 15 seconds
-            or (room.timer <= 30 and room.timer % 5 == 0)  # Every 5 seconds when <= 30s
-            or room.timer <= 10  # Every second when <= 10s
-        )
-
-        if should_send:
-            await broadcast_to_room(
-                room_code, {"type": "timer_update", "timer": room.timer, "sync": True}
-            )
-
-        # Check for random events every 30 seconds
-        if room.timer % 30 == 0:
-            await trigger_random_event(room_code)
-
-        # Game over when timer runs out
-        if room.timer <= 0:
-            room.status = "failed"
-
-            # Update Redis
+            # Update Redis with new timer value
             store_room_data(room_code, room.dict())
 
             # Update in-memory for compatibility
             if room_code in game_rooms:
-                game_rooms[room_code].status = "failed"
+                game_rooms[room_code].timer = room.timer
 
-            await broadcast_to_room(
-                room_code, {"type": "game_over", "result": "time_expired"}
+            # Only send timer updates at specific intervals to reduce traffic:
+            # - Every 15 seconds for regular updates
+            # - Every 5 seconds when under 30 seconds
+            # - Every second when under 10 seconds
+            # - When random events occur
+            # - When timer is paused/resumed
+            should_send = (
+                room.timer % 15 == 0  # Every 15 seconds
+                or (
+                    room.timer <= 30 and room.timer % 5 == 0
+                )  # Every 5 seconds when <= 30s
+                or room.timer <= 10  # Every second when <= 10s
             )
 
-            # Schedule cleanup check after a delay to give players time to see the result
-            asyncio.create_task(cleanup_if_no_players_connected(room_code))
-            break
+            if should_send:
+                try:
+                    await broadcast_to_room(
+                        room_code,
+                        {"type": "timer_update", "timer": room.timer, "sync": True},
+                    )
+                except Exception as e:
+                    print(f"Error sending timer update: {e}")
+
+            # Check for random events every 30 seconds
+            if room.timer % 30 == 0:
+                try:
+                    await trigger_random_event(room_code)
+                except Exception as e:
+                    print(f"Error triggering random event: {e}")
+
+            # Game over when timer runs out
+            if room.timer <= 0:
+                room.status = "failed"
+
+                # Update Redis
+                store_room_data(room_code, room.dict())
+
+                # Update in-memory for compatibility
+                if room_code in game_rooms:
+                    game_rooms[room_code].status = "failed"
+
+                try:
+                    await broadcast_to_room(
+                        room_code, {"type": "game_over", "result": "time_expired"}
+                    )
+                except Exception as e:
+                    print(f"Error sending game over message: {e}")
+
+                # Schedule cleanup check after a delay to give players time to see the result
+                asyncio.create_task(cleanup_if_no_players_connected(room_code))
+                break
+        except Exception as e:
+            print(f"Error in game timer loop: {e}")
+            # Don't break the loop for non-critical errors
+            await asyncio.sleep(1)
 
 
 async def cleanup_if_no_players_connected(room_code: str):
@@ -570,42 +590,55 @@ async def cleanup_if_no_players_connected(room_code: str):
 
 async def trigger_random_event(room_code: str):
     """Trigger a random event in the game"""
-    # Get room data from Redis
-    room_data = get_room_data(room_code)
-    if not room_data:
-        return
+    try:
+        # Get room data from Redis
+        room_data = get_room_data(room_code)
+        if not room_data:
+            return
 
-    room = GameRoom(**room_data)
+        room = GameRoom(**room_data)
 
-    # Higher alert level = more chance of events
-    # Use original_alert_level if set (from Demolitions power)
-    alert_level = getattr(room, "original_alert_level", room.alert_level)
+        # Higher alert level = more chance of events
+        # Use original_alert_level if set (from Demolitions power)
+        alert_level = getattr(room, "original_alert_level", room.alert_level)
 
-    if random.random() < (0.2 + (alert_level * 0.1)):
-        event_types = ["security_patrol", "camera_sweep", "system_check"]
-        event = random.choice(event_types)
-        event_duration = random.randint(5, 15)
+        if random.random() < (0.2 + (alert_level * 0.1)):
+            event_types = ["security_patrol", "camera_sweep", "system_check"]
+            event = random.choice(event_types)
+            event_duration = random.randint(5, 15)
 
-        # If Lookout's power is active, send a warning to all players
-        if hasattr(room, "next_events_visible") and room.next_events_visible:
-            # Send warning 5 seconds before event
-            await broadcast_to_room(
-                room_code,
-                {
-                    "type": "lookout_warning",
-                    "event": event,
-                    "warning_time": 5,
-                    "message": f"Lookout detects {event.replace('_', ' ').title()} approaching in 5 seconds!",
-                },
-            )
-            # Wait 5 seconds before triggering the event
-            await asyncio.sleep(5)
+            # If Lookout's power is active, send a warning to all players
+            if hasattr(room, "next_events_visible") and room.next_events_visible:
+                try:
+                    # Send warning 5 seconds before event
+                    await broadcast_to_room(
+                        room_code,
+                        {
+                            "type": "lookout_warning",
+                            "event": event,
+                            "warning_time": 5,
+                            "message": f"Lookout detects {event.replace('_', ' ').title()} approaching in 5 seconds!",
+                        },
+                    )
+                    # Wait 5 seconds before triggering the event
+                    await asyncio.sleep(5)
+                except Exception as e:
+                    print(f"Error sending lookout warning: {e}")
 
-        # Send the actual event
-        await broadcast_to_room(
-            room_code,
-            {"type": "random_event", "event": event, "duration": event_duration},
-        )
+            try:
+                # Send the actual event
+                await broadcast_to_room(
+                    room_code,
+                    {
+                        "type": "random_event",
+                        "event": event,
+                        "duration": event_duration,
+                    },
+                )
+            except Exception as e:
+                print(f"Error sending random event: {e}")
+    except Exception as e:
+        print(f"Error in trigger_random_event: {e}")
 
 
 async def run_vote_timer(room_code: str):

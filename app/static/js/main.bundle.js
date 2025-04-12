@@ -8,10 +8,7 @@ export { default as GameUIManager } from "./gameUIManager.js";
 export { default as GameEventHandler } from "./gameEventHandler.js";
 export { default as NotificationSystem } from "./notificationSystem.js";
 export { default as ChatManager } from "./chatManager.js";
+export { default as puzzleLoader } from "./puzzleLoader.js";
 
-// Re-export puzzle controllers - ensure these paths are correct and the files exist
-export { default as HackerPuzzleController } from "./puzzles/hacker/hackerPuzzleController.js";
-export { default as SafeCrackerPuzzleController } from "./puzzles/safeCracker/SafeCrackerPuzzleController.js";
-export { default as DemolitionsPuzzleController } from "./puzzles/demolitions/demolitionsPuzzleController.js";
-export { default as LookoutPuzzleController } from "./puzzles/lookout/lookoutPuzzleController.js";
-export { default as TeamPuzzleController } from "./puzzles/teamPuzzles/teamPuzzleController.js";
+// No longer importing puzzle controllers directly
+// They will be dynamically loaded by puzzleLoader when needed

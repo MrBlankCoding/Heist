@@ -8,6 +8,8 @@ class PlayerStateManager {
     this.handlers = {};
     this.nextHandlerId = 1;
     this.temporaryHandlers = new Map();
+    this.loadingPuzzles = false;
+    this.lastPuzzleRequest = 0;
 
     this.gameState = {
       roomCode: "",
@@ -26,6 +28,22 @@ class PlayerStateManager {
     };
 
     this._setupWebSocketHandlers();
+
+    /**
+     * Fetch puzzles for the player's current role
+     * This is called when the game starts
+     */
+    this.fetchPuzzlesForRole = function () {
+      console.log("Fetching puzzles for role:", this.gameState.playerRole);
+
+      // We don't need to fetch puzzle data separately anymore
+      // since puzzle generation is now handled by the GameEventHandler
+      // This just informs the event system that puzzles may need to be generated
+      this.trigger("puzzlesNeeded", {
+        role: this.gameState.playerRole,
+        stage: this.gameState.stage,
+      });
+    };
   }
 
   get GAME_STATUS() {
@@ -962,83 +980,6 @@ class PlayerStateManager {
       connectedPlayers.length > 0 &&
       connectedPlayers.every((id) => stageCompletion[id])
     );
-  }
-
-  fetchPuzzlesForRole() {
-    if (
-      !this.gameState.roomCode ||
-      !this.gameState.playerId ||
-      !this.gameState.playerRole
-    ) {
-      return Promise.reject(
-        new Error("Game not initialized correctly or role not selected")
-      );
-    }
-
-    return new Promise((resolve, reject) => {
-      // Request puzzles for the player's role
-      const data = {
-        type: "request_role_puzzles",
-        player_id: this.gameState.playerId,
-        role: this.gameState.playerRole,
-      };
-
-      const handleResponse = (data) => {
-        if (data.puzzle) {
-          // Initialize puzzles object if needed
-          if (!this.gameState.puzzles[this.gameState.playerId]) {
-            this.gameState.puzzles[this.gameState.playerId] = {};
-          }
-
-          // Store the puzzle data for the role
-          this.gameState.puzzles[this.gameState.playerId] = data.puzzle;
-
-          // Trigger puzzleReceived event
-          this.trigger("puzzleReceived", data.puzzle);
-
-          // Clean up handler
-          websocketManager.removeMessageHandler("puzzle_data", handleResponse);
-          websocketManager.removeMessageHandler("error", handleError);
-
-          resolve(true);
-        }
-      };
-
-      const handleError = (data) => {
-        if (data.context === "puzzle_request") {
-          // Clean up handlers
-          websocketManager.removeMessageHandler("puzzle_data", handleResponse);
-          websocketManager.removeMessageHandler("error", handleError);
-          reject(new Error(data.message));
-        }
-      };
-
-      // Register temporary handlers
-      websocketManager.registerMessageHandler("puzzle_data", handleResponse);
-      websocketManager.registerMessageHandler("error", handleError);
-
-      // Set up a timeout to reject the promise if no response received
-      const timeout = setTimeout(() => {
-        // Clean up handlers
-        websocketManager.removeMessageHandler("puzzle_data", handleResponse);
-        websocketManager.removeMessageHandler("error", handleError);
-        reject(new Error("Timeout waiting for puzzles"));
-      }, 5000); // 5 second timeout
-
-      // Send request for role-specific puzzles
-      websocketManager
-        .send(data)
-        .then(() => {
-          // Request sent successfully, waiting for response
-        })
-        .catch((error) => {
-          // Clean up handlers and timeout
-          clearTimeout(timeout);
-          websocketManager.removeMessageHandler("puzzle_data", handleResponse);
-          websocketManager.removeMessageHandler("error", handleError);
-          reject(error);
-        });
-    });
   }
 
   sendChatMessage(message) {

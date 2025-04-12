@@ -8,6 +8,7 @@ import {
   GameEventHandler,
   NotificationSystem,
   ChatManager,
+  puzzleLoader,
 } from "./main.bundle.js";
 
 class GameController {

@@ -2,8 +2,9 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, List, Optional, Tuple, Any
 from asyncio import Lock
+from starlette.websockets import WebSocketState
 
 from fastapi import WebSocket, WebSocketDisconnect, status
 from dotenv import load_dotenv
@@ -93,8 +94,11 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, player_id: st
 
         # Send initial state if player wasn't already connected
         if not was_connected:
-            await send_initial_game_state(websocket, room, player_id)
-            await broadcast_player_connected(room, player_id)
+            try:
+                await send_initial_game_state(websocket, room, player_id)
+                await broadcast_player_connected(room, player_id)
+            except Exception as e:
+                print(f"Error sending initial state to player {player_id}: {e}")
 
         # If game is in progress, send puzzle data
         if (
@@ -102,29 +106,50 @@ async def websocket_endpoint(websocket: WebSocket, room_code: str, player_id: st
             and "puzzles" in room_data
             and player_id in room_data["puzzles"]
         ):
-            await websocket.send_json(
-                {"type": "puzzle_data", "puzzle": room_data["puzzles"][player_id]}
-            )
+            try:
+                await websocket.send_json(
+                    {"type": "puzzle_data", "puzzle": room_data["puzzles"][player_id]}
+                )
+            except Exception as e:
+                print(f"Error sending puzzle data to player {player_id}: {e}")
 
         # Main WebSocket message loop
         while True:
-            data = await websocket.receive_text()
             try:
-                parsed_data = json.loads(data)
-                await process_websocket_message(room_code, player_id, parsed_data)
-            except json.JSONDecodeError as e:
-                await websocket.send_json(
-                    {"type": "error", "message": "Invalid message format"}
-                )
+                data = await websocket.receive_text()
+                try:
+                    parsed_data = json.loads(data)
+                    await process_websocket_message(room_code, player_id, parsed_data)
+                except json.JSONDecodeError as e:
+                    await websocket.send_json(
+                        {"type": "error", "message": "Invalid message format"}
+                    )
+                except Exception as e:
+                    print(f"Error processing message from player {player_id}: {e}")
+            except WebSocketDisconnect:
+                print(f"WebSocket disconnected for player {player_id}")
+                await handle_player_disconnect(player_id, room_code)
+                break
+            except Exception as e:
+                print(f"Error in WebSocket message loop for player {player_id}: {e}")
+                # Let's try to continue the connection if possible
+                await asyncio.sleep(0.5)
+                if websocket.client_state == WebSocketState.DISCONNECTED:
+                    print(f"Client {player_id} disconnected during error handling")
+                    await handle_player_disconnect(player_id, room_code)
+                    break
 
     except WebSocketDisconnect:
+        print(f"WebSocket disconnected for player {player_id}")
         await handle_player_disconnect(player_id, room_code)
 
     except Exception as e:
+        print(f"Unhandled exception in websocket_endpoint for player {player_id}: {e}")
         try:
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         except:
             pass
+        await handle_player_disconnect(player_id, room_code)
 
     finally:
         # Clean up connection tracking
@@ -378,48 +403,89 @@ async def cleanup_finished_game(room_code: str):
 
 
 async def process_websocket_message(room_code: str, player_id: str, message: Dict):
-    """Process a message from a WebSocket client"""
+    """Process websocket messages based on type"""
     # Get room data from Redis
     room_data = get_room_data(room_code)
     if not room_data:
-        if player_id in connected_players:
-            await connected_players[player_id].send_json({"error": "Room not found"})
-        return
+        if message.get("type") != "join_room":
+            return {"type": "error", "message": "Room not found"}
+        else:
+            # Handle join_room elsewhere
+            pass
 
     # Convert to GameRoom object
     room = GameRoom(**room_data)
 
-    # Determine message type and action
-    msg_type = message.get("type", "")
+    message_type = message.get("type", "")
 
-    # Process based on message type
-    if msg_type == "start_game":
-        await handle_start_game(room, room_code, player_id)
-    elif msg_type == "puzzle_solution":
-        await handle_puzzle_solution(room, room_code, player_id, message)
-    elif msg_type == "use_power":
-        await handle_use_power(room, room_code, player_id)
-    elif msg_type == "initiate_timer_vote":
-        await handle_initiate_timer_vote(room, room_code, player_id)
-    elif msg_type == "extend_timer_vote":
-        await handle_extend_timer_vote(room, room_code, player_id, message)
-    elif msg_type == "chat_message":
-        await handle_chat_message(room, room_code, player_id, message)
-    elif msg_type == "select_role":
-        await handle_select_role(room, room_code, player_id, message)
-    elif msg_type == "request_puzzle":
-        await handle_request_puzzle(room, room_code, player_id)
-    elif msg_type == "request_role_puzzles":
-        await handle_request_role_puzzles(room, room_code, player_id, message)
-    elif msg_type == "team_puzzle_update":
-        await handle_team_puzzle_update(room_code, player_id, message)
-    elif msg_type == "action" and message.get("action") == "complete_stage":
-        await handle_complete_stage(room, room_code, player_id, message)
-    elif msg_type == "leave_game":
-        await handle_leave_game(room, room_code, player_id)
+    handlers = {
+        "start_game": handle_start_game,
+        "select_role": handle_select_role,
+        "leave_game": handle_leave_game,
+        "reset_game": handle_reset_game,
+        "chat_message": handle_chat_message,
+        "puzzle_solution": handle_puzzle_solution,
+        "use_power": handle_use_power,
+        "initiate_timer_vote": handle_initiate_timer_vote,
+        "extend_timer_vote": handle_extend_timer_vote,
+        "team_puzzle_update": handle_team_puzzle_update,
+        "complete_stage": handle_complete_stage,
+        "sync_game_state": handle_sync_game_state,
+        "game_started_acknowledgment": handle_game_started_acknowledgment,
+    }
+
+    if message_type in handlers:
+        if message_type == "team_puzzle_update":
+            await handlers[message_type](room_code, player_id, message)
+        else:
+            await handlers[message_type](room, room_code, player_id, message)
+    elif message_type == "ping":
+        # Handle ping by sending a pong response
+        if player_id in connected_players:
+            await connected_players[player_id].send_json(
+                {"type": "pong", "timestamp": message.get("timestamp", 0)}
+            )
+    elif message_type == "request_puzzle" or message_type == "request_role_puzzles":
+        # These are no longer needed as puzzles are generated client-side
+        # Just acknowledge the request
+        if player_id in connected_players:
+            await connected_players[player_id].send_json(
+                {
+                    "type": "info",
+                    "message": "Puzzles are now generated on the client side",
+                }
+            )
+    else:
+        # Unknown message type
+        if player_id in connected_players:
+            await connected_players[player_id].send_json(
+                {"type": "error", "message": f"Unknown message type: {message_type}"}
+            )
 
 
-async def handle_start_game(room: GameRoom, room_code: str, player_id: str):
+async def handle_game_started_acknowledgment(
+    room: GameRoom, room_code: str, player_id: str, message: Dict = None
+):
+    """Handle game started acknowledgment from client"""
+    # This is just to acknowledge that the client has started the game
+    # We don't need to do anything special here since puzzles are now client-side
+    if player_id in connected_players:
+        await connected_players[player_id].send_json(
+            {
+                "type": "info",
+                "message": "Game start acknowledged",
+            }
+        )
+
+    # Add a debug log for monitoring
+    print(
+        f"Game start acknowledged by player {player_id}, role: {message.get('role', 'unknown')}"
+    )
+
+
+async def handle_start_game(
+    room: GameRoom, room_code: str, player_id: str, message: Dict = None
+):
     """Handle start game request"""
     # Verify the player is the host
     player_is_host = False
@@ -450,8 +516,8 @@ async def handle_start_game(room: GameRoom, room_code: str, player_id: str):
             }
         )
         return
-
-    # Check if there are at least 2 players
+    """
+        # Check if there are at least 2 players
     if len(room.players) < 2:
         await connected_players[player_id].send_json(
             {
@@ -461,6 +527,7 @@ async def handle_start_game(room: GameRoom, room_code: str, player_id: str):
             }
         )
         return
+    """
 
     # Check if all players have roles
     players_without_roles = []
@@ -1054,133 +1121,128 @@ async def handle_select_role(
     )
 
 
-async def handle_request_puzzle(room: GameRoom, room_code: str, player_id: str):
-    """Handle player requesting their puzzle"""
-    # Check if the game is in progress
-    if room.status != "in_progress":
-        await connected_players[player_id].send_json(
-            {
-                "type": "error",
-                "context": "puzzle_request",
-                "message": "Game is not in progress",
-            }
-        )
-        return
+async def handle_leave_game(room: GameRoom, room_code: str, player_id: str):
+    """Handle player intentionally leaving the game"""
 
-    # Check if puzzle exists for this player
-    if player_id in room.puzzles:
-        await connected_players[player_id].send_json(
-            {"type": "puzzle_data", "puzzle": room.puzzles[player_id]}
-        )
-    else:
-        # Determine player role
-        role = get_player_role(room, player_id)
+    # Get player name before removing
+    player_name = get_player_name(room, player_id)
 
-        # Generate a puzzle based on role
-        from app.game_logic import (
-            generate_hacker_puzzle,
-            generate_safe_cracker_puzzle,
-            generate_demolitions_puzzle,
-            generate_lookout_puzzle,
-        )
-
-        if role == "Hacker":
-            room.puzzles[player_id] = generate_hacker_puzzle(room.stage)
-        elif role == "Safe Cracker":
-            room.puzzles[player_id] = generate_safe_cracker_puzzle(room.stage)
-        elif role == "Demolitions":
-            room.puzzles[player_id] = generate_demolitions_puzzle(room.stage)
-        elif role == "Lookout":
-            room.puzzles[player_id] = generate_lookout_puzzle(room.stage)
-        else:
-            await connected_players[player_id].send_json(
-                {
-                    "type": "error",
-                    "context": "puzzle_request",
-                    "message": f"Unknown role: {role}",
-                }
-            )
-            return
+    # Remove player from the room
+    if player_id in room.players:
+        del room.players[player_id]
 
         # Update Redis
         store_room_data(room_code, room.dict())
 
-        # Send the newly generated puzzle
-        await connected_players[player_id].send_json(
-            {"type": "puzzle_data", "puzzle": room.puzzles[player_id]}
-        )
+    # Remove player's connection
+    remove_connection(player_id)
 
+    # Clean up player data in Redis
+    delete_player_data(player_id)
 
-async def handle_request_role_puzzles(
-    room: GameRoom, room_code: str, player_id: str, message: Dict
-):
-    """Handle player requesting all puzzles for a role"""
-    # Check if the game is in progress
-    if room.status != "in_progress":
-        await connected_players[player_id].send_json(
-            {
-                "type": "error",
-                "context": "puzzle_request",
-                "message": "Game is not in progress",
-            }
-        )
-        return
-
-    # Get the player's role
-    role = message.get("role", "")
-    if not role:
-        # If role not provided in message, try to get from room players
-        role = get_player_role(room, player_id)
-
-    if not role:
-        await connected_players[player_id].send_json(
-            {
-                "type": "error",
-                "context": "puzzle_request",
-                "message": "Player role not found",
-            }
-        )
-        return
-
-    # Import puzzle generation functions
-    from app.game_logic import (
-        generate_hacker_puzzle,
-        generate_safe_cracker_puzzle,
-        generate_demolitions_puzzle,
-        generate_lookout_puzzle,
+    # Notify other players about the player leaving
+    await broadcast_to_room(
+        room_code,
+        {
+            "type": "player_left",
+            "player_id": player_id,
+            "player_name": player_name,
+            "message": f"{player_name} has left the game",
+        },
     )
 
-    # Generate all puzzles for this role (stages 1-5)
-    role_puzzles = {}
-    for stage in range(1, 6):
-        if role == "Hacker":
-            role_puzzles[f"stage_{stage}"] = generate_hacker_puzzle(stage)
-        elif role == "Safe Cracker":
-            role_puzzles[f"stage_{stage}"] = generate_safe_cracker_puzzle(stage)
-        elif role == "Demolitions":
-            role_puzzles[f"stage_{stage}"] = generate_demolitions_puzzle(stage)
-        elif role == "Lookout":
-            role_puzzles[f"stage_{stage}"] = generate_lookout_puzzle(stage)
+    # Get remaining players information
+    connected_players_info = get_connected_players_info(room)
+
+    # If game is in progress and fewer than 2 players remain, end the game
+    if room.status == "in_progress" and len(connected_players_info["players"]) < 2:
+        await handle_game_ending_due_to_disconnection(
+            room_code, room, connected_players_info
+        )
+
+    # If room is now empty, clean it up
+    if not room.players:
+        delete_room_data(room_code)
+        await cleanup_finished_game(room_code)
+
+
+async def handle_reset_game(
+    room: GameRoom, room_code: str, player_id: str, message: Dict = None
+):
+    """Handle reset game request"""
+    # Verify the player is the host
+    player_is_host = False
+    if player_id in room.players:
+        player = room.players[player_id]
+        if isinstance(player, dict):
+            player_is_host = player.get("is_host", False)
         else:
-            await connected_players[player_id].send_json(
-                {
-                    "type": "error",
-                    "context": "puzzle_request",
-                    "message": f"Unknown role: {role}",
-                }
-            )
-            return
+            player_is_host = player.is_host
 
-        # Add stage information to each puzzle
-        role_puzzles[f"stage_{stage}"]["stage"] = stage
+    if not player_is_host:
+        await connected_players[player_id].send_json(
+            {
+                "type": "error",
+                "context": "reset_game",
+                "message": "Only the host can reset the game",
+            }
+        )
+        return
 
-    # Add metadata
-    role_puzzles["role"] = role
-    role_puzzles["current_stage"] = room.stage
+    # Reset the game state
+    room.status = "waiting"
+    room.stage = 1
+    room.timer = 300  # Default timer (5 minutes)
+    room.alert_level = 0
 
-    # Send all puzzles for this role
+    # Clear puzzle data
+    room.puzzles = {}
+    if hasattr(room, "stage_completion"):
+        room.stage_completion = {}
+
+    # Update Redis
+    store_room_data(room_code, room.dict())
+
+    # Broadcast reset to all players
+    await broadcast_to_room(
+        room_code,
+        {
+            "type": "game_reset",
+            "message": "Game has been reset by the host",
+        },
+    )
+
+
+async def handle_sync_game_state(
+    room: GameRoom, room_code: str, player_id: str, message: Dict = None
+):
+    """Handle game state synchronization request"""
+    if player_id not in connected_players:
+        return
+
+    # Prepare game state data to send back
+    game_state = {
+        "status": room.status,
+        "stage": room.stage,
+        "timer": room.timer,
+        "alert_level": room.alert_level,
+        "players": {},
+    }
+
+    # Add player data
+    for pid, player in room.players.items():
+        if isinstance(player, dict):
+            game_state["players"][pid] = player
+        else:
+            game_state["players"][pid] = player.dict()
+
+    # Add stage completion data if available
+    if hasattr(room, "stage_completion"):
+        game_state["stage_completion"] = room.stage_completion
+
+    # Send synchronized state
     await connected_players[player_id].send_json(
-        {"type": "puzzle_data", "puzzle": role_puzzles, "is_role_puzzles": True}
+        {"type": "game_state_sync", "game_state": game_state}
     )
 
 
@@ -1243,48 +1305,3 @@ async def handle_complete_stage(
 
     # Use the existing advance_game_stage function to handle stage progression
     await advance_game_stage(room, room_code)
-
-
-async def handle_leave_game(room: GameRoom, room_code: str, player_id: str):
-    """Handle player intentionally leaving the game"""
-
-    # Get player name before removing
-    player_name = get_player_name(room, player_id)
-
-    # Remove player from the room
-    if player_id in room.players:
-        del room.players[player_id]
-
-        # Update Redis
-        store_room_data(room_code, room.dict())
-
-    # Remove player's connection
-    remove_connection(player_id)
-
-    # Clean up player data in Redis
-    delete_player_data(player_id)
-
-    # Notify other players about the player leaving
-    await broadcast_to_room(
-        room_code,
-        {
-            "type": "player_left",
-            "player_id": player_id,
-            "player_name": player_name,
-            "message": f"{player_name} has left the game",
-        },
-    )
-
-    # Get remaining players information
-    connected_players_info = get_connected_players_info(room)
-
-    # If game is in progress and fewer than 2 players remain, end the game
-    if room.status == "in_progress" and len(connected_players_info["players"]) < 2:
-        await handle_game_ending_due_to_disconnection(
-            room_code, room, connected_players_info
-        )
-
-    # If room is now empty, clean it up
-    if not room.players:
-        delete_room_data(room_code)
-        await cleanup_finished_game(room_code)

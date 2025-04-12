@@ -61,29 +61,55 @@ async def broadcast_to_room(
         message: Message to broadcast
         exclude_player_id: Optional player ID to exclude from broadcast
     """
-    from app.redis_client import get_players_in_room
+    try:
+        from app.redis_client import get_players_in_room
 
-    # Get all player IDs in the room from Redis
-    player_ids = get_players_in_room(room_code)
+        # Get all player IDs in the room from Redis
+        player_ids = get_players_in_room(room_code)
 
-    if not player_ids:
-        print(f"No players in room {room_code}")
-        return
+        if not player_ids:
+            print(f"No players in room {room_code}")
+            return
 
-    # Convert message to JSON once
-    message_json = json.dumps(message)
+        # Convert message to JSON once
+        message_json = json.dumps(message)
 
-    # Send to all connected players
-    sent_count = 0
-    for player_id in player_ids:
-        if exclude_player_id and player_id == exclude_player_id:
-            continue
-        if player_id in connected_players:
-            try:
-                await connected_players[player_id].send_text(message_json)
-                sent_count += 1
-            except Exception as e:
-                remove_connection(player_id)
+        # Send to all connected players
+        sent_count = 0
+        connection_errors = []
+
+        for player_id in player_ids:
+            if exclude_player_id and player_id == exclude_player_id:
+                continue
+
+            if player_id in connected_players:
+                try:
+                    await connected_players[player_id].send_text(message_json)
+                    sent_count += 1
+                except Exception as e:
+                    error_msg = str(e)
+                    connection_errors.append(
+                        f"Error sending to {player_id}: {error_msg}"
+                    )
+
+                    # Mark disconnection but don't raise the exception
+                    try:
+                        remove_connection(player_id)
+                    except Exception as e2:
+                        print(f"Error removing connection for {player_id}: {e2}")
+
+        if connection_errors:
+            # Log errors but don't throw exception
+            print(
+                f"Broadcast errors in room {room_code} for message type '{message.get('type', 'unknown')}': {connection_errors}"
+            )
+
+        return sent_count
+
+    except Exception as e:
+        # Log the error but don't propagate it
+        print(f"Fatal error in broadcast_to_room for {room_code}: {e}")
+        return 0
 
 
 def get_environment_variable(name: str, default: str = None) -> str:

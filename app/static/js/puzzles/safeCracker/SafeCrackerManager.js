@@ -1,4 +1,9 @@
 // SafeCrackerManager.js - Manages all Safe Cracker puzzles
+import LockCombinationPuzzle from "./LockCombinationPuzzle.js";
+import AudioSequencePuzzle from "./AudioSequencePuzzle.js";
+import PatternRecognitionPuzzle from "./PatternRecognitionPuzzle.js";
+import MultiLockPuzzle from "./MultiLockPuzzle.js";
+import TimedLockPuzzle from "./TimedLockPuzzle.js";
 
 class SafeCrackerManager {
   constructor(containerElement, puzzleData, submitSolutionCallback) {
@@ -14,72 +19,58 @@ class SafeCrackerManager {
   initialize() {
     const { type } = this.puzzleData;
 
-    // Import and initialize the appropriate puzzle controller
+    // Create the appropriate puzzle controller based on type
     switch (type) {
-      case "safe_puzzle_1":
-        import("./LockCombinationPuzzle.js").then((module) => {
-          const LockCombinationPuzzle = module.default;
-          this.puzzleController = new LockCombinationPuzzle(
-            this.containerElement,
-            this.puzzleData,
-            this.submitSolution
-          );
-          this.puzzleController.initialize();
-        });
+      case "lock_combination":
+        this.puzzleController = new LockCombinationPuzzle(
+          this.containerElement,
+          this.puzzleData,
+          this.submitSolution
+        );
         break;
 
-      case "safe_puzzle_2":
-        import("./AudioSequencePuzzle.js").then((module) => {
-          const AudioSequencePuzzle = module.default;
-          this.puzzleController = new AudioSequencePuzzle(
-            this.containerElement,
-            this.puzzleData,
-            this.submitSolution
-          );
-          this.puzzleController.initialize();
-        });
+      case "audio_sequence":
+        this.puzzleController = new AudioSequencePuzzle(
+          this.containerElement,
+          this.puzzleData,
+          this.submitSolution
+        );
         break;
 
-      case "safe_puzzle_3":
-        import("./PatternRecognitionPuzzle.js").then((module) => {
-          const PatternRecognitionPuzzle = module.default;
-          this.puzzleController = new PatternRecognitionPuzzle(
-            this.containerElement,
-            this.puzzleData,
-            this.submitSolution
-          );
-          this.puzzleController.initialize();
-        });
+      case "pattern_recognition":
+        this.puzzleController = new PatternRecognitionPuzzle(
+          this.containerElement,
+          this.puzzleData,
+          this.submitSolution
+        );
         break;
 
-      case "safe_puzzle_4":
-        import("./MultiLockPuzzle.js").then((module) => {
-          const MultiLockPuzzle = module.default;
-          this.puzzleController = new MultiLockPuzzle(
-            this.containerElement,
-            this.puzzleData,
-            this.submitSolution
-          );
-          this.puzzleController.initialize();
-        });
+      case "multi_lock":
+        this.puzzleController = new MultiLockPuzzle(
+          this.containerElement,
+          this.puzzleData,
+          this.submitSolution
+        );
         break;
 
-      case "safe_puzzle_5":
-        import("./TimedLockPuzzle.js").then((module) => {
-          const TimedLockPuzzle = module.default;
-          this.puzzleController = new TimedLockPuzzle(
-            this.containerElement,
-            this.puzzleData,
-            this.submitSolution
-          );
-          this.puzzleController.initialize();
-        });
+      case "timed_lock":
+        this.puzzleController = new TimedLockPuzzle(
+          this.containerElement,
+          this.puzzleData,
+          this.submitSolution
+        );
         break;
 
       default:
         console.error("Unknown puzzle type:", type);
         this.containerElement.innerHTML =
           "<p class='text-red-500'>Error: Unknown puzzle type</p>";
+        return;
+    }
+
+    // Initialize the controller if it was created successfully
+    if (this.puzzleController) {
+      this.puzzleController.initialize();
     }
   }
 

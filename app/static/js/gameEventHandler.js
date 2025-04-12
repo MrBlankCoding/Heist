@@ -3,13 +3,7 @@
 import playerStateManager from "./playerStateManager.js";
 import gameStartScreen from "./gameStartScreen.js";
 import websocketManager from "./websocketManager.js";
-import {
-  HackerPuzzleController,
-  SafeCrackerPuzzleController,
-  DemolitionsPuzzleController,
-  LookoutPuzzleController,
-  TeamPuzzleController,
-} from "./main.bundle.js";
+import puzzleLoader from "./puzzleLoader.js";
 
 class GameEventHandler {
   constructor(
@@ -31,6 +25,36 @@ class GameEventHandler {
     this.resetPowerCooldown = resetPowerCooldown;
     this.setTimerExtendVoted = setTimerExtendVoted;
     this.activeRandomEvents = [];
+    this._isCheckingForMissingPuzzle = false;
+    this._initializingPuzzle = false;
+
+    // Listen for puzzle needed events
+    playerStateManager.on("puzzlesNeeded", (data) => {
+      console.log("Puzzles needed event received:", data);
+      if (!this._initializingPuzzle && !this._isCheckingForMissingPuzzle) {
+        const role = data.role;
+        const stage = data.stage || 1;
+
+        if (role) {
+          const puzzleType = this._getPuzzleTypeForStage(role, stage);
+          console.log(
+            `Creating puzzle from puzzlesNeeded event: role=${role}, stage=${stage}, type=${puzzleType}`
+          );
+
+          const puzzle = {
+            type: puzzleType,
+            difficulty: stage,
+            data: {},
+          };
+
+          this.handlePuzzleReceived(puzzle);
+        }
+      } else {
+        console.log(
+          "Skipping puzzlesNeeded event - already handling puzzle initialization"
+        );
+      }
+    });
   }
 
   handleGameStateUpdated(data) {
@@ -82,10 +106,26 @@ class GameEventHandler {
     }
 
     this._updateRoleInstruction();
-    this._checkForMissingPuzzle();
+
+    // Only check for missing puzzle if not already handling one
+    if (!this._initializingPuzzle && !this._isCheckingForMissingPuzzle) {
+      this._checkForMissingPuzzle();
+    } else {
+      console.log(
+        "Skipping check for missing puzzle - already handling puzzle initialization"
+      );
+    }
   }
 
   _checkForMissingPuzzle() {
+    // Add a flag to prevent recursive calls
+    if (this._isCheckingForMissingPuzzle) {
+      console.log(
+        "Already checking for missing puzzle, preventing recursive loop"
+      );
+      return;
+    }
+
     if (
       playerStateManager.gameState.status ===
       playerStateManager.GAME_STATUS.IN_PROGRESS
@@ -96,12 +136,37 @@ class GameEventHandler {
         (!puzzleContent.children.length ||
           puzzleContent.textContent.includes("Waiting for puzzle assignment"))
       ) {
-        websocketManager
-          .send({
-            type: "request_puzzle",
-            player_id: playerStateManager.gameState.playerId,
-          })
-          .catch((error) => console.error("Error requesting puzzle:", error));
+        // Set the flag to prevent recursive calls
+        this._isCheckingForMissingPuzzle = true;
+
+        try {
+          // Generate a puzzle for current stage directly
+          const playerRole = playerStateManager.gameState.playerRole;
+          const currentStage = playerStateManager.gameState.stage || 1;
+          const puzzleType = this._getPuzzleTypeForStage(
+            playerRole,
+            currentStage
+          );
+
+          console.log(
+            `Creating puzzle for role ${playerRole}, stage ${currentStage}, type ${puzzleType}`
+          );
+
+          // Create a basic puzzle object
+          const puzzle = {
+            type: puzzleType,
+            difficulty: currentStage,
+            data: {}, // The controller will generate the detailed data
+          };
+
+          // Handle the puzzle
+          this.handlePuzzleReceived(puzzle);
+        } finally {
+          // Clear the flag when done
+          setTimeout(() => {
+            this._isCheckingForMissingPuzzle = false;
+          }, 1000);
+        }
       }
     }
   }
@@ -132,48 +197,177 @@ class GameEventHandler {
 
   handlePuzzleReceived(puzzle) {
     try {
+      console.log("Handling puzzle received:", puzzle);
+
+      // First check if we already have an active puzzle controller
+      const currentController = this.getActivePuzzleController();
+      if (currentController && currentController.isCompleted !== true) {
+        console.log(
+          "Found existing active puzzle controller, not initializing new one"
+        );
+        return;
+      }
+
+      // Add a flag to prevent multiple simultaneous initialization
+      if (this._initializingPuzzle) {
+        console.log("Already initializing a puzzle, preventing multiple init");
+        return;
+      }
+      this._initializingPuzzle = true;
+
+      // Make sure game area is visible first
+      const gameArea = document.getElementById("game-area");
+      if (gameArea && gameArea.classList.contains("hidden")) {
+        console.log(
+          "Game area was hidden, making visible before puzzle initialization"
+        );
+        gameArea.classList.remove("hidden");
+      }
+
+      // Clean up any existing puzzle
       this._cleanupCurrentPuzzle();
 
       if (!this.uiManager.elements.puzzleContent) {
         console.error("Puzzle content element not found");
-        return;
+        this._initializingPuzzle = false;
+
+        // Try to find or create the puzzle content element
+        const puzzleContent = document.getElementById("puzzle-content");
+        if (!puzzleContent && gameArea) {
+          console.log("Creating missing puzzle-content element");
+          const newPuzzleContent = document.createElement("div");
+          newPuzzleContent.id = "puzzle-content";
+          newPuzzleContent.className = "p-4";
+          gameArea.appendChild(newPuzzleContent);
+
+          // Update UI manager reference
+          if (this.uiManager) {
+            this.uiManager.elements.puzzleContent = newPuzzleContent;
+          } else {
+            console.error(
+              "UI manager not available to update puzzle content reference"
+            );
+            return;
+          }
+        } else if (!puzzleContent) {
+          console.error("Cannot find or create puzzle content element");
+          return;
+        }
       }
 
       const playerRole = playerStateManager.gameState.playerRole;
       if (!playerRole) {
+        console.error("Player role not defined");
         this._showErrorInPuzzleContent(
           "Error: Player role not defined",
           "Please try refreshing the page"
         );
+        this._initializingPuzzle = false;
         return;
       }
 
-      this._ensureGameAreaVisible();
-
       try {
-        puzzle = this._extractCurrentStagePuzzle(puzzle);
-        const puzzleController = this._createPuzzleController(
-          puzzle,
-          playerRole
-        );
+        console.log("Raw puzzle before extraction:", puzzle);
 
-        if (puzzleController) {
-          puzzleController.initialize();
-          this.setActivePuzzleController(puzzleController);
-        } else {
-          this._showErrorInPuzzleContent(
-            "Error creating puzzle",
-            "Please try refreshing the page"
-          );
+        // Show loading state while we process
+        const puzzleLoadingElement = document.getElementById("puzzle-loading");
+        const puzzleContentElement = document.getElementById("puzzle-content");
+
+        if (puzzleLoadingElement) {
+          puzzleLoadingElement.classList.remove("hidden");
         }
+
+        if (puzzleContentElement) {
+          puzzleContentElement.classList.add("hidden");
+          // Prepare the content element for the new puzzle
+          this.uiManager.elements.puzzleContent.innerHTML = "";
+        }
+
+        // Extract the appropriate puzzle based on current stage
+        puzzle = this._extractCurrentStagePuzzle(puzzle);
+        console.log("Extracted puzzle for controller:", puzzle);
+
+        if (!puzzle || (!puzzle.type && !puzzle.data)) {
+          this._initializingPuzzle = false;
+          throw new Error("Invalid puzzle data received");
+        }
+
+        // Ensure puzzle has necessary fields
+        puzzle.data = puzzle.data || {};
+        puzzle.difficulty =
+          puzzle.difficulty || playerStateManager.gameState.stage || 1;
+
+        // Create the appropriate puzzle controller
+        console.log("Creating puzzle controller for role:", playerRole);
+
+        // Create the controller using puzzleLoader (async)
+        this._createPuzzleController(puzzle, playerRole)
+          .then((puzzleController) => {
+            if (puzzleController) {
+              console.log("Initializing puzzle controller");
+
+              // Set the controller first before initialization to ensure references are correct
+              this.setActivePuzzleController(puzzleController);
+
+              // Then initialize it
+              puzzleController.initialize();
+
+              // Show the puzzle content and hide the loading indicator
+              if (puzzleLoadingElement) {
+                puzzleLoadingElement.classList.add("hidden");
+              }
+
+              if (puzzleContentElement) {
+                puzzleContentElement.classList.remove("hidden");
+              }
+
+              console.log("Puzzle initialized successfully");
+              this._initializingPuzzle = false;
+            } else {
+              console.error("Failed to create puzzle controller");
+              this._showErrorInPuzzleContent(
+                "Error creating puzzle",
+                "Please try refreshing the page"
+              );
+              this._initializingPuzzle = false;
+            }
+          })
+          .catch((error) => {
+            console.error("Error creating puzzle controller:", error);
+            this._showErrorInPuzzleContent(
+              "Error loading puzzle",
+              error.message
+            );
+            this._initializingPuzzle = false;
+
+            // Try to recover by requesting the next stage after a delay
+            setTimeout(() => {
+              console.log("Attempting puzzle recovery");
+              this._checkForMissingPuzzle();
+            }, 3000);
+          });
       } catch (error) {
+        console.error("Error processing puzzle:", error, error.stack);
         this._showErrorInPuzzleContent("Error loading puzzle", error.message);
+        this._initializingPuzzle = false;
+
+        // Try to recover
+        setTimeout(() => {
+          console.log("Attempting puzzle recovery");
+          this._checkForMissingPuzzle();
+        }, 3000);
       }
     } catch (outerError) {
+      console.error(
+        "Critical error in puzzle handling:",
+        outerError,
+        outerError.stack
+      );
       this._showErrorInPuzzleContent(
         "Error processing puzzle",
         outerError.message
       );
+      this._initializingPuzzle = false;
     }
   }
 
@@ -181,78 +375,132 @@ class GameEventHandler {
     const currentController = this.getActivePuzzleController();
     if (currentController) {
       try {
-        currentController.cleanup();
+        console.log("Cleaning up previous puzzle controller");
+        if (typeof currentController.cleanup === "function") {
+          currentController.cleanup();
+        } else {
+          console.warn("Puzzle controller doesn't have cleanup method");
+        }
+
+        // Ensure we properly null it out
+        this.setActivePuzzleController(null);
       } catch (error) {
         console.error("Error cleaning up previous puzzle:", error);
+      }
+    }
+
+    // Also clear the content element if it exists
+    if (this.uiManager.elements.puzzleContent) {
+      console.log("Clearing puzzle content element");
+      // Instead of setting innerHTML directly, create a fresh element
+      const freshElement = document.createElement("div");
+      freshElement.id = this.uiManager.elements.puzzleContent.id;
+      freshElement.className = this.uiManager.elements.puzzleContent.className;
+
+      // Replace the existing element
+      if (this.uiManager.elements.puzzleContent.parentNode) {
+        this.uiManager.elements.puzzleContent.parentNode.replaceChild(
+          freshElement,
+          this.uiManager.elements.puzzleContent
+        );
+        this.uiManager.elements.puzzleContent = freshElement;
       }
     }
   }
 
   _extractCurrentStagePuzzle(puzzle) {
-    if (
-      puzzle.role &&
-      (puzzle.stage_1 ||
-        puzzle.stage_2 ||
-        puzzle.stage_3 ||
-        puzzle.stage_4 ||
-        puzzle.stage_5)
-    ) {
-      const currentStage = playerStateManager.gameState.stage;
+    console.log("Extracting puzzle for current stage. Puzzle data:", puzzle);
+
+    const currentStage = playerStateManager.gameState.stage;
+    console.log("Current stage:", currentStage);
+
+    // Handle case where puzzle is directly the stage puzzle (no need to extract)
+    if (puzzle.type && !puzzle.role) {
+      console.log(
+        "Puzzle appears to be a direct puzzle object, no extraction needed"
+      );
+      return puzzle;
+    }
+
+    // Handle old format with role property and stage_X properties
+    if (puzzle.role) {
       const stagePuzzleKey = `stage_${currentStage}`;
+      console.log("Looking for puzzle with key:", stagePuzzleKey);
 
       if (puzzle[stagePuzzleKey]) {
+        console.log("Found stage puzzle, returning it");
         return puzzle[stagePuzzleKey];
       } else {
+        // Log all available keys to help debug
+        console.error("Available puzzle keys:", Object.keys(puzzle));
         throw new Error(
           `No puzzle found for stage ${currentStage} in role puzzles`
         );
       }
     }
-    return puzzle;
+
+    // Handle team puzzle which might not have a stage key
+    if (puzzle.type && puzzle.type.includes("team_puzzle")) {
+      console.log("Team puzzle detected, returning as is");
+      return puzzle;
+    }
+
+    // If we get here, we don't know how to extract this puzzle
+    console.error("Unexpected puzzle format:", puzzle);
+    return puzzle; // Return as is and hope for the best
   }
 
   _createPuzzleController(puzzle, playerRole) {
-    if (puzzle.type && puzzle.type.includes("team_puzzle")) {
-      puzzle.playerRole = playerRole;
-      puzzle.room_code = playerStateManager.gameState.roomCode;
-
-      return new TeamPuzzleController(
-        this.uiManager.elements.puzzleContent,
+    try {
+      // Let the puzzleLoader create the appropriate controller
+      return puzzleLoader.createPuzzleController(
+        playerRole,
         puzzle,
+        this.uiManager.elements.puzzleContent,
         (solution) => playerStateManager.submitPuzzleSolution(solution),
         websocketManager
       );
+    } catch (error) {
+      console.error("Error creating puzzle controller:", error);
+      throw error;
     }
-
-    const controllerMap = {
-      Hacker: HackerPuzzleController,
-      "Safe Cracker": SafeCrackerPuzzleController,
-      Demolitions: DemolitionsPuzzleController,
-      Lookout: LookoutPuzzleController,
-    };
-
-    const ControllerClass = controllerMap[playerRole];
-    if (!ControllerClass) {
-      throw new Error(`Unknown role: ${playerRole}`);
-    }
-
-    return new ControllerClass(
-      this.uiManager.elements.puzzleContent,
-      puzzle,
-      (solution) => playerStateManager.submitPuzzleSolution(solution)
-    );
   }
 
   _showErrorInPuzzleContent(title, message) {
-    if (!this.uiManager.elements.puzzleContent) return;
+    const puzzleLoadingElement = document.getElementById("puzzle-loading");
+    const puzzleContentElement = document.getElementById("puzzle-content");
 
-    this.uiManager.elements.puzzleContent.innerHTML = `
-      <div class="text-center p-4">
-        <p class="text-red-400 mb-2">${title}</p>
-        <p class="text-sm text-gray-400">${message}</p>
-        <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
-      </div>
-    `;
+    // Hide loading indicator
+    if (puzzleLoadingElement) {
+      puzzleLoadingElement.classList.add("hidden");
+    }
+
+    // Show puzzle content with error message
+    if (puzzleContentElement) {
+      puzzleContentElement.classList.remove("hidden");
+      puzzleContentElement.innerHTML = `
+        <div class="text-center p-4">
+          <p class="text-red-400 mb-2">${title}</p>
+          <p class="text-sm text-gray-400">${message}</p>
+          <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
+        </div>
+      `;
+    } else if (this.uiManager && this.uiManager.elements.puzzleContent) {
+      // Fallback to using the UI manager's reference
+      this.uiManager.elements.puzzleContent.innerHTML = `
+        <div class="text-center p-4">
+          <p class="text-red-400 mb-2">${title}</p>
+          <p class="text-sm text-gray-400">${message}</p>
+          <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
+        </div>
+      `;
+    } else {
+      console.error(
+        "Cannot display error, puzzle content element not found:",
+        title,
+        message
+      );
+    }
   }
 
   handlePuzzleCompleted(data) {
@@ -315,37 +563,92 @@ class GameEventHandler {
   }
 
   _handleNextStagePuzzle(nextStage) {
-    const puzzles = playerStateManager.gameState.puzzles;
-    const playerId = playerStateManager.gameState.playerId;
-    const loadingHtml = `
-      <div class="text-center p-4">
-        <p class="text-gray-200">Loading Stage ${nextStage} puzzle...</p>
-        <div class="mt-2 loader mx-auto"></div>
-      </div>
-    `;
+    const puzzleLoadingElement = document.getElementById("puzzle-loading");
+    const puzzleContentElement = document.getElementById("puzzle-content");
 
-    if (puzzles?.[playerId]?.role) {
-      const rolePuzzles = puzzles[playerId];
-      const nextStagePuzzleKey = `stage_${nextStage}`;
-
-      if (rolePuzzles[nextStagePuzzleKey]) {
-        this.handlePuzzleReceived(rolePuzzles[nextStagePuzzleKey]);
-      } else {
-        this.uiManager.elements.puzzleContent.innerHTML = loadingHtml;
+    // Show loading and hide content
+    if (puzzleLoadingElement) {
+      // Update loading text if possible
+      const loadingText = puzzleLoadingElement.querySelector("p");
+      if (loadingText) {
+        loadingText.textContent = `Loading Stage ${nextStage} puzzle...`;
       }
-    } else {
-      this.uiManager.elements.puzzleContent.innerHTML = loadingHtml;
 
-      setTimeout(() => {
-        if (
-          this.uiManager.elements.puzzleContent?.textContent.includes("Loading")
-        ) {
-          playerStateManager.fetchPuzzlesForRole().catch((error) => {
-            console.error("Error fetching role puzzles:", error);
-          });
-        }
-      }, 3000);
+      puzzleLoadingElement.classList.remove("hidden");
     }
+
+    if (puzzleContentElement) {
+      puzzleContentElement.classList.add("hidden");
+    }
+
+    // Generate a new puzzle for this stage directly
+    const playerRole = playerStateManager.gameState.playerRole;
+    const puzzleType = this._getPuzzleTypeForStage(playerRole, nextStage);
+
+    console.log(
+      `Creating puzzle for next stage: role=${playerRole}, stage=${nextStage}, type=${puzzleType}`
+    );
+
+    // Generate a basic puzzle object with the required type and stage
+    const puzzle = {
+      type: puzzleType,
+      difficulty: nextStage,
+      data: {}, // The frontend controller will generate the specific data
+    };
+
+    // Handle the puzzle with our new approach - slight delay to ensure UI updates
+    setTimeout(() => {
+      this.handlePuzzleReceived(puzzle);
+    }, 500);
+  }
+
+  _getPuzzleTypeForStage(role, stage) {
+    const puzzleTypes = {
+      Hacker: [
+        "circuit",
+        "password_crack",
+        "firewall_bypass",
+        "encryption_key",
+        "system_override",
+      ],
+      "Safe Cracker": [
+        "lock_combination",
+        "pattern_recognition",
+        "multi_lock",
+        "audio_sequence",
+        "timed_lock",
+      ],
+      Demolitions: [
+        "wire_cutting",
+        "time_bomb",
+        "circuit_board",
+        "explosive_sequence",
+        "final_detonation",
+      ],
+      Lookout: [
+        "surveillance",
+        "patrol_pattern",
+        "security_system",
+        "alarm",
+        "escape_route",
+      ],
+    };
+
+    if (!puzzleTypes[role] || !puzzleTypes[role][stage - 1]) {
+      console.error(`No puzzle type found for ${role} stage ${stage}`);
+      // Return a default type based on role as fallback
+      return role === "Hacker"
+        ? "circuit"
+        : role === "Safe Cracker"
+        ? "lock_combination"
+        : role === "Demolitions"
+        ? "wire_cutting"
+        : role === "Lookout"
+        ? "surveillance"
+        : "circuit";
+    }
+
+    return puzzleTypes[role][stage - 1];
   }
 
   handleGameCompleted() {

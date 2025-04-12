@@ -295,8 +295,10 @@ async def start_game(room_code: str, player_id: str = None):
         return {"error": "Game is already in progress"}
 
     # Check if there are at least 2 players
+    """
     if len(room.players) < 2:
         return {"error": "At least 2 players are required to start the game"}
+    """
 
     # Check if all players have roles
     players_without_roles = []

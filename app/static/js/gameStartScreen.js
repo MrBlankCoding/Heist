@@ -310,8 +310,44 @@ class GameStartScreen {
       return;
     }
 
+    // Make sure we're connected before attempting to start
+    if (!websocketManager.isConnected()) {
+      // Try to reconnect first
+      this._showErrorMessage("Connection to server lost. Reconnecting...");
+
+      websocketManager
+        .connect(
+          playerStateManager.gameState.roomCode,
+          playerStateManager.gameState.playerId
+        )
+        .then(() => {
+          // After successful reconnection, try starting the game again
+          setTimeout(() => {
+            this._handleStartGame();
+          }, 1000);
+        })
+        .catch((error) => {
+          this._showErrorMessage(
+            `Failed to reconnect: ${error.message}. Please refresh the page.`
+          );
+        });
+
+      return;
+    }
+
     playerStateManager.startGame().catch((error) => {
-      this._showErrorMessage(error.message);
+      let errorMsg = error.message || "Unknown error";
+
+      if (
+        errorMsg.includes("not connected") ||
+        errorMsg.includes("connection") ||
+        errorMsg.includes("timed out")
+      ) {
+        errorMsg =
+          "Connection to server lost. Please refresh the page and try again.";
+      }
+
+      this._showErrorMessage(errorMsg);
       console.error("Error starting game:", error);
     });
   }
@@ -319,6 +355,20 @@ class GameStartScreen {
   _showGameArea() {
     this.lobbyElement.classList.add("hidden");
     this.gameAreaElement.classList.remove("hidden");
+
+    // Instead of pre-loading puzzles, we'll request them on-demand when needed
+    console.log("Game started, game area now visible");
+
+    // Send request to the server to acknowledge game has started
+    websocketManager
+      .send({
+        type: "game_started_acknowledgment",
+        player_id: playerStateManager.gameState.playerId,
+        role: playerStateManager.gameState.playerRole,
+      })
+      .catch((error) => {
+        console.error("Error sending game start acknowledgment:", error);
+      });
   }
 
   _renderPlayer(player) {
@@ -474,7 +524,10 @@ class GameStartScreen {
 
     const allPlayersHaveRoles =
       players.length > 0 && players.every((player) => player && !!player.role);
-    const hasMinimumPlayers = players.length >= 2;
+
+    // Change this later!!!!!!!!!
+    //!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    const hasMinimumPlayers = (players.length = 1);
 
     this.startGameButton.classList.remove("hidden");
 
