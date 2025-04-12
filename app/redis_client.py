@@ -3,7 +3,6 @@ import redis
 import os
 import time
 import asyncio
-import logging
 from redis.retry import Retry
 from redis.backoff import ExponentialBackoff
 from typing import Dict, Any, Optional, List
@@ -508,6 +507,20 @@ async def cleanup_inactive_rooms():
             print(f"Error during cleanup: {e}")
 
         await asyncio.sleep(600) 
+
+
+def test_connection() -> bool:
+    """Test the Redis connection"""
+    try:
+        # Try to ping Redis
+        redis_client.ping()
+        return SUCCESS
+    except redis.RedisError as e:
+        print(f"Redis connection test failed: {e}")
+        return FAILURE
+    except Exception as e:
+        print(f"Unexpected error testing Redis connection: {e}")
+        return FAILURE
 
 
 # Redis health check function that can be called periodically
