@@ -1,5 +1,8 @@
 // puzzleLoader.js - Dynamically loads puzzle modules for a specific role
 
+import UniversalPuzzleController from "./puzzles/universalPuzzleController.js";
+import TeamPuzzleController from "./puzzles/teamPuzzles/teamPuzzleController.js";
+
 class PuzzleLoader {
   constructor() {
     this.loadedControllers = {};
@@ -24,37 +27,14 @@ class PuzzleLoader {
 
     console.log(`Loading puzzle controller for role: ${role}`);
 
-    // Path mapping for each role's controller
-    const controllerPaths = {
-      Hacker: "./puzzles/hacker/hackerPuzzleController.js",
-      "Safe Cracker": "./puzzles/safeCracker/SafeCrackerPuzzleController.js",
-      Demolitions: "./puzzles/demolitions/demolitionsPuzzleController.js",
-      Lookout: "./puzzles/lookout/lookoutPuzzleController.js",
-      Team: "./puzzles/teamPuzzles/teamPuzzleController.js",
-    };
-
-    const path = controllerPaths[role];
-
-    if (!path) {
-      return Promise.reject(new Error(`Unknown role: ${role}`));
+    // For team puzzles, load the specific team controller
+    if (role === "Team") {
+      return this.loadTeamPuzzleController();
     }
 
-    // Create and store the promise
-    this.loadPromises[role] = new Promise(async (resolve, reject) => {
-      try {
-        // Use dynamic import to load the module
-        const module = await import(path);
-        this.loadedControllers[role] = module.default;
-        console.log(`Successfully loaded controller for ${role}`);
-        resolve(module.default);
-      } catch (error) {
-        console.error(`Failed to load controller for ${role}:`, error);
-        delete this.loadPromises[role];
-        reject(error);
-      }
-    });
-
-    return this.loadPromises[role];
+    // For all other roles, use the universal controller
+    this.loadedControllers[role] = UniversalPuzzleController;
+    return UniversalPuzzleController;
   }
 
   /**
@@ -62,7 +42,9 @@ class PuzzleLoader {
    * @returns {Promise} - Promise resolving to the team puzzle controller class
    */
   async loadTeamPuzzleController() {
-    return this.loadPuzzleController("Team");
+    // Set the team controller directly
+    this.loadedControllers["Team"] = TeamPuzzleController;
+    return TeamPuzzleController;
   }
 
   /**
@@ -84,7 +66,7 @@ class PuzzleLoader {
     try {
       // Check if it's a team puzzle
       if (puzzleData.type && puzzleData.type.includes("team_puzzle")) {
-        const TeamPuzzleController = await this.loadTeamPuzzleController();
+        // For team puzzles, use the specific team controller
 
         // Add role and room code to puzzle data for team puzzles
         puzzleData.playerRole = role;
@@ -98,10 +80,8 @@ class PuzzleLoader {
         );
       }
 
-      // For role-specific puzzles
-      const ControllerClass = await this.loadPuzzleController(role);
-
-      return new ControllerClass(
+      // For all other puzzles, use the universal controller
+      return new UniversalPuzzleController(
         containerElement,
         puzzleData,
         submitSolutionCallback

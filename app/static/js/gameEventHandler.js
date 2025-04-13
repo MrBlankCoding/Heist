@@ -118,7 +118,7 @@ class GameEventHandler {
   }
 
   _checkForMissingPuzzle() {
-    // Add a flag to prevent recursive calls
+    // Prevent recursive calls
     if (this._isCheckingForMissingPuzzle) {
       console.log(
         "Already checking for missing puzzle, preventing recursive loop"
@@ -127,46 +127,50 @@ class GameEventHandler {
     }
 
     if (
-      playerStateManager.gameState.status ===
+      playerStateManager.gameState.status !==
       playerStateManager.GAME_STATUS.IN_PROGRESS
     ) {
-      const puzzleContent = this.uiManager.elements.puzzleContent;
-      if (
-        puzzleContent &&
-        (!puzzleContent.children.length ||
-          puzzleContent.textContent.includes("Waiting for puzzle assignment"))
-      ) {
-        // Set the flag to prevent recursive calls
-        this._isCheckingForMissingPuzzle = true;
+      return;
+    }
 
-        try {
-          // Generate a puzzle for current stage directly
-          const playerRole = playerStateManager.gameState.playerRole;
-          const currentStage = playerStateManager.gameState.stage || 1;
-          const puzzleType = this._getPuzzleTypeForStage(
-            playerRole,
-            currentStage
-          );
+    const puzzleContent = this.uiManager.elements.puzzleContent;
+    if (
+      !puzzleContent ||
+      !puzzleContent.children.length ||
+      puzzleContent.textContent.includes("Waiting for puzzle assignment")
+    ) {
+      // Set protection flag
+      this._isCheckingForMissingPuzzle = true;
 
-          console.log(
-            `Creating puzzle for role ${playerRole}, stage ${currentStage}, type ${puzzleType}`
-          );
+      try {
+        // Generate a puzzle for current stage
+        const playerRole = playerStateManager.gameState.playerRole;
+        const currentStage = playerStateManager.gameState.stage || 1;
 
-          // Create a basic puzzle object
-          const puzzle = {
-            type: puzzleType,
-            difficulty: currentStage,
-            data: {}, // The controller will generate the detailed data
-          };
+        console.log(`_checkForMissingPuzzle: Current stage is ${currentStage}`);
 
-          // Handle the puzzle
-          this.handlePuzzleReceived(puzzle);
-        } finally {
-          // Clear the flag when done
-          setTimeout(() => {
-            this._isCheckingForMissingPuzzle = false;
-          }, 1000);
-        }
+        const puzzleType = this._getPuzzleTypeForStage(
+          playerRole,
+          currentStage
+        );
+        console.log(
+          `Creating puzzle for role ${playerRole}, stage ${currentStage}, type ${puzzleType}`
+        );
+
+        // Create a basic puzzle object
+        const puzzle = {
+          type: puzzleType,
+          difficulty: currentStage,
+          data: {}, // Controller will generate the detailed data
+        };
+
+        // Handle the puzzle
+        this.handlePuzzleReceived(puzzle);
+      } finally {
+        // Clear the flag after a delay to prevent rapid rechecking
+        setTimeout(() => {
+          this._isCheckingForMissingPuzzle = false;
+        }, 1000);
       }
     }
   }
@@ -199,39 +203,51 @@ class GameEventHandler {
     try {
       console.log("Handling puzzle received:", puzzle);
 
-      // First check if we already have an active puzzle controller
+      // Check if we already have an active puzzle controller that should be kept
       const currentController = this.getActivePuzzleController();
-      if (currentController && currentController.isCompleted !== true) {
-        console.log(
-          "Found existing active puzzle controller, not initializing new one"
-        );
-        return;
+      if (currentController) {
+        if (!currentController.isCompleted) {
+          const puzzleStage =
+            puzzle.difficulty || playerStateManager.gameState.stage;
+          const currentStage = playerStateManager.gameState.stage;
+
+          if (
+            puzzleStage === currentStage &&
+            currentController.messageElement !== null
+          ) {
+            console.log(
+              "Found existing active controller for current stage, keeping it"
+            );
+            return;
+          }
+          console.log(
+            `Replacing controller: stage changed (${currentStage} vs ${puzzleStage}) or controller is invalid`
+          );
+        }
       }
 
-      // Add a flag to prevent multiple simultaneous initialization
+      // Prevent multiple initializations
       if (this._initializingPuzzle) {
         console.log("Already initializing a puzzle, preventing multiple init");
         return;
       }
       this._initializingPuzzle = true;
 
-      // Make sure game area is visible first
+      // Ensure game area is visible
       const gameArea = document.getElementById("game-area");
       if (gameArea && gameArea.classList.contains("hidden")) {
-        console.log(
-          "Game area was hidden, making visible before puzzle initialization"
-        );
         gameArea.classList.remove("hidden");
       }
 
       // Clean up any existing puzzle
       this._cleanupCurrentPuzzle();
 
+      // Verify puzzle content element exists
       if (!this.uiManager.elements.puzzleContent) {
         console.error("Puzzle content element not found");
         this._initializingPuzzle = false;
 
-        // Try to find or create the puzzle content element
+        // Try to recover by finding or creating the element
         const puzzleContent = document.getElementById("puzzle-content");
         if (!puzzleContent && gameArea) {
           console.log("Creating missing puzzle-content element");
@@ -240,7 +256,6 @@ class GameEventHandler {
           newPuzzleContent.className = "p-4";
           gameArea.appendChild(newPuzzleContent);
 
-          // Update UI manager reference
           if (this.uiManager) {
             this.uiManager.elements.puzzleContent = newPuzzleContent;
           } else {
@@ -267,9 +282,7 @@ class GameEventHandler {
       }
 
       try {
-        console.log("Raw puzzle before extraction:", puzzle);
-
-        // Show loading state while we process
+        // Show loading state
         const puzzleLoadingElement = document.getElementById("puzzle-loading");
         const puzzleContentElement = document.getElementById("puzzle-content");
 
@@ -279,7 +292,6 @@ class GameEventHandler {
 
         if (puzzleContentElement) {
           puzzleContentElement.classList.add("hidden");
-          // Prepare the content element for the new puzzle
           this.uiManager.elements.puzzleContent.innerHTML = "";
         }
 
@@ -297,40 +309,45 @@ class GameEventHandler {
         puzzle.difficulty =
           puzzle.difficulty || playerStateManager.gameState.stage || 1;
 
-        // Create the appropriate puzzle controller
-        console.log("Creating puzzle controller for role:", playerRole);
-
-        // Create the controller using puzzleLoader (async)
+        // Create and initialize the puzzle controller
         this._createPuzzleController(puzzle, playerRole)
           .then((puzzleController) => {
             if (puzzleController) {
               console.log("Initializing puzzle controller");
-
-              // Set the controller first before initialization to ensure references are correct
               this.setActivePuzzleController(puzzleController);
 
-              // Then initialize it
-              puzzleController.initialize();
+              try {
+                puzzleController.initialize();
 
-              // Show the puzzle content and hide the loading indicator
-              if (puzzleLoadingElement) {
-                puzzleLoadingElement.classList.add("hidden");
+                // Show the puzzle content and hide loading
+                if (puzzleLoadingElement) {
+                  puzzleLoadingElement.classList.add("hidden");
+                }
+                if (puzzleContentElement) {
+                  puzzleContentElement.classList.remove("hidden");
+                }
+                console.log("Puzzle initialized successfully");
+              } catch (initError) {
+                console.error("Error initializing puzzle:", initError);
+                this._cleanupCurrentPuzzle();
+
+                // Try to recover
+                setTimeout(() => {
+                  this._showErrorInPuzzleContent(
+                    "Error initializing puzzle",
+                    "Attempting to recover..."
+                  );
+                  this._checkForMissingPuzzle();
+                }, 1000);
               }
-
-              if (puzzleContentElement) {
-                puzzleContentElement.classList.remove("hidden");
-              }
-
-              console.log("Puzzle initialized successfully");
-              this._initializingPuzzle = false;
             } else {
               console.error("Failed to create puzzle controller");
               this._showErrorInPuzzleContent(
                 "Error creating puzzle",
                 "Please try refreshing the page"
               );
-              this._initializingPuzzle = false;
             }
+            this._initializingPuzzle = false;
           })
           .catch((error) => {
             console.error("Error creating puzzle controller:", error);
@@ -340,7 +357,7 @@ class GameEventHandler {
             );
             this._initializingPuzzle = false;
 
-            // Try to recover by requesting the next stage after a delay
+            // Recovery attempt
             setTimeout(() => {
               console.log("Attempting puzzle recovery");
               this._checkForMissingPuzzle();
@@ -351,7 +368,7 @@ class GameEventHandler {
         this._showErrorInPuzzleContent("Error loading puzzle", error.message);
         this._initializingPuzzle = false;
 
-        // Try to recover
+        // Recovery attempt
         setTimeout(() => {
           console.log("Attempting puzzle recovery");
           this._checkForMissingPuzzle();
@@ -380,24 +397,36 @@ class GameEventHandler {
           currentController.cleanup();
         } else {
           console.warn("Puzzle controller doesn't have cleanup method");
+
+          // Manually clean up controller properties
+          if (
+            currentController.activePuzzle &&
+            typeof currentController.activePuzzle.cleanup === "function"
+          ) {
+            currentController.activePuzzle.cleanup();
+          }
+
+          // Clear UI references
+          currentController.messageElement = null;
+          currentController.submitButton = null;
+          currentController.activePuzzle = null;
         }
 
-        // Ensure we properly null it out
+        // Always null out the controller when done
         this.setActivePuzzleController(null);
       } catch (error) {
         console.error("Error cleaning up previous puzzle:", error);
+        this.setActivePuzzleController(null);
       }
     }
 
-    // Also clear the content element if it exists
+    // Create a fresh puzzle content element to avoid any lingering event handlers
     if (this.uiManager.elements.puzzleContent) {
-      console.log("Clearing puzzle content element");
-      // Instead of setting innerHTML directly, create a fresh element
+      console.log("Refreshing puzzle content element");
       const freshElement = document.createElement("div");
       freshElement.id = this.uiManager.elements.puzzleContent.id;
       freshElement.className = this.uiManager.elements.puzzleContent.className;
 
-      // Replace the existing element
       if (this.uiManager.elements.puzzleContent.parentNode) {
         this.uiManager.elements.puzzleContent.parentNode.replaceChild(
           freshElement,
@@ -410,49 +439,40 @@ class GameEventHandler {
 
   _extractCurrentStagePuzzle(puzzle) {
     console.log("Extracting puzzle for current stage. Puzzle data:", puzzle);
-
     const currentStage = playerStateManager.gameState.stage;
     console.log("Current stage:", currentStage);
 
-    // Handle case where puzzle is directly the stage puzzle (no need to extract)
+    // Direct puzzle object (modern format)
     if (puzzle.type && !puzzle.role) {
-      console.log(
-        "Puzzle appears to be a direct puzzle object, no extraction needed"
-      );
+      console.log("Puzzle is already in direct format, no extraction needed");
       return puzzle;
     }
 
-    // Handle old format with role property and stage_X properties
+    // Handle legacy format with role property and stage_X properties
     if (puzzle.role) {
       const stagePuzzleKey = `stage_${currentStage}`;
-      console.log("Looking for puzzle with key:", stagePuzzleKey);
-
       if (puzzle[stagePuzzleKey]) {
-        console.log("Found stage puzzle, returning it");
+        console.log("Found stage puzzle in legacy format");
         return puzzle[stagePuzzleKey];
-      } else {
-        // Log all available keys to help debug
-        console.error("Available puzzle keys:", Object.keys(puzzle));
-        throw new Error(
-          `No puzzle found for stage ${currentStage} in role puzzles`
-        );
       }
+      console.error("Available puzzle keys:", Object.keys(puzzle));
+      throw new Error(
+        `No puzzle found for stage ${currentStage} in role puzzles`
+      );
     }
 
-    // Handle team puzzle which might not have a stage key
+    // Team puzzles don't need stage-specific extraction
     if (puzzle.type && puzzle.type.includes("team_puzzle")) {
-      console.log("Team puzzle detected, returning as is");
+      console.log("Team puzzle detected, using as is");
       return puzzle;
     }
 
-    // If we get here, we don't know how to extract this puzzle
     console.error("Unexpected puzzle format:", puzzle);
-    return puzzle; // Return as is and hope for the best
+    return puzzle; // Return as is if we don't understand the format
   }
 
   _createPuzzleController(puzzle, playerRole) {
     try {
-      // Let the puzzleLoader create the appropriate controller
       return puzzleLoader.createPuzzleController(
         playerRole,
         puzzle,
@@ -475,25 +495,22 @@ class GameEventHandler {
       puzzleLoadingElement.classList.add("hidden");
     }
 
+    // Create error message HTML
+    const errorHTML = `
+      <div class="text-center p-4">
+        <p class="text-red-400 mb-2">${title}</p>
+        <p class="text-sm text-gray-400">${message}</p>
+        <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
+      </div>
+    `;
+
     // Show puzzle content with error message
     if (puzzleContentElement) {
       puzzleContentElement.classList.remove("hidden");
-      puzzleContentElement.innerHTML = `
-        <div class="text-center p-4">
-          <p class="text-red-400 mb-2">${title}</p>
-          <p class="text-sm text-gray-400">${message}</p>
-          <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
-        </div>
-      `;
-    } else if (this.uiManager && this.uiManager.elements.puzzleContent) {
+      puzzleContentElement.innerHTML = errorHTML;
+    } else if (this.uiManager?.elements?.puzzleContent) {
       // Fallback to using the UI manager's reference
-      this.uiManager.elements.puzzleContent.innerHTML = `
-        <div class="text-center p-4">
-          <p class="text-red-400 mb-2">${title}</p>
-          <p class="text-sm text-gray-400">${message}</p>
-          <p class="text-sm text-gray-400 mt-2">Please try refreshing the page</p>
-        </div>
-      `;
+      this.uiManager.elements.puzzleContent.innerHTML = errorHTML;
     } else {
       console.error(
         "Cannot display error, puzzle content element not found:",
@@ -517,13 +534,50 @@ class GameEventHandler {
     );
     this.uiManager.updateTeamStatus();
 
-    if (
-      data.playerId === playerStateManager.gameState.playerId &&
-      this.getActivePuzzleController()
-    ) {
-      this.getActivePuzzleController().showSuccess();
+    // Handle the player's own puzzle completion
+    if (data.playerId === playerStateManager.gameState.playerId) {
+      const puzzleController = this.getActivePuzzleController();
+      if (!puzzleController) return;
+
+      // Get puzzle info if available
+      const puzzleInfo =
+        data.puzzle_info ||
+        (typeof puzzleController.getPuzzleInfo === "function"
+          ? puzzleController.getPuzzleInfo()
+          : null);
+
+      // Determine if we should auto-advance
+      const shouldAutoAdvance = puzzleInfo ? puzzleInfo.autoAdvance : true;
+      const isLastStage = currentStage >= 5;
+
+      // Log the state to help diagnose the issue
+      console.log(
+        `Puzzle completion: stage=${currentStage}, shouldAutoAdvance=${shouldAutoAdvance}, isLastStage=${isLastStage}`
+      );
+
+      if (shouldAutoAdvance) {
+        if (isLastStage) {
+          // Final stage - show success then completion screen
+          puzzleController.showSuccess(false, () => {
+            console.log("Final stage success callback triggered");
+            this._showFinalPuzzleCompletionScreen();
+          });
+        } else {
+          // Auto-advance to next stage
+          puzzleController.showSuccess(true, () => {
+            console.log(
+              `Auto-advance callback triggered for stage ${currentStage + 1}`
+            );
+            this._handlePlayerAutoAdvance(currentStage + 1);
+          });
+        }
+      } else {
+        // Just show success without advancing
+        puzzleController.showSuccess(false);
+      }
     }
 
+    // If host and all players completed stage, move to next stage
     if (allCompleted && playerStateManager.isHost()) {
       websocketManager.send({
         action: "complete_stage",
@@ -536,7 +590,118 @@ class GameEventHandler {
     }
   }
 
+  /**
+   * Handle player auto-advancement to next puzzle
+   * @param {number} nextStage - The stage to advance to
+   */
+  _handlePlayerAutoAdvance(nextStage) {
+    console.log(`_handlePlayerAutoAdvance called for stage ${nextStage}`);
+
+    // Clean up current puzzle
+    this._cleanupCurrentPuzzle();
+
+    // Get player information
+    const playerRole = playerStateManager.gameState.playerRole;
+    const puzzleType = this._getPuzzleTypeForStage(playerRole, nextStage);
+
+    console.log(
+      `Auto-advancing to next puzzle: ${puzzleType} (Stage ${nextStage})`
+    );
+
+    // Create a new puzzle object
+    const nextPuzzle = {
+      type: puzzleType,
+      difficulty: nextStage,
+      data: {}, // The controller will generate the specific data
+    };
+
+    // Show a notification
+    this.notificationSystem.showAlert(
+      `Advancing to Stage ${nextStage} puzzle...`,
+      "info"
+    );
+
+    // Update stage in playerStateManager
+    playerStateManager.gameState.stage = nextStage;
+    this.uiManager.updateStageInfo();
+
+    // Play sound effect for advancement
+    this._playSound("../static/sounds/puzzle-complete.mp3", 0.3);
+
+    // Load the new puzzle with a slight delay to ensure proper transition
+    setTimeout(() => {
+      this.handlePuzzleReceived(nextPuzzle);
+    }, 300);
+  }
+
+  _playSound(src, volume = 0.3) {
+    try {
+      const sound = new Audio(src);
+      sound.volume = volume;
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play sound:", e);
+    }
+  }
+
+  /**
+   * Show the final puzzle completion screen
+   */
+  _showFinalPuzzleCompletionScreen() {
+    this._cleanupCurrentPuzzle();
+
+    // Create a completion message in the puzzle area
+    const puzzleContent = this.uiManager.elements.puzzleContent;
+    if (puzzleContent) {
+      puzzleContent.innerHTML = `
+        <div class="text-center py-12">
+          <div class="mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24 mx-auto text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <h2 class="text-3xl font-bold text-green-400 mb-4">All Puzzles Completed!</h2>
+          <p class="text-xl text-gray-300 mb-6">Great job! You've completed all your tasks.</p>
+          <p class="text-gray-400">Wait for your teammates to finish their tasks to complete the heist.</p>
+        </div>
+      `;
+    }
+
+    // Play success sound
+    this._playSound("../static/sounds/stage-complete.mp3", 0.3);
+
+    // Show notification
+    this.notificationSystem.showAlert(
+      "All your puzzles completed! Wait for your team to finish.",
+      "success",
+      10000 // Show for 10 seconds
+    );
+  }
+
   handleStageCompleted(nextStage) {
+    console.log(
+      `Stage completed! Moving from stage ${playerStateManager.gameState.stage} to ${nextStage}`
+    );
+
+    // Check if player already advanced to this stage via auto-advance
+    if (playerStateManager.gameState.stage >= nextStage) {
+      console.log(
+        `Player is already at stage ${playerStateManager.gameState.stage}, not loading new puzzle`
+      );
+      return;
+    }
+
+    // Get the current controller to check auto-advance setting
+    const currentController = this.getActivePuzzleController();
+    const shouldAutoAdvance =
+      currentController && typeof currentController.getPuzzleInfo === "function"
+        ? currentController.getPuzzleInfo().autoAdvance
+        : true;
+
+    // Update stage in playerStateManager immediately to ensure consistency
+    playerStateManager.gameState.stage = nextStage;
+
+    // Show notifications and update UI
     this.notificationSystem.showAlert(
       `Stage ${nextStage - 1} Complete! Moving to Stage ${nextStage}...`,
       "success"
@@ -549,31 +714,31 @@ class GameEventHandler {
       }`
     );
 
-    try {
-      const successSound = new Audio("../static/sounds/stage-complete.mp3");
-      successSound.volume = 0.3;
-      successSound
-        .play()
-        .catch((e) => console.warn("Could not play sound:", e));
-    } catch (e) {
-      console.warn("Could not play stage complete sound:", e);
-    }
+    // Play success sound
+    this._playSound("../static/sounds/stage-complete.mp3", 0.3);
 
-    this._handleNextStagePuzzle(nextStage);
+    // Create new puzzle only if auto-advance is disabled or no controller exists
+    if (!shouldAutoAdvance || !currentController) {
+      this._handleNextStagePuzzle(nextStage);
+    } else {
+      console.log(
+        "Auto-advance is enabled; leaving it to the completion handler"
+      );
+    }
   }
 
   _handleNextStagePuzzle(nextStage) {
+    // Update UI elements
     const puzzleLoadingElement = document.getElementById("puzzle-loading");
     const puzzleContentElement = document.getElementById("puzzle-content");
 
     // Show loading and hide content
     if (puzzleLoadingElement) {
-      // Update loading text if possible
+      // Update loading text
       const loadingText = puzzleLoadingElement.querySelector("p");
       if (loadingText) {
         loadingText.textContent = `Loading Stage ${nextStage} puzzle...`;
       }
-
       puzzleLoadingElement.classList.remove("hidden");
     }
 
@@ -581,7 +746,7 @@ class GameEventHandler {
       puzzleContentElement.classList.add("hidden");
     }
 
-    // Generate a new puzzle for this stage directly
+    // Get puzzle information for next stage
     const playerRole = playerStateManager.gameState.playerRole;
     const puzzleType = this._getPuzzleTypeForStage(playerRole, nextStage);
 
@@ -589,20 +754,25 @@ class GameEventHandler {
       `Creating puzzle for next stage: role=${playerRole}, stage=${nextStage}, type=${puzzleType}`
     );
 
-    // Generate a basic puzzle object with the required type and stage
+    // Generate puzzle object for next stage
     const puzzle = {
       type: puzzleType,
       difficulty: nextStage,
-      data: {}, // The frontend controller will generate the specific data
+      data: {}, // The controller will generate the specific data
     };
 
-    // Handle the puzzle with our new approach - slight delay to ensure UI updates
+    // Ensure stage is updated in the player state manager
     setTimeout(() => {
+      playerStateManager.gameState.stage = nextStage;
       this.handlePuzzleReceived(puzzle);
     }, 500);
   }
 
   _getPuzzleTypeForStage(role, stage) {
+    console.log(
+      `_getPuzzleTypeForStage called with role=${role}, stage=${stage}`
+    );
+
     const puzzleTypes = {
       Hacker: [
         "circuit",
@@ -636,19 +806,23 @@ class GameEventHandler {
 
     if (!puzzleTypes[role] || !puzzleTypes[role][stage - 1]) {
       console.error(`No puzzle type found for ${role} stage ${stage}`);
-      // Return a default type based on role as fallback
-      return role === "Hacker"
-        ? "circuit"
-        : role === "Safe Cracker"
-        ? "lock_combination"
-        : role === "Demolitions"
-        ? "wire_cutting"
-        : role === "Lookout"
-        ? "surveillance"
-        : "circuit";
+
+      // Default puzzles map to first stage puzzle of each role
+      const defaultPuzzles = {
+        Hacker: "circuit",
+        "Safe Cracker": "lock_combination",
+        Demolitions: "wire_cutting",
+        Lookout: "surveillance",
+      };
+
+      return defaultPuzzles[role] || "circuit";
     }
 
-    return puzzleTypes[role][stage - 1];
+    const puzzleType = puzzleTypes[role][stage - 1];
+    console.log(
+      `Selected puzzle type for ${role} stage ${stage}: ${puzzleType}`
+    );
+    return puzzleType;
   }
 
   handleGameCompleted() {
@@ -899,6 +1073,7 @@ class GameEventHandler {
 
     puzzleContent.innerHTML = "";
 
+    // Get stage and puzzle info
     const stageInfo = playerStateManager.getCurrentStageInfo();
     const stageName = stageInfo
       ? stageInfo.name
@@ -906,6 +1081,7 @@ class GameEventHandler {
     const isTeamPuzzle = data.team_puzzle === true;
     const puzzleType = isTeamPuzzle ? "Team Task" : "Personal Task";
 
+    // Calculate progress percentages
     const stageCompletionData =
       playerStateManager.gameState.stagePuzzleCompletion[data.current_stage] ||
       {};
@@ -916,6 +1092,7 @@ class GameEventHandler {
     const totalPlayers = connectedPlayers.length;
     const progressPercent = Math.round((completedCount / totalPlayers) * 100);
 
+    // Create and append waiting UI
     puzzleContent.appendChild(
       this._createWaitingUI(
         puzzleType,
@@ -927,6 +1104,7 @@ class GameEventHandler {
       )
     );
 
+    // Show notification and play sound
     this.notificationSystem.showNotification(
       `${puzzleType} completed! Waiting for other players.`,
       "success"
@@ -948,77 +1126,29 @@ class GameEventHandler {
       "waiting-container flex flex-col items-center justify-center p-8 h-full";
     waitingContainer.style.minHeight = "300px";
 
-    // Success icon
-    const successIcon = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "svg"
-    );
-    successIcon.setAttribute("viewBox", "0 0 24 24");
-    successIcon.setAttribute("width", "80");
-    successIcon.setAttribute("height", "80");
-    successIcon.setAttribute("fill", "none");
-    successIcon.setAttribute("stroke", "#10B981");
-    successIcon.setAttribute("stroke-width", "2");
-    successIcon.setAttribute("stroke-linecap", "round");
-    successIcon.setAttribute("stroke-linejoin", "round");
-    successIcon.setAttribute("class", "mb-4 animate-pulse");
-
-    const checkPath = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "path"
-    );
-    checkPath.setAttribute("d", "M20 6L9 17L4 12");
-    successIcon.appendChild(checkPath);
-
-    // Title
-    const waitingTitle = document.createElement("h2");
-    waitingTitle.className =
-      "text-2xl font-bold mb-2 text-emerald-500 animate-bounce";
-    waitingTitle.textContent = `${puzzleType} Completed!`;
-
-    // Subtitle
-    const waitingSubtitle = document.createElement("h3");
-    waitingSubtitle.className = "text-xl font-semibold mb-4 text-yellow-400";
-    waitingSubtitle.textContent = stageName;
-
-    // Message
-    const waitingMessage = document.createElement("p");
-    waitingMessage.className = "text-lg mb-6 text-center max-w-md";
-    waitingMessage.textContent = message;
-
-    // Progress bar
-    const progressContainer = document.createElement("div");
-    progressContainer.className =
-      "w-64 mb-6 bg-gray-700 rounded-full h-4 overflow-hidden";
-
-    const progressBar = document.createElement("div");
-    progressBar.className =
-      "h-full bg-gradient-to-r from-yellow-400 to-emerald-500 transition-all duration-500";
-    progressBar.style.width = `${progressPercent}%`;
-    progressContainer.appendChild(progressBar);
-
-    // Progress text
-    const progressText = document.createElement("p");
-    progressText.className = "text-sm text-gray-300 mb-4";
-    progressText.textContent = `${completedCount} of ${totalPlayers} players ready (${progressPercent}%)`;
-
-    // Spinner
-    const spinnerContainer = document.createElement("div");
-    spinnerContainer.className = "mt-4";
-
-    const spinner = document.createElement("div");
-    spinner.className =
-      "animate-spin rounded-full h-16 w-16 border-4 border-t-yellow-400 border-r-emerald-500 border-b-blue-500 border-l-purple-500";
-    spinnerContainer.appendChild(spinner);
-
-    // Assemble the UI
-    waitingContainer.appendChild(successIcon);
-    waitingContainer.appendChild(waitingTitle);
-    waitingContainer.appendChild(waitingSubtitle);
-    waitingContainer.appendChild(waitingMessage);
-    waitingContainer.appendChild(progressContainer);
-    waitingContainer.appendChild(progressText);
-    waitingContainer.appendChild(spinnerContainer);
+    // Build container contents
+    waitingContainer.innerHTML = `
+      <svg viewBox="0 0 24 24" width="80" height="80" fill="none" stroke="#10B981" 
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-4 animate-pulse">
+        <path d="M20 6L9 17L4 12"></path>
+      </svg>
+      
+      <h2 class="text-2xl font-bold mb-2 text-emerald-500 animate-bounce">${puzzleType} Completed!</h2>
+      <h3 class="text-xl font-semibold mb-4 text-yellow-400">${stageName}</h3>
+      <p class="text-lg mb-6 text-center max-w-md">${message}</p>
+      
+      <div class="w-64 mb-6 bg-gray-700 rounded-full h-4 overflow-hidden">
+        <div class="h-full bg-gradient-to-r from-yellow-400 to-emerald-500 transition-all duration-500" 
+             style="width: ${progressPercent}%"></div>
+      </div>
+      
+      <p class="text-sm text-gray-300 mb-4">${completedCount} of ${totalPlayers} players ready (${progressPercent}%)</p>
+      
+      <div class="mt-4">
+        <div class="animate-spin rounded-full h-16 w-16 border-4 border-t-yellow-400 border-r-emerald-500 
+                    border-b-blue-500 border-l-purple-500"></div>
+      </div>
+    `;
 
     return waitingContainer;
   }

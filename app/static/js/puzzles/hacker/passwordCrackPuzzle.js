@@ -1,521 +1,576 @@
-// passwordCrackPuzzle.js - Stage 2 Hacker puzzle - Password decryption challenge
+// Password Crack Puzzle - Level 2
+// A puzzle where players need to find a password by using provided clues and hints
 
 class PasswordCrackPuzzle {
-  constructor(containerElement, puzzleData) {
+  constructor(containerElement, puzzleData, callbacks) {
     this.containerElement = containerElement;
     this.puzzleData = puzzleData;
-    this.passwordLength = 6; // Default
+    this.callbacks = callbacks;
+
+    // Puzzle state
     this.attempts = 0;
-    this.maxAttempts = 6;
-    this.correctCode = [];
-    this.currentSelection = [];
-    this.characterSets = []; // Available characters per position
-    this.hints = [];
+    this.maxAttempts = 5;
+    this.solved = false;
+    this.currentInput = "";
+    this.revealedHints = 0;
+
+    // Password generation
+    this.difficulty = puzzleData.difficulty || 2;
+    this.passwordLength = Math.min(8, 4 + this.difficulty);
+    this.password = this._generatePassword();
+    this.passwordHints = this._generateHints();
 
     // DOM elements
-    this.terminalElement = null;
-    this.codeInputElement = null;
-    this.attemptsElement = null;
-    this.feedbackElement = null;
-    this.charactersContainer = null;
+    this.passwordInput = null;
+    this.terminalOutput = null;
+    this.attemptsDisplay = null;
+    this.hintButton = null;
   }
 
-  /**
-   * Initialize the puzzle
-   */
   initialize() {
-    // Get puzzle data
-    const { code_length, max_attempts, character_sets, hints } =
-      this.puzzleData.data;
-    this.passwordLength = code_length || 6;
-    this.maxAttempts = max_attempts || 6;
-    this.characterSets = character_sets || this._generateDefaultCharacterSets();
-    this.hints = hints || [];
-    this.correctCode =
-      this.puzzleData.data.solution || this._generateRandomSolution();
-
-    // Create password terminal UI
-    this._createTerminalUI();
-
-    // Initialize the current selection
-    this.currentSelection = Array(this.passwordLength).fill(null);
-
-    // Add character selection
-    this._createCharacterSelection();
-
-    // Add hints
-    this._displayHints();
-
-    // Update attempts counter
-    this._updateAttempts();
+    this._createGameArea();
+    this._attachEventListeners();
+    this._showInitialOutput();
   }
 
-  /**
-   * Create the terminal UI for the password puzzle
-   */
-  _createTerminalUI() {
-    // Create terminal container
-    this.terminalElement = document.createElement("div");
-    this.terminalElement.className =
-      "bg-gray-900 border-2 border-blue-500 rounded-lg p-4 w-full max-w-2xl text-gray-100 font-mono";
+  _createGameArea() {
+    // Create container
+    const gameContainer = document.createElement("div");
+    gameContainer.className =
+      "bg-gray-900 p-4 rounded-lg border border-green-500 font-mono text-sm";
 
-    // Add terminal header
+    // Terminal header
     const terminalHeader = document.createElement("div");
     terminalHeader.className =
-      "flex justify-between items-center border-b border-blue-500 pb-2 mb-4";
+      "flex justify-between items-center mb-2 bg-gray-800 p-2 rounded";
 
     const terminalTitle = document.createElement("div");
-    terminalTitle.className = "text-blue-400 text-sm";
-    terminalTitle.textContent = "SECURITY SYSTEM - PASSWORD AUTHENTICATION";
-
-    const terminalStatus = document.createElement("div");
-    terminalStatus.className = "flex items-center";
-
-    const statusDot = document.createElement("div");
-    statusDot.className = "w-2 h-2 rounded-full bg-red-500 mr-2 animate-pulse";
-
-    const statusText = document.createElement("span");
-    statusText.className = "text-xs text-red-400";
-    statusText.textContent = "LOCKED";
-
-    terminalStatus.appendChild(statusDot);
-    terminalStatus.appendChild(statusText);
-
+    terminalTitle.className = "text-green-400";
+    terminalTitle.textContent = "SecurOS v3.4.2 - PASSWORD RECOVERY";
     terminalHeader.appendChild(terminalTitle);
-    terminalHeader.appendChild(terminalStatus);
 
-    this.terminalElement.appendChild(terminalHeader);
+    // Attempts counter
+    this.attemptsDisplay = document.createElement("div");
+    this.attemptsDisplay.className =
+      "bg-gray-700 px-2 py-1 rounded text-yellow-300";
+    this.attemptsDisplay.textContent = `Attempts: ${this.attempts}/${this.maxAttempts}`;
+    terminalHeader.appendChild(this.attemptsDisplay);
 
-    // Add terminal content
-    const terminalContent = document.createElement("div");
-    terminalContent.className = "space-y-4";
+    gameContainer.appendChild(terminalHeader);
 
-    // Add instructions
-    const instructions = document.createElement("div");
-    instructions.className = "text-sm text-green-400";
-    instructions.innerHTML = ">> DECRYPT ACCESS PASSWORD TO PROCEED";
-    terminalContent.appendChild(instructions);
+    // Terminal output
+    this.terminalOutput = document.createElement("div");
+    this.terminalOutput.className =
+      "bg-black p-3 rounded h-64 overflow-y-auto mb-4 text-green-300 whitespace-pre-line";
+    gameContainer.appendChild(this.terminalOutput);
 
-    // Add code input display
-    this.codeInputElement = document.createElement("div");
-    this.codeInputElement.className =
-      "flex justify-center items-center space-x-2 my-4";
+    // Input area
+    const inputContainer = document.createElement("div");
+    inputContainer.className = "flex items-center gap-2";
 
-    for (let i = 0; i < this.passwordLength; i++) {
-      const digitInput = document.createElement("div");
-      digitInput.className =
-        "w-12 h-12 border-2 border-blue-500 rounded flex items-center justify-center text-xl bg-gray-800 cursor-pointer hover:bg-gray-700";
-      digitInput.dataset.index = i;
-      digitInput.textContent = "_";
+    const inputPrefix = document.createElement("span");
+    inputPrefix.className = "text-green-400";
+    inputPrefix.textContent = "root@system:~# ";
+    inputContainer.appendChild(inputPrefix);
 
-      // Add click event to handle selection
-      digitInput.addEventListener("click", () => {
-        this._selectPosition(i);
-      });
+    this.passwordInput = document.createElement("input");
+    this.passwordInput.type = "text";
+    this.passwordInput.className =
+      "bg-gray-800 text-green-300 flex-grow px-2 py-1 rounded border border-gray-700 focus:border-green-500 focus:outline-none";
+    this.passwordInput.placeholder = "Enter password...";
+    this.passwordInput.maxLength = this.passwordLength + 2; // Add some buffer
+    inputContainer.appendChild(this.passwordInput);
 
-      this.codeInputElement.appendChild(digitInput);
-    }
+    const submitButton = document.createElement("button");
+    submitButton.className =
+      "bg-green-700 hover:bg-green-600 text-white px-4 py-1 rounded";
+    submitButton.textContent = "Try";
+    submitButton.dataset.action = "submit";
+    inputContainer.appendChild(submitButton);
 
-    terminalContent.appendChild(this.codeInputElement);
+    gameContainer.appendChild(inputContainer);
 
-    // Add attempts indicator
-    this.attemptsElement = document.createElement("div");
-    this.attemptsElement.className =
-      "text-xs text-gray-400 flex justify-between items-center";
+    // Hint button
+    const actionContainer = document.createElement("div");
+    actionContainer.className = "flex justify-between mt-4";
 
-    terminalContent.appendChild(this.attemptsElement);
+    this.hintButton = document.createElement("button");
+    this.hintButton.className =
+      "bg-blue-700 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm";
+    this.hintButton.textContent = "Request Hint";
+    this.hintButton.dataset.action = "hint";
+    actionContainer.appendChild(this.hintButton);
 
-    // Add feedback area
-    this.feedbackElement = document.createElement("div");
-    this.feedbackElement.className = "p-2 rounded text-sm mt-4 hidden";
+    // Brute force button (appears later)
+    this.bruteForceButton = document.createElement("button");
+    this.bruteForceButton.className =
+      "bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded text-sm hidden";
+    this.bruteForceButton.textContent = "Run Brute Force";
+    this.bruteForceButton.dataset.action = "bruteforce";
+    actionContainer.appendChild(this.bruteForceButton);
 
-    terminalContent.appendChild(this.feedbackElement);
+    gameContainer.appendChild(actionContainer);
 
-    this.terminalElement.appendChild(terminalContent);
-    this.containerElement.appendChild(this.terminalElement);
+    this.containerElement.appendChild(gameContainer);
   }
 
-  /**
-   * Create character selection UI
-   */
-  _createCharacterSelection() {
-    // Create characters container
-    this.charactersContainer = document.createElement("div");
-    this.charactersContainer.className = "mt-4 p-4 bg-gray-800 rounded-lg";
+  _attachEventListeners() {
+    // Attach event listeners to buttons
+    this.containerElement.addEventListener("click", (e) => {
+      if (e.target.tagName === "BUTTON") {
+        const action = e.target.dataset.action;
 
-    // Create label
-    const label = document.createElement("div");
-    label.className = "text-xs text-blue-400 mb-2";
-    label.textContent = "SELECT CHARACTERS:";
-    this.charactersContainer.appendChild(label);
-
-    // For each character position
-    for (let position = 0; position < this.passwordLength; position++) {
-      // Create row for this position
-      const row = document.createElement("div");
-      row.className = "flex flex-wrap justify-center mb-2 position-row";
-      row.dataset.position = position;
-
-      // Hide all rows except the first one initially
-      if (position !== 0) {
-        row.classList.add("hidden");
+        if (action === "submit") {
+          this._checkPassword();
+        } else if (action === "hint") {
+          this._showHint();
+        } else if (action === "bruteforce") {
+          this._runBruteForce();
+        }
       }
-
-      // Add all characters for this position
-      const chars =
-        this.characterSets[position] || "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-      for (let i = 0; i < chars.length; i++) {
-        const charButton = document.createElement("div");
-        charButton.className =
-          "w-8 h-8 m-1 flex items-center justify-center border border-blue-500 rounded bg-gray-700 hover:bg-blue-900 cursor-pointer text-sm";
-        charButton.textContent = chars[i];
-        charButton.dataset.char = chars[i];
-
-        // Add click event
-        charButton.addEventListener("click", () => {
-          this._selectCharacter(position, chars[i]);
-        });
-
-        row.appendChild(charButton);
-      }
-
-      this.charactersContainer.appendChild(row);
-    }
-
-    this.terminalElement.appendChild(this.charactersContainer);
-
-    // Set initial position
-    this._selectPosition(0);
-  }
-
-  /**
-   * Display hints in the UI
-   */
-  _displayHints() {
-    if (this.hints.length === 0) return;
-
-    // Create hints container
-    const hintsContainer = document.createElement("div");
-    hintsContainer.className = "mt-4 p-4 bg-gray-800 rounded-lg text-sm";
-
-    // Create header
-    const hintsHeader = document.createElement("div");
-    hintsHeader.className = "text-yellow-400 font-bold mb-2";
-    hintsHeader.textContent = "SYSTEM ANALYSIS:";
-    hintsContainer.appendChild(hintsHeader);
-
-    // Add each hint
-    this.hints.forEach((hint, index) => {
-      const hintElement = document.createElement("div");
-      hintElement.className = "text-gray-300 mb-1";
-      hintElement.innerHTML = `<span class="text-yellow-400">></span> ${hint}`;
-      hintsContainer.appendChild(hintElement);
     });
 
-    this.terminalElement.appendChild(hintsContainer);
-  }
-
-  /**
-   * Select a position to input a character
-   * @param {number} position - Position index
-   */
-  _selectPosition(position) {
-    // Validate position
-    if (position < 0 || position >= this.passwordLength) return;
-
-    // Update UI to show selected position
-    const inputElements =
-      this.codeInputElement.querySelectorAll("div[data-index]");
-    inputElements.forEach((el) => {
-      el.classList.remove("border-yellow-400", "bg-gray-700");
+    // Submit on Enter key
+    this.passwordInput.addEventListener("keyup", (e) => {
+      if (e.key === "Enter") {
+        this._checkPassword();
+      }
     });
-
-    inputElements[position].classList.add("border-yellow-400", "bg-gray-700");
-
-    // Show character set for this position
-    const positionRows =
-      this.charactersContainer.querySelectorAll(".position-row");
-    positionRows.forEach((row) => row.classList.add("hidden"));
-
-    const selectedRow = this.charactersContainer.querySelector(
-      `.position-row[data-position="${position}"]`
-    );
-    if (selectedRow) {
-      selectedRow.classList.remove("hidden");
-    }
   }
 
-  /**
-   * Select a character for the current position
-   * @param {number} position - Position index
-   * @param {string} char - Selected character
-   */
-  _selectCharacter(position, char) {
-    // Update current selection
-    this.currentSelection[position] = char;
+  _generatePassword() {
+    // Base strategies for password generation
+    const strategies = [
+      // Basic digits
+      () =>
+        Math.floor(Math.random() * 10000)
+          .toString()
+          .padStart(4, "0"),
 
-    // Update display
-    const inputElements =
-      this.codeInputElement.querySelectorAll("div[data-index]");
-    inputElements[position].textContent = char;
+      // Common words with digits
+      () => {
+        const words = [
+          "admin",
+          "secure",
+          "system",
+          "access",
+          "server",
+          "network",
+        ];
+        const word = words[Math.floor(Math.random() * words.length)];
+        const number = Math.floor(Math.random() * 100);
+        return `${word}${number}`;
+      },
 
-    // Auto-advance to next position if available
-    if (position < this.passwordLength - 1) {
-      this._selectPosition(position + 1);
-    }
+      // Mix of letters and symbols
+      () => {
+        const chars = "abcdefghijklmnopqrstuvwxyz0123456789!@#$";
+        let password = "";
+        for (let i = 0; i < this.passwordLength; i++) {
+          password += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return password;
+      },
+    ];
 
-    // Check if all positions are filled
-    const isComplete = this.currentSelection.every((char) => char !== null);
-    if (isComplete) {
-      // Add subtle visual feedback
-      this.codeInputElement.classList.add("pulse-once");
-      setTimeout(() => {
-        this.codeInputElement.classList.remove("pulse-once");
-      }, 500);
-    }
+    // Choose strategy based on difficulty
+    const strategyIndex = Math.min(this.difficulty - 1, strategies.length - 1);
+    return strategies[strategyIndex]();
   }
 
-  /**
-   * Submit the current password attempt
-   */
-  _submitAttempt() {
-    // Check if all positions are filled
-    const isComplete = this.currentSelection.every((char) => char !== null);
-    if (!isComplete) {
-      this._showFeedback("Complete the password before submitting", "warning");
-      return;
+  _generateHints() {
+    const hints = [];
+    const password = this.password;
+
+    // Generate hints based on the password
+    hints.push(`Password length: ${password.length} characters`);
+
+    if (/\d/.test(password)) {
+      hints.push(`Password contains at least one number`);
+
+      const sum = password
+        .match(/\d/g)
+        .reduce((sum, digit) => sum + parseInt(digit), 0);
+      hints.push(`Sum of all digits in the password: ${sum}`);
     }
+
+    if (/[a-zA-Z]/.test(password)) {
+      hints.push(`Password contains at least one letter`);
+
+      const firstLetter = password.match(/[a-zA-Z]/)[0];
+      hints.push(`First letter in the password: "${firstLetter}"`);
+    }
+
+    if (/[!@#$%^&*()_+\-=[\]{}|;:'",.<>/?]/.test(password)) {
+      hints.push(`Password contains at least one special character`);
+    }
+
+    // Add more specific hints for higher difficulties
+    if (this.difficulty >= 3) {
+      hints.push(
+        `Password contains characters from positions ${
+          Math.floor(Math.random() * 3) + 1
+        }-${Math.min(password.length, 5)} of the system master key`
+      );
+
+      // Create a hint with the first and last character
+      hints.push(
+        `First character: "${password[0]}", Last character: "${
+          password[password.length - 1]
+        }"`
+      );
+    }
+
+    // Shuffle the hints
+    return this._shuffleArray(hints);
+  }
+
+  _shuffleArray(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  }
+
+  _showInitialOutput() {
+    const initialText = `
+> SECURITY BREACH DETECTED
+> INITIATING EMERGENCY RECOVERY PROTOCOL
+> ADMIN PASSWORD REQUIRED TO PROCEED
+
+Analyzing security log files...
+Found partial credentials in memory dump
+Decryption algorithm initialized
+
+Use 'Request Hint' to reveal recovered password fragments
+You have ${this.maxAttempts} attempts before security lockout
+`;
+
+    this._appendToTerminal(initialText);
+  }
+
+  _appendToTerminal(text, type = "normal") {
+    if (!this.terminalOutput) return;
+
+    const entry = document.createElement("div");
+    entry.className = "mb-1";
+
+    // Apply styling based on type
+    switch (type) {
+      case "error":
+        entry.className += " text-red-400";
+        break;
+      case "success":
+        entry.className += " text-green-400";
+        break;
+      case "warning":
+        entry.className += " text-yellow-300";
+        break;
+      case "hint":
+        entry.className += " text-blue-300";
+        break;
+      default:
+        // Normal text
+        break;
+    }
+
+    entry.textContent = text;
+    this.terminalOutput.appendChild(entry);
+
+    // Auto-scroll to bottom
+    this.terminalOutput.scrollTop = this.terminalOutput.scrollHeight;
+  }
+
+  _checkPassword() {
+    if (this.solved) return;
+
+    const input = this.passwordInput.value.trim();
 
     // Increment attempts
     this.attempts++;
+    this.attemptsDisplay.textContent = `Attempts: ${this.attempts}/${this.maxAttempts}`;
 
-    // Check password
-    const isCorrect = this._checkPassword();
+    if (input === this.password) {
+      // Correct password
+      this._appendToTerminal("> ACCESS GRANTED", "success");
+      this._appendToTerminal(`Authentication successful!`, "success");
+      this._appendToTerminal(`Welcome back, Administrator.`, "success");
 
-    if (isCorrect) {
-      this._showFeedback("Access Granted!", "success");
+      this.solved = true;
 
-      // Show success state
-      const statusDot = this.terminalElement.querySelector(".bg-red-500");
-      const statusText = this.terminalElement.querySelector(".text-red-400");
-
-      if (statusDot)
-        statusDot.className = "w-2 h-2 rounded-full bg-green-500 mr-2";
-      if (statusText) {
-        statusText.className = "text-xs text-green-400";
-        statusText.textContent = "UNLOCKED";
+      // Show success
+      if (this.callbacks && this.callbacks.showSuccess) {
+        this.callbacks.showSuccess();
       }
 
-      // Disable inputs
-      this._disableInputs();
+      // Disable input
+      this.passwordInput.disabled = true;
+      this.hintButton.disabled = true;
+
+      // Play success sound
+      this._playSound("success");
     } else {
-      // Provide feedback
-      const feedback = this._generateFeedback();
-      this._showFeedback(feedback, "error");
+      // Incorrect password
+      this._appendToTerminal(
+        `> ACCESS DENIED: "${input}" is incorrect`,
+        "error"
+      );
 
-      // Update attempts display
-      this._updateAttempts();
+      // Play error sound
+      this._playSound("error");
 
-      // Check for maximum attempts
+      // Check character matches for feedback
+      let matches = 0;
+      for (let i = 0; i < Math.min(input.length, this.password.length); i++) {
+        if (input[i] === this.password[i]) {
+          matches++;
+        }
+      }
+
+      if (input.length > 0) {
+        // Give feedback based on closeness
+        if (matches > 0) {
+          this._appendToTerminal(
+            `Analysis: ${matches} character(s) in correct positions`,
+            "hint"
+          );
+        } else if (this.password.includes(input[0])) {
+          this._appendToTerminal(
+            `Analysis: Some characters exist in the password but in wrong positions`,
+            "hint"
+          );
+        }
+      }
+
+      // Show brute force option after half the attempts
+      if (
+        this.attempts >= Math.floor(this.maxAttempts / 2) &&
+        this.bruteForceButton.classList.contains("hidden")
+      ) {
+        this._appendToTerminal(
+          `> NOTICE: Brute force module now available`,
+          "warning"
+        );
+        this.bruteForceButton.classList.remove("hidden");
+      }
+
+      // Check if out of attempts
       if (this.attempts >= this.maxAttempts) {
-        this._showFeedback(
-          "Maximum attempts exceeded. Security lockout initiated.",
+        this._appendToTerminal(
+          `> SYSTEM LOCKOUT: Maximum attempts reached`,
           "error"
         );
-        this._disableInputs();
+        this._appendToTerminal(
+          `> SECURITY PROTOCOL: System will shutdown in T-minus 30 seconds`,
+          "error"
+        );
+
+        // Disable further attempts
+        this.passwordInput.disabled = true;
+        this.hintButton.disabled = true;
+
+        // Show security message
+        if (this.callbacks && this.callbacks.showMessage) {
+          this.callbacks.showMessage(
+            "Maximum attempts reached. Puzzle failed.",
+            "error"
+          );
+        }
+
+        // Reduce time
+        if (this.callbacks && this.callbacks.reduceTime) {
+          this.callbacks.reduceTime(10);
+        }
       }
     }
+
+    // Clear input
+    this.passwordInput.value = "";
+    this.passwordInput.focus();
   }
 
-  /**
-   * Check if current password is correct
-   * @returns {boolean} - Whether password is correct
-   */
-  _checkPassword() {
-    return this.currentSelection.every(
-      (char, index) => char === this.correctCode[index]
-    );
-  }
-
-  /**
-   * Generate feedback for incorrect attempt
-   * @returns {string} - Feedback message
-   */
-  _generateFeedback() {
-    // Count correct positions
-    let correctPositions = 0;
-    let correctCharacters = 0;
-
-    this.currentSelection.forEach((char, index) => {
-      if (char === this.correctCode[index]) {
-        correctPositions++;
-      } else if (this.correctCode.includes(char)) {
-        correctCharacters++;
-      }
-    });
-
-    return `Analysis: ${correctPositions} correct position${
-      correctPositions !== 1 ? "s" : ""
-    }, ${correctCharacters} character${
-      correctCharacters !== 1 ? "s" : ""
-    } in wrong position.`;
-  }
-
-  /**
-   * Show feedback message
-   * @param {string} message - Message to show
-   * @param {string} type - Type of message (success, error, warning)
-   */
-  _showFeedback(message, type) {
-    this.feedbackElement.textContent = message;
-    this.feedbackElement.className = "p-2 rounded text-sm mt-4";
-
-    switch (type) {
-      case "success":
-        this.feedbackElement.classList.add("bg-green-900", "text-green-300");
-        break;
-      case "error":
-        this.feedbackElement.classList.add("bg-red-900", "text-red-300");
-        break;
-      case "warning":
-        this.feedbackElement.classList.add("bg-yellow-900", "text-yellow-300");
-        break;
-      default:
-        this.feedbackElement.classList.add("bg-blue-900", "text-blue-300");
-    }
-  }
-
-  /**
-   * Update attempts counter display
-   */
-  _updateAttempts() {
-    // Create attempt indicators
-    this.attemptsElement.innerHTML = "";
-
-    const attemptsText = document.createElement("span");
-    attemptsText.textContent = `Attempts: ${this.attempts}/${this.maxAttempts}`;
-    this.attemptsElement.appendChild(attemptsText);
-
-    const attemptDots = document.createElement("div");
-    attemptDots.className = "flex space-x-1";
-
-    for (let i = 0; i < this.maxAttempts; i++) {
-      const dot = document.createElement("div");
-      dot.className =
-        i < this.attempts
-          ? "w-2 h-2 rounded-full bg-red-500"
-          : "w-2 h-2 rounded-full bg-gray-600";
-      attemptDots.appendChild(dot);
-    }
-
-    this.attemptsElement.appendChild(attemptDots);
-  }
-
-  /**
-   * Disable all inputs (for completion or max attempts)
-   */
-  _disableInputs() {
-    const inputElements =
-      this.codeInputElement.querySelectorAll("div[data-index]");
-    inputElements.forEach((el) => {
-      el.classList.remove("cursor-pointer", "hover:bg-gray-700");
-      el.classList.add("cursor-not-allowed");
-    });
-
-    const charButtons =
-      this.charactersContainer.querySelectorAll("div[data-char]");
-    charButtons.forEach((button) => {
-      button.classList.remove("cursor-pointer", "hover:bg-blue-900");
-      button.classList.add("cursor-not-allowed", "opacity-50");
-      button.removeEventListener("click", () => {});
-    });
-  }
-
-  /**
-   * Generate default character sets if not provided
-   * @returns {Array} - Array of character sets for each position
-   */
-  _generateDefaultCharacterSets() {
-    const sets = [];
-    const allChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-    for (let i = 0; i < this.passwordLength; i++) {
-      sets.push(allChars);
-    }
-
-    return sets;
-  }
-
-  /**
-   * Generate a random solution if none provided
-   * @returns {Array} - Array of characters forming the solution
-   */
-  _generateRandomSolution() {
-    const solution = [];
-
-    for (let i = 0; i < this.passwordLength; i++) {
-      const chars =
-        this.characterSets[i] || "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-      const randomIndex = Math.floor(Math.random() * chars.length);
-      solution.push(chars[randomIndex]);
-    }
-
-    return solution;
-  }
-
-  /**
-   * Get the current solution
-   * @returns {Array} - The current password selection
-   */
-  getSolution() {
-    return this.currentSelection;
-  }
-
-  /**
-   * Validate the current solution
-   * @returns {boolean} - Whether all positions have a character selected
-   */
-  validateSolution() {
-    return this.currentSelection.every((char) => char !== null);
-  }
-
-  /**
-   * Get error message for invalid solution
-   * @returns {string} - Error message
-   */
-  getErrorMessage() {
-    if (!this.validateSolution()) {
-      return "Error: Please select a character for each position in the password.";
-    }
-    return "";
-  }
-
-  /**
-   * Disable puzzle (used during random events or when completed)
-   */
-  disable() {
-    if (this.terminalElement) {
-      this.terminalElement.classList.add("opacity-50", "pointer-events-none");
-    }
-  }
-
-  /**
-   * Enable puzzle after being disabled
-   */
-  enable() {
-    if (this.terminalElement) {
-      this.terminalElement.classList.remove(
-        "opacity-50",
-        "pointer-events-none"
+  _showHint() {
+    if (this.revealedHints >= this.passwordHints.length) {
+      this._appendToTerminal(
+        "> ERROR: No more password hints available",
+        "error"
       );
+      return;
+    }
+
+    // Get next hint
+    const hint = this.passwordHints[this.revealedHints];
+    this.revealedHints++;
+
+    // Display hint
+    this._appendToTerminal(
+      `> HINT ${this.revealedHints}/${this.passwordHints.length}: ${hint}`,
+      "hint"
+    );
+
+    // Disable hint button if all hints are shown
+    if (this.revealedHints >= this.passwordHints.length) {
+      this.hintButton.disabled = true;
+      this.hintButton.classList.add("opacity-50");
+    }
+
+    // Play hint sound
+    this._playSound("hint");
+  }
+
+  _runBruteForce() {
+    if (this.solved) return;
+
+    this._appendToTerminal("> INITIATING BRUTE FORCE ATTACK", "warning");
+    this._appendToTerminal(
+      "> WARNING: This process will take time and may trigger alarms",
+      "warning"
+    );
+
+    // Disable the button to prevent multiple clicks
+    this.bruteForceButton.disabled = true;
+    this.bruteForceButton.classList.add("opacity-50");
+
+    // Show animation of trying different passwords
+    let count = 0;
+    const bruteForceAnimation = setInterval(() => {
+      count++;
+      const randomAttempt = this._generateRandomPassword();
+      this._appendToTerminal(`Trying: ${randomAttempt}`, "normal");
+
+      // Auto-scroll
+      this.terminalOutput.scrollTop = this.terminalOutput.scrollHeight;
+
+      // After some attempts, show success
+      if (count >= 5) {
+        clearInterval(bruteForceAnimation);
+        this._appendToTerminal(
+          `Found matching password: ${this.password}`,
+          "success"
+        );
+        this._appendToTerminal("> ACCESS GRANTED", "success");
+
+        this.solved = true;
+
+        // Show success
+        if (this.callbacks && this.callbacks.showSuccess) {
+          this.callbacks.showSuccess();
+        }
+
+        // Disable input
+        this.passwordInput.disabled = true;
+        this.hintButton.disabled = true;
+
+        // Play success sound
+        this._playSound("success");
+      }
+    }, 600);
+
+    // Reduce time as penalty for using brute force
+    if (this.callbacks && this.callbacks.reduceTime) {
+      this.callbacks.reduceTime(15);
     }
   }
 
-  /**
-   * Cleanup resources
-   */
+  _generateRandomPassword() {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+    let password = "";
+    for (let i = 0; i < this.passwordLength; i++) {
+      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return password;
+  }
+
+  _playSound(type) {
+    try {
+      let sound;
+      switch (type) {
+        case "success":
+          sound = new Audio("../static/sounds/access-granted.mp3");
+          sound.volume = 0.3;
+          break;
+        case "error":
+          sound = new Audio("../static/sounds/access-denied.mp3");
+          sound.volume = 0.2;
+          break;
+        case "hint":
+          sound = new Audio("../static/sounds/hint.mp3");
+          sound.volume = 0.2;
+          break;
+        default:
+          return;
+      }
+
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play sound:", e);
+    }
+  }
+
+  // Methods required by UniversalPuzzleController
+  getSolution() {
+    return {
+      password: this.password,
+      solved: this.solved,
+      attempts: this.attempts,
+    };
+  }
+
+  validateSolution() {
+    return this.solved;
+  }
+
+  getErrorMessage() {
+    if (this.attempts >= this.maxAttempts) {
+      return "Maximum attempts reached. System locked.";
+    }
+    return "The password is incorrect. Try using hints for more information.";
+  }
+
+  showSuccess() {
+    // Terminal already shows success message
+    // Add additional visual confirmation
+    this.terminalOutput.classList.add("border-2", "border-green-500");
+
+    if (this.passwordInput) {
+      this.passwordInput.value = this.password;
+    }
+  }
+
   cleanup() {
-    // Nothing to clean up for this puzzle
+    // Remove event listeners
+    if (this.containerElement) {
+      this.containerElement.removeEventListener("click", this._checkPassword);
+    }
+
+    if (this.passwordInput) {
+      this.passwordInput.removeEventListener("keyup", this._checkPassword);
+    }
+  }
+
+  handleRandomEvent(eventType, duration) {
+    if (eventType === "security_patrol") {
+      this._appendToTerminal(
+        "> WARNING: Security scan in progress. System access restricted.",
+        "warning"
+      );
+
+      // Temporarily disable input
+      if (this.passwordInput && !this.solved) {
+        this.passwordInput.disabled = true;
+
+        // Re-enable after duration
+        setTimeout(() => {
+          this.passwordInput.disabled = false;
+          this._appendToTerminal(
+            "> Security scan complete. Access restored.",
+            "normal"
+          );
+        }, duration * 1000);
+      }
+    }
   }
 }
 

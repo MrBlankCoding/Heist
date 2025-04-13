@@ -1,386 +1,743 @@
-// Time Bomb Puzzle - Disarm puzzle for the Demolitions role
+// timeBombPuzzle.js - Time Bomb Disarm Puzzle for the Demolitions role
+// Difficulty: 2/5 - Medium difficulty
 
 class TimeBombPuzzle {
-  constructor(container, puzzleData, callbacks) {
-    this.container = container;
+  constructor(containerElement, puzzleData, callbacks) {
+    this.containerElement = containerElement;
     this.puzzleData = puzzleData;
     this.callbacks = callbacks;
-    this.isCompleted = false;
+    this.isComplete = false;
 
-    // Puzzle-specific properties
-    this.sequence = [];
-    this.playerSequence = [];
-    this.sequenceLength = 4 + Math.min(puzzleData.difficulty || 1, 3);
-    this.buttons = [];
-    this.isWaiting = false;
+    // Bomb properties
+    this.bombTimer = null;
+    this.bombTimeRemaining = 45; // 45 seconds to disarm
+    this.internalCountdown = null;
 
-    // DOM elements
-    this.bombContainer = null;
-    this.sequenceDisplay = null;
+    // Keypad properties
+    this.disarmCode = []; // 4-digit code to disarm
+    this.playerCode = []; // Code entered by player
+    this.codeLength = 4;
+    this.attempts = 0;
+    this.maxAttempts = 3;
+
+    // UI elements
+    this.bombTimerElement = null;
+    this.keypadContainer = null;
+    this.codeDisplayElement = null;
+    this.hintElement = null;
+    this.messageElement = null;
+
+    // Audio elements
+    this.tickSound = null;
+    this.wrongSound = null;
+    this.successSound = null;
+
+    // Color sequence hint
+    this.colorSequence = [];
+    this.colorHintContainer = null;
+
+    // Difficulty adjustments
+    this.difficulty = this.puzzleData.difficulty || 2;
+    this._adjustDifficulty();
   }
 
+  /**
+   * Initialize the puzzle
+   */
   initialize() {
-    // Generate puzzle sequence
-    this.generateSequence();
+    // Create UI
+    this._createUI();
+
+    // Generate disarm code
+    this._generateDisarmCode();
+
+    // Generate color hint sequence
+    this._generateColorHint();
+
+    // Start the bomb timer
+    this._startBombTimer();
+
+    // Set up sound effects
+    this._setupSoundEffects();
+
+    // Display initial message
+    this._showMessage("Enter the disarm code before time runs out!");
+  }
+
+  /**
+   * Create the puzzle UI
+   */
+  _createUI() {
+    // Clear container
+    this.containerElement.innerHTML = "";
 
     // Create bomb container
-    this.bombContainer = document.createElement("div");
-    this.bombContainer.className =
-      "bg-gray-900 rounded-lg p-6 w-full max-w-md flex flex-col items-center";
+    const bombContainer = document.createElement("div");
+    bombContainer.className = "bomb-container flex flex-col items-center p-4";
 
-    // Add bomb display screen
-    const displayScreen = document.createElement("div");
-    displayScreen.className =
-      "w-full bg-black border-2 border-red-600 rounded p-3 mb-4 flex flex-col items-center";
+    // Create bomb timer display
+    const timerContainer = document.createElement("div");
+    timerContainer.className =
+      "timer-container bg-black p-3 rounded-lg mb-4 w-full max-w-xs border-2 border-red-600";
 
-    // Add digital display with blinking cursor
-    const digitalDisplay = document.createElement("div");
-    digitalDisplay.className =
-      "font-mono text-green-500 text-lg mb-2 flex items-center justify-center w-full";
-    digitalDisplay.innerHTML = `DISARM CODE: <span class="ml-2 animate-pulse">|</span>`;
-    displayScreen.appendChild(digitalDisplay);
+    this.bombTimerElement = document.createElement("div");
+    this.bombTimerElement.className =
+      "bomb-timer text-red-600 text-4xl font-mono text-center";
+    this.bombTimerElement.textContent = this._formatTime(
+      this.bombTimeRemaining
+    );
 
-    // Add sequence display
-    this.sequenceDisplay = document.createElement("div");
-    this.sequenceDisplay.className =
-      "font-mono text-red-500 text-sm flex items-center justify-center";
-    this.updateSequenceDisplay();
-    displayScreen.appendChild(this.sequenceDisplay);
+    timerContainer.appendChild(this.bombTimerElement);
+    bombContainer.appendChild(timerContainer);
 
-    this.bombContainer.appendChild(displayScreen);
+    // Create hint section
+    this.hintElement = document.createElement("div");
+    this.hintElement.className =
+      "hint-section mb-4 p-3 bg-gray-800 rounded-lg w-full max-w-xs text-center text-sm";
+    this.hintElement.textContent = "Disarm Code Hint:";
+    bombContainer.appendChild(this.hintElement);
 
-    // Add manual instructions
-    const instructions = document.createElement("div");
-    instructions.className =
-      "mb-4 p-3 bg-gray-800 rounded border border-red-600 text-sm";
+    // Color hint container
+    this.colorHintContainer = document.createElement("div");
+    this.colorHintContainer.className =
+      "color-hint-container flex justify-center space-x-2 mb-4";
+    bombContainer.appendChild(this.colorHintContainer);
 
-    instructions.innerHTML = `
-      <div class="text-sm text-gray-300 mb-2">Bomb Disarm Manual - Section 2.3:</div>
-      <div class="text-yellow-400">
-        <p>Follow the correct wire sequence to disarm the bomb.</p>
-        <p>A certain pattern must be followed.</p>
-        <p>The correct colors will start blinking green.</p>
-        <p>An incorrect sequence will accelerate the timer!</p>
-      </div>
-    `;
-    this.bombContainer.appendChild(instructions);
+    // Create code display
+    this.codeDisplayElement = document.createElement("div");
+    this.codeDisplayElement.className = "code-display flex space-x-2 mb-4";
 
-    // Create button panel
-    const buttonPanel = document.createElement("div");
-    buttonPanel.className = "grid grid-cols-2 gap-3 w-full";
-
-    const colors = ["red", "blue", "green", "yellow"];
-    const colorNames = {
-      red: "RED",
-      blue: "BLUE",
-      green: "GREEN",
-      yellow: "YELLOW",
-    };
-
-    colors.forEach((color, index) => {
-      const button = document.createElement("button");
-      button.className = `bomb-button h-16 rounded-md transition-all transform hover:scale-105 active:scale-95 flex items-center justify-center font-bold`;
-      button.style.backgroundColor = this.getButtonColor(color);
-      button.style.color =
-        color === "yellow" || color === "green" ? "#000" : "#fff";
-      button.textContent = colorNames[color];
-      button.dataset.color = color;
-
-      button.addEventListener("click", () => {
-        if (this.isWaiting) return;
-        this.pressButton(color);
-      });
-
-      this.buttons.push(button);
-      buttonPanel.appendChild(button);
-    });
-
-    this.bombContainer.appendChild(buttonPanel);
-
-    // Add hint screen that shows part of the sequence
-    const hintSection = document.createElement("div");
-    hintSection.className =
-      "mt-4 p-2 bg-gray-800 rounded border border-yellow-600 w-full";
-
-    const hintTitle = document.createElement("div");
-    hintTitle.className = "text-xs text-yellow-400 mb-1";
-    hintTitle.textContent = "HINT - First 2 steps:";
-    hintSection.appendChild(hintTitle);
-
-    const hintContent = document.createElement("div");
-    hintContent.className = "flex items-center justify-center space-x-2";
-
-    // Show hints for the first two steps
-    for (let i = 0; i < Math.min(2, this.sequence.length); i++) {
-      const colorHint = document.createElement("div");
-      colorHint.className = "w-6 h-6 rounded-full";
-      colorHint.style.backgroundColor = this.getButtonColor(this.sequence[i]);
-      hintContent.appendChild(colorHint);
+    // Create code slots
+    for (let i = 0; i < this.codeLength; i++) {
+      const codeSlot = document.createElement("div");
+      codeSlot.className =
+        "code-slot w-12 h-12 flex items-center justify-center bg-gray-900 border border-gray-600 text-white text-2xl font-mono";
+      codeSlot.textContent = "_";
+      this.codeDisplayElement.appendChild(codeSlot);
     }
 
-    // Add question marks for remaining steps
-    for (let i = 2; i < this.sequenceLength; i++) {
-      const unknownHint = document.createElement("div");
-      unknownHint.className =
-        "w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-white text-xs";
-      unknownHint.textContent = "?";
-      hintContent.appendChild(unknownHint);
+    bombContainer.appendChild(this.codeDisplayElement);
+
+    // Create keypad
+    this.keypadContainer = document.createElement("div");
+    this.keypadContainer.className =
+      "keypad-container grid grid-cols-3 gap-2 mb-4";
+
+    // Add digits 1-9
+    for (let i = 1; i <= 9; i++) {
+      this._createKeypadButton(i.toString());
     }
 
-    hintSection.appendChild(hintContent);
-    this.bombContainer.appendChild(hintSection);
+    // Add 0 and control buttons
+    this._createKeypadButton("0");
+    this._createKeypadButton("←", "clear", "bg-yellow-700");
+    this._createKeypadButton("✓", "submit", "bg-green-700");
+
+    bombContainer.appendChild(this.keypadContainer);
+
+    // Create message element
+    this.messageElement = document.createElement("div");
+    this.messageElement.className =
+      "message mt-4 p-2 w-full text-center rounded-lg";
+    bombContainer.appendChild(this.messageElement);
+
+    // Add attempt counter
+    const attemptCounter = document.createElement("div");
+    attemptCounter.className = "attempts text-sm text-gray-400 mt-2";
+    attemptCounter.textContent = `Attempts: ${this.attempts}/${this.maxAttempts}`;
+    bombContainer.appendChild(attemptCounter);
 
     // Add to main container
-    this.container.appendChild(this.bombContainer);
-
-    // Start countdown timer via callback
-    this.callbacks.startCountdown(this.onTimeUp.bind(this));
+    this.containerElement.appendChild(bombContainer);
   }
 
-  generateSequence() {
-    const colors = ["red", "blue", "green", "yellow"];
-    this.sequence = [];
+  /**
+   * Create a keypad button
+   * @param {string} text - Button text
+   * @param {string} action - Button action (number, clear, submit)
+   * @param {string} bgClass - Background CSS class
+   */
+  _createKeypadButton(text, action = "number", bgClass = "bg-gray-700") {
+    const button = document.createElement("button");
+    button.className = `keypad-button ${bgClass} text-white w-16 h-16 rounded-lg text-xl font-mono focus:outline-none hover:opacity-80`;
+    button.textContent = text;
 
-    // Generate the sequence based on difficulty
-    // The higher the difficulty, the more complex the pattern
-    if (this.puzzleData.difficulty >= 3) {
-      // Hard pattern - alternating pairs
-      for (let i = 0; i < this.sequenceLength; i++) {
-        if (i % 2 === 0) {
-          // On even positions, use red or blue
-          this.sequence.push(Math.random() < 0.5 ? "red" : "blue");
-        } else {
-          // On odd positions, use green or yellow
-          this.sequence.push(Math.random() < 0.5 ? "green" : "yellow");
-        }
+    // Add click event
+    button.addEventListener("click", () => {
+      // Play button press sound
+      this._playButtonSound();
+
+      if (action === "number") {
+        this._handleDigitInput(text);
+      } else if (action === "clear") {
+        this._handleClear();
+      } else if (action === "submit") {
+        this._handleSubmit();
       }
-    } else {
-      // Simple random sequence
-      for (let i = 0; i < this.sequenceLength; i++) {
-        const randomIndex = Math.floor(Math.random() * colors.length);
-        this.sequence.push(colors[randomIndex]);
-      }
+    });
+
+    this.keypadContainer.appendChild(button);
+    return button;
+  }
+
+  /**
+   * Handle digit input from keypad
+   * @param {string} digit - Digit pressed
+   */
+  _handleDigitInput(digit) {
+    if (this.isComplete) return;
+    if (this.playerCode.length >= this.codeLength) return;
+
+    // Add digit to code
+    this.playerCode.push(digit);
+
+    // Update display
+    this._updateCodeDisplay();
+
+    // If code is complete length, auto-submit
+    if (this.playerCode.length === this.codeLength) {
+      setTimeout(() => this._handleSubmit(), 300);
     }
   }
 
-  pressButton(color) {
-    // Add to player sequence
-    this.playerSequence.push(color);
+  /**
+   * Handle clear button
+   */
+  _handleClear() {
+    if (this.isComplete) return;
 
-    // Flash the button
-    const button = this.buttons.find((btn) => btn.dataset.color === color);
-    button.classList.add("opacity-50");
-    setTimeout(() => {
-      button.classList.remove("opacity-50");
-    }, 200);
+    // Remove last digit
+    if (this.playerCode.length > 0) {
+      this.playerCode.pop();
+    }
 
-    // Update sequence display
-    this.updateSequenceDisplay();
+    // Update display
+    this._updateCodeDisplay();
+  }
 
-    // Check if sequence is correct so far
-    const index = this.playerSequence.length - 1;
-    if (this.playerSequence[index] !== this.sequence[index]) {
-      // Wrong button! Show error and penalize
-      this.callbacks.showMessage("Wrong sequence! Timer reduced!", "error");
-
-      // Penalize by reducing time - make the bomb tick faster
-      this.callbacks.reduceTime(5);
-
-      // Reset player sequence
-      this.playerSequence = [];
-      this.updateSequenceDisplay();
-
-      // Shake the bomb
-      this.bombContainer.classList.add("animate-shake");
-      setTimeout(() => {
-        this.bombContainer.classList.remove("animate-shake");
-      }, 500);
-
+  /**
+   * Handle submit button
+   */
+  _handleSubmit() {
+    if (this.isComplete) return;
+    if (this.playerCode.length !== this.codeLength) {
+      this._showMessage("Enter the complete code first!", "error");
       return;
     }
 
-    // Check if complete
-    if (this.playerSequence.length === this.sequence.length) {
-      this.isCompleted = true;
+    // Increment attempt counter
+    this.attempts++;
 
-      // Victory animation
-      this.playSuccessAnimation().then(() => {
-        this.callbacks.showSuccess();
-      });
+    // Update attempts display
+    const attemptCounter = this.containerElement.querySelector(".attempts");
+    if (attemptCounter) {
+      attemptCounter.textContent = `Attempts: ${this.attempts}/${this.maxAttempts}`;
+    }
+
+    // Check if code is correct
+    const isCorrect = this._checkDisarmCode();
+
+    if (isCorrect) {
+      this._handleSuccess();
+    } else {
+      // Wrong code!
+      this._playWrongSound();
+      this._showMessage("Incorrect code! Try again.", "error");
+
+      // Make the bomb timer faster as penalty
+      this.bombTimeRemaining = Math.max(5, this.bombTimeRemaining - 10);
+
+      // Clear the code
+      this.playerCode = [];
+      this._updateCodeDisplay();
+
+      // Check for too many failed attempts
+      if (this.attempts >= this.maxAttempts) {
+        this._handleFailure(
+          "Too many failed attempts! Bomb detonation accelerated."
+        );
+        return;
+      }
+
+      // Provide additional hint after first failed attempt
+      if (this.attempts === 1) {
+        this._provideAdditionalHint();
+      }
     }
   }
 
-  updateSequenceDisplay() {
-    // Show player's current sequence as dots
-    let display = "";
+  /**
+   * Update the code display
+   */
+  _updateCodeDisplay() {
+    const codeSlots = this.codeDisplayElement.querySelectorAll(".code-slot");
 
-    for (let i = 0; i < this.sequenceLength; i++) {
-      if (i < this.playerSequence.length) {
-        const color = this.playerSequence[i];
-        display += `<span class="inline-block w-4 h-4 rounded-full mx-1" style="background-color: ${this.getButtonColor(
-          color
-        )};"></span>`;
+    // Update each slot
+    for (let i = 0; i < codeSlots.length; i++) {
+      if (i < this.playerCode.length) {
+        codeSlots[i].textContent = this.playerCode[i];
       } else {
-        display += `<span class="inline-block w-4 h-4 rounded-full mx-1 bg-gray-700"></span>`;
+        codeSlots[i].textContent = "_";
+      }
+    }
+  }
+
+  /**
+   * Generate a random disarm code
+   */
+  _generateDisarmCode() {
+    this.disarmCode = [];
+
+    // Generate random code
+    for (let i = 0; i < this.codeLength; i++) {
+      const digit = Math.floor(Math.random() * 10).toString();
+      this.disarmCode.push(digit);
+    }
+
+    console.log("Disarm code:", this.disarmCode.join(""));
+  }
+
+  /**
+   * Generate color sequence hint
+   */
+  _generateColorHint() {
+    const colors = ["red", "blue", "green", "yellow", "purple", "orange"];
+    this.colorSequence = [];
+
+    // Generate colors for each digit in the code
+    for (let i = 0; i < this.disarmCode.length; i++) {
+      const digit = parseInt(this.disarmCode[i]);
+
+      // Map digit to color and position
+      const colorIndex = digit % colors.length;
+      this.colorSequence.push(colors[colorIndex]);
+    }
+
+    // Render color hints
+    this._renderColorHints();
+
+    // Generate hint text based on colors and their meaning
+    this._generateHintText();
+  }
+
+  /**
+   * Render color hint circles
+   */
+  _renderColorHints() {
+    this.colorHintContainer.innerHTML = "";
+
+    for (let color of this.colorSequence) {
+      const colorCircle = document.createElement("div");
+      colorCircle.className = `color-circle w-8 h-8 rounded-full`;
+      colorCircle.style.backgroundColor = this._getColorValue(color);
+      this.colorHintContainer.appendChild(colorCircle);
+    }
+  }
+
+  /**
+   * Generate hint text to help player translate colors to numbers
+   */
+  _generateHintText() {
+    // Create a simple formula hint
+    const hintText =
+      "Color code: Red=1/6, Blue=2/7, Green=3/8, Yellow=4/9, Purple=5/0, Orange=Sequence position";
+    this.hintElement.textContent = hintText;
+  }
+
+  /**
+   * Get color CSS value
+   * @param {string} colorName - Name of the color
+   * @returns {string} - CSS color value
+   */
+  _getColorValue(colorName) {
+    switch (colorName) {
+      case "red":
+        return "rgb(239, 68, 68)";
+      case "blue":
+        return "rgb(59, 130, 246)";
+      case "green":
+        return "rgb(34, 197, 94)";
+      case "yellow":
+        return "rgb(234, 179, 8)";
+      case "purple":
+        return "rgb(139, 92, 246)";
+      case "orange":
+        return "rgb(249, 115, 22)";
+      default:
+        return "rgb(107, 114, 128)";
+    }
+  }
+
+  /**
+   * Provide additional hint after first failed attempt
+   */
+  _provideAdditionalHint() {
+    // Give a more direct hint with one of the positions
+    const hintPosition = Math.floor(Math.random() * this.codeLength);
+    const hintText = `Hint: Position ${hintPosition + 1} is ${
+      this.disarmCode[hintPosition]
+    }`;
+
+    this._showMessage(hintText, "info");
+  }
+
+  /**
+   * Check if the entered code matches the disarm code
+   * @returns {boolean} - True if codes match
+   */
+  _checkDisarmCode() {
+    if (this.playerCode.length !== this.disarmCode.length) {
+      return false;
+    }
+
+    for (let i = 0; i < this.codeLength; i++) {
+      if (this.playerCode[i] !== this.disarmCode[i]) {
+        return false;
       }
     }
 
-    this.sequenceDisplay.innerHTML = display;
+    return true;
   }
 
-  playSuccessAnimation() {
-    return new Promise((resolve) => {
-      this.isWaiting = true;
+  /**
+   * Start the bomb timer
+   */
+  _startBombTimer() {
+    if (this.bombTimer) {
+      clearInterval(this.bombTimer);
+    }
 
-      // Disable buttons during animation
-      this.buttons.forEach((button) => {
-        button.disabled = true;
-      });
+    this.bombTimer = setInterval(() => {
+      this.bombTimeRemaining--;
 
-      // Animate each button in sequence
-      let index = 0;
-      const animateNextButton = () => {
-        if (index >= this.sequence.length) {
-          this.isWaiting = false;
-          resolve();
-          return;
+      // Update timer display
+      if (this.bombTimerElement) {
+        this.bombTimerElement.textContent = this._formatTime(
+          this.bombTimeRemaining
+        );
+
+        // Make timer flash when time is low
+        if (this.bombTimeRemaining <= 10) {
+          this.bombTimerElement.classList.add("animate-pulse");
         }
+      }
 
-        const color = this.sequence[index];
-        const button = this.buttons.find((btn) => btn.dataset.color === color);
+      // Play tick sound
+      if (this.bombTimeRemaining <= 10) {
+        this._playTickSound();
+      }
 
-        // Flash green to indicate success
-        button.style.backgroundColor = "#4ade80"; // Green
-        button.style.transform = "scale(1.1)";
-        button.style.boxShadow = "0 0 15px #4ade80";
-
-        setTimeout(() => {
-          // Reset button style
-          button.style.backgroundColor = this.getButtonColor(color);
-          button.style.transform = "";
-          button.style.boxShadow = "";
-
-          index++;
-          animateNextButton();
-        }, 300);
-      };
-
-      animateNextButton();
-    });
+      // Check for time expiration
+      if (this.bombTimeRemaining <= 0) {
+        this._handleFailure("Time's up! The bomb has detonated.");
+      }
+    }, 1000);
   }
 
-  onTimeUp() {
-    if (this.isCompleted) return;
+  /**
+   * Format time for display
+   * @param {number} seconds - Time in seconds
+   * @returns {string} - Formatted time string (00:00)
+   */
+  _formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  }
+
+  /**
+   * Set up sound effects
+   */
+  _setupSoundEffects() {
+    try {
+      this.tickSound = new Audio("../static/sounds/tick.mp3");
+      this.tickSound.volume = 0.2;
+
+      this.wrongSound = new Audio("../static/sounds/wrong.mp3");
+      this.wrongSound.volume = 0.3;
+
+      this.successSound = new Audio("../static/sounds/success.mp3");
+      this.successSound.volume = 0.3;
+    } catch (e) {
+      console.warn("Could not set up sound effects:", e);
+    }
+  }
+
+  /**
+   * Play tick sound
+   */
+  _playTickSound() {
+    if (this.tickSound) {
+      try {
+        // Clone the sound to allow overlapping playback
+        const tickSoundClone = this.tickSound.cloneNode();
+        tickSoundClone
+          .play()
+          .catch((e) => console.warn("Could not play sound:", e));
+      } catch (e) {
+        console.warn("Could not play tick sound:", e);
+      }
+    }
+  }
+
+  /**
+   * Play button press sound
+   */
+  _playButtonSound() {
+    try {
+      const buttonSound = new Audio("../static/sounds/button-press.mp3");
+      buttonSound.volume = 0.1;
+      buttonSound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play button sound:", e);
+    }
+  }
+
+  /**
+   * Play wrong answer sound
+   */
+  _playWrongSound() {
+    if (this.wrongSound) {
+      try {
+        this.wrongSound
+          .play()
+          .catch((e) => console.warn("Could not play sound:", e));
+      } catch (e) {
+        console.warn("Could not play wrong sound:", e);
+      }
+    }
+  }
+
+  /**
+   * Handle successful bomb disarm
+   */
+  _handleSuccess() {
+    this.isComplete = true;
+
+    // Stop the timer
+    if (this.bombTimer) {
+      clearInterval(this.bombTimer);
+      this.bombTimer = null;
+    }
+
+    // Play success sound
+    if (this.successSound) {
+      try {
+        this.successSound
+          .play()
+          .catch((e) => console.warn("Could not play sound:", e));
+      } catch (e) {
+        console.warn("Could not play success sound:", e);
+      }
+    }
+
+    // Show success message
+    this._showMessage("Bomb successfully disarmed!", "success");
+
+    // Trigger success callback
+    if (this.callbacks && this.callbacks.showSuccess) {
+      this.callbacks.showSuccess();
+    }
+  }
+
+  /**
+   * Handle bomb detonation / failure
+   * @param {string} message - Failure message
+   */
+  _handleFailure(message) {
+    // Stop the timer
+    if (this.bombTimer) {
+      clearInterval(this.bombTimer);
+      this.bombTimer = null;
+    }
 
     // Show failure message
-    this.callbacks.showMessage("BOOM! The bomb exploded!", "error");
+    this._showMessage(message, "error");
 
-    // Disable further interaction
-    this.bombContainer.classList.add("opacity-75", "pointer-events-none");
-    this.callbacks.disableSubmit();
-
-    // Add explosion effect
-    this.bombContainer.style.transform = "scale(1.5)";
-    this.bombContainer.style.opacity = "0";
-    this.bombContainer.style.transition = "all 0.5s";
-  }
-
-  getButtonColor(color) {
-    const colorMap = {
-      red: "#ef4444",
-      blue: "#3b82f6",
-      green: "#22c55e",
-      yellow: "#eab308",
-    };
-
-    return colorMap[color] || "#6b7280";
-  }
-
-  handleRandomEvent(eventType, duration) {
-    if (this.isCompleted) return;
-
-    // Special effects for events
-    if (eventType === "system_check") {
-      // System check might reveal one more hint
-      const randomIndex =
-        Math.floor(Math.random() * (this.sequence.length - 2)) + 2;
-
-      // Create a temporary hint
-      const hintBox = document.createElement("div");
-      hintBox.className =
-        "fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black border-2 border-yellow-400 p-4 rounded z-50 flex flex-col items-center";
-
-      const hintTitle = document.createElement("div");
-      hintTitle.className = "text-yellow-400 mb-2";
-      hintTitle.textContent = "SYSTEM GLITCH: REVEALED SEQUENCE STEP";
-      hintBox.appendChild(hintTitle);
-
-      const hintContent = document.createElement("div");
-      hintContent.className = "flex items-center space-x-2";
-
-      const positionIndicator = document.createElement("div");
-      positionIndicator.className = "text-white";
-      positionIndicator.textContent = `Position ${randomIndex + 1}:`;
-      hintContent.appendChild(positionIndicator);
-
-      const colorHint = document.createElement("div");
-      colorHint.className = "w-8 h-8 rounded-full";
-      colorHint.style.backgroundColor = this.getButtonColor(
-        this.sequence[randomIndex]
-      );
-      hintContent.appendChild(colorHint);
-
-      hintBox.appendChild(hintContent);
-      document.body.appendChild(hintBox);
-
-      // Remove after duration
-      setTimeout(() => {
-        hintBox.remove();
-      }, duration * 1000);
+    // Play explosion sound
+    try {
+      const explosionSound = new Audio("../static/sounds/explosion.mp3");
+      explosionSound.volume = 0.4;
+      explosionSound
+        .play()
+        .catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play explosion sound:", e);
     }
-  }
 
-  reset() {
-    // Reset puzzle state
-    this.playerSequence = [];
-    this.isCompleted = false;
-    this.updateSequenceDisplay();
+    // Visual explosion effect
+    this._createExplosionEffect();
 
-    // Re-enable buttons
-    this.buttons.forEach((button) => {
-      button.disabled = false;
-      button.style.backgroundColor = this.getButtonColor(button.dataset.color);
-      button.style.transform = "";
-      button.style.boxShadow = "";
+    // Disable keypad
+    const keypadButtons = this.keypadContainer.querySelectorAll("button");
+    keypadButtons.forEach((button) => {
+      button.disabled = true;
+      button.classList.add("opacity-50");
     });
+
+    // Reduce time as penalty
+    if (this.callbacks && this.callbacks.reduceTime) {
+      this.callbacks.reduceTime(15);
+    }
   }
 
+  /**
+   * Create explosion visual effect
+   */
+  _createExplosionEffect() {
+    // Add explosion overlay
+    const explosionOverlay = document.createElement("div");
+    explosionOverlay.className =
+      "absolute inset-0 bg-red-500 bg-opacity-50 z-10 flex items-center justify-center";
+    explosionOverlay.style.animation = "explosion 0.5s ease-out";
+
+    // Add keyframes for explosion animation
+    const style = document.createElement("style");
+    style.textContent = `
+      @keyframes explosion {
+        0% { opacity: 0; }
+        50% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Make container position relative for absolute positioning
+    this.containerElement.style.position = "relative";
+
+    // Add to container
+    this.containerElement.appendChild(explosionOverlay);
+
+    // Remove after animation
+    setTimeout(() => {
+      explosionOverlay.remove();
+    }, 1000);
+  }
+
+  /**
+   * Show message
+   * @param {string} message - Message to display
+   * @param {string} type - Type of message (info, success, error)
+   */
+  _showMessage(message, type = "info") {
+    if (!this.messageElement) return;
+
+    // Remove previous classes
+    this.messageElement.className =
+      "message mt-4 p-2 w-full text-center rounded-lg";
+
+    // Add type-specific class
+    switch (type) {
+      case "success":
+        this.messageElement.classList.add("bg-green-700", "text-white");
+        break;
+      case "error":
+        this.messageElement.classList.add("bg-red-700", "text-white");
+        break;
+      default:
+        this.messageElement.classList.add("bg-blue-700", "text-white");
+    }
+
+    this.messageElement.textContent = message;
+  }
+
+  /**
+   * Adjust difficulty based on level
+   */
+  _adjustDifficulty() {
+    // Level 2 already has default settings
+    // For higher difficulties, adjust accordingly
+    if (this.difficulty > 2) {
+      this.bombTimeRemaining -= 5 * (this.difficulty - 2);
+      this.maxAttempts = Math.max(1, 3 - (this.difficulty - 2));
+    }
+  }
+
+  /**
+   * Check if the solution is valid
+   * @returns {boolean} - True if solution is valid
+   */
+  validateSolution() {
+    if (!this.isComplete) return false;
+    return true;
+  }
+
+  /**
+   * Get the current solution
+   * @returns {Array} - Disarm code
+   */
+  getSolution() {
+    return this.playerCode;
+  }
+
+  /**
+   * Get error message for invalid solution
+   * @returns {string} - Error message
+   */
+  getErrorMessage() {
+    return "Enter the correct disarm code to complete the puzzle.";
+  }
+
+  /**
+   * Show success animation
+   */
+  showSuccess() {
+    // Flash success message
+    const successOverlay = document.createElement("div");
+    successOverlay.className =
+      "absolute inset-0 bg-green-500 bg-opacity-20 flex items-center justify-center z-10";
+    successOverlay.innerHTML = `
+      <div class="text-4xl font-bold text-white">DISARMED</div>
+    `;
+
+    // Make container position relative for absolute positioning
+    this.containerElement.style.position = "relative";
+
+    // Add to container
+    this.containerElement.appendChild(successOverlay);
+
+    // Animate in
+    successOverlay.style.opacity = "0";
+    successOverlay.style.transition = "opacity 0.5s";
+
+    setTimeout(() => {
+      successOverlay.style.opacity = "1";
+    }, 100);
+
+    // Remove after animation
+    setTimeout(() => {
+      successOverlay.style.opacity = "0";
+      setTimeout(() => {
+        successOverlay.remove();
+      }, 500);
+    }, 2000);
+  }
+
+  /**
+   * Clean up resources
+   */
   cleanup() {
-    // Clean up event listeners
-    if (this.buttons) {
-      this.buttons.forEach((button) => {
-        // Clone and replace to remove event listeners
-        const newButton = button.cloneNode(true);
-        if (button.parentNode) {
-          button.parentNode.replaceChild(newButton, button);
-        }
-      });
+    // Stop timers
+    if (this.bombTimer) {
+      clearInterval(this.bombTimer);
+      this.bombTimer = null;
     }
 
-    if (this.bombContainer) {
-      this.bombContainer.remove();
-    }
+    // Remove event listeners from keypad buttons
+    const keypadButtons = this.keypadContainer
+      ? this.keypadContainer.querySelectorAll("button")
+      : [];
+    keypadButtons.forEach((button) => {
+      const clone = button.cloneNode(true);
+      button.parentNode.replaceChild(clone, button);
+    });
 
-    this.buttons = [];
-    this.bombContainer = null;
-    this.sequenceDisplay = null;
-  }
-
-  getSubmissionData() {
-    return {
-      sequence: this.sequence,
-      playerSequence: this.playerSequence,
-    };
+    // Clean up audio resources
+    this.tickSound = null;
+    this.wrongSound = null;
+    this.successSound = null;
   }
 }
 

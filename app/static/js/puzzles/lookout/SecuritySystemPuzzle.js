@@ -1,141 +1,730 @@
-// SecuritySystemPuzzle.js - Lookout puzzle for security system mapping (type 3)
+// SecuritySystemPuzzle.js - Security System Bypass Puzzle for the Lookout role
+// Difficulty: 3/5 - Medium-hard difficulty
 
 class SecuritySystemPuzzle {
-  constructor(containerElement, puzzleData, submitSolutionCallback) {
+  constructor(containerElement, puzzleData, callbacks) {
     this.containerElement = containerElement;
     this.puzzleData = puzzleData;
-    this.submitSolution = submitSolutionCallback;
-    this.isCompleted = false;
+    this.callbacks = callbacks;
+    this.isComplete = false;
 
-    // Security system mapping specific properties
-    this.gridSize = 8; // 8x8 grid
-    this.securityCameras = [];
-    this.playerMarkedCells = []; // Cells marked by player
-    this.correctCoverageCells = []; // Cells that should be marked
-    this.minimumAccuracy = 0.8; // Require 80% accuracy to pass
+    // Security system properties
+    this.securityNodes = [];
+    this.connections = [];
+    this.numNodes = 8; // Number of security nodes
+    this.activeNodeId = null; // Currently selected node
 
-    // DOM elements
-    this.mapGrid = null;
+    // Timer for blinking and system rotations
+    this.blinkingTimer = null;
+    this.blinkingSpeed = 800; // ms
+
+    // Rotating security system
+    this.rotationTimer = null;
+    this.rotationSpeed = 5000; // ms - rotate every 5 seconds
+    this.rotationDirection = 1; // 1 for clockwise, -1 for counter-clockwise
+
+    // Vulnerability window
+    this.vulnerabilityActive = false;
+    this.vulnerabilityTimer = null;
+    this.vulnerabilityWindow = 8000; // 8 seconds vulnerability window
+
+    // UI elements
+    this.canvasElement = null;
     this.messageElement = null;
-    this.submitButton = null;
-    this.resetButton = null;
-    this.timerElement = null;
-    this.timerInterval = null;
-    this.timeRemaining = 180; // 3 minutes
+    this.statusElement = null;
+
+    // Canvas properties
+    this.canvasWidth = 500;
+    this.canvasHeight = 500;
+    this.centerX = this.canvasWidth / 2;
+    this.centerY = this.canvasHeight / 2;
+    this.radius = 180; // Radius of the circle of nodes
+
+    // Solution tracking
+    this.disabledNodes = 0;
+    this.requiredDisabledNodes = 5; // Need to disable 5 nodes to complete
+
+    // Difficulty adjustments
+    this.difficulty = this.puzzleData.difficulty || 3;
+    this._adjustForDifficulty();
+  }
+
+  /**
+   * Adjust parameters based on difficulty
+   */
+  _adjustForDifficulty() {
+    // Adjust number of nodes
+    this.numNodes = 6 + this.difficulty; // 9 nodes for difficulty 3
+
+    // Adjust required nodes to disable
+    this.requiredDisabledNodes = 4 + Math.floor(this.difficulty / 2); // 5 for difficulty 3
+
+    // Adjust rotation speed (faster at higher difficulties)
+    this.rotationSpeed = Math.max(3000, 6000 - this.difficulty * 500);
+
+    // Adjust vulnerability window (shorter at higher difficulties)
+    this.vulnerabilityWindow = Math.max(4000, 10000 - this.difficulty * 1000);
   }
 
   /**
    * Initialize the puzzle
    */
   initialize() {
-    // Create game area
-    const gameArea = document.createElement("div");
-    gameArea.className = "flex flex-col items-center mb-6";
-    this.containerElement.appendChild(gameArea);
+    // Create UI elements
+    this._createUI();
 
-    // Create header with title and timer
-    const headerContainer = document.createElement("div");
-    headerContainer.className = "flex justify-between items-center w-full mb-4";
+    // Initialize nodes
+    this._initializeNodes();
 
-    const title = document.createElement("h4");
-    title.className = "text-lg text-green-400 font-bold";
-    title.textContent = "Security System Mapping";
+    // Initialize connections
+    this._initializeConnections();
 
-    this.timerElement = document.createElement("div");
-    this.timerElement.className = "text-yellow-400 font-mono";
-    this.timerElement.textContent = this._formatTime(this.timeRemaining);
+    // Start animation timers
+    this._startBlinking();
+    this._startRotation();
 
-    headerContainer.appendChild(title);
-    headerContainer.appendChild(this.timerElement);
-    gameArea.appendChild(headerContainer);
+    // Start periodic vulnerability window
+    this._scheduleVulnerabilityWindow();
 
-    // Create instructions
-    const instructions = document.createElement("p");
-    instructions.className = "text-gray-300 mb-4 text-sm";
-    instructions.innerHTML =
-      "Map blind spots and camera coverage in the facility. <strong class='text-green-400'>Click cells</strong> to mark areas covered by security cameras. <strong class='text-yellow-400'>The goal is to accurately identify all cells monitored by cameras.</strong>";
-    gameArea.appendChild(instructions);
+    // Render initial state
+    this._render();
 
-    // Create map container with grid
-    this._createSecurityMap(gameArea);
+    // Display instructions
+    this._showMessage("Identify vulnerable nodes during system shifts.");
+  }
 
-    // Create camera list
-    this._createCameraList(gameArea);
+  /**
+   * Create the UI elements for the puzzle
+   */
+  _createUI() {
+    const puzzleContainer = document.createElement("div");
+    puzzleContainer.className =
+      "security-system-puzzle flex flex-col items-center justify-center h-full";
 
-    // Create button container
-    const buttonContainer = document.createElement("div");
-    buttonContainer.className = "flex space-x-4 mt-4";
+    // Header with status
+    this.statusElement = document.createElement("div");
+    this.statusElement.className = "mb-4 text-white font-medium text-center";
+    this.statusElement.textContent = `Security Nodes Disabled: 0/${this.requiredDisabledNodes}`;
+    puzzleContainer.appendChild(this.statusElement);
 
-    // Reset button
-    this.resetButton = document.createElement("button");
-    this.resetButton.className =
-      "px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded";
-    this.resetButton.textContent = "Reset Map";
-    this.resetButton.addEventListener("click", () => this._resetMap());
-    buttonContainer.appendChild(this.resetButton);
+    // Instructions
+    const instructions = document.createElement("div");
+    instructions.className = "mb-4 text-center text-gray-300";
+    instructions.innerHTML = `
+      <p class="mb-2">Disable the security nodes during vulnerability windows.</p>
+      <p class="text-sm">
+        <span class="bg-blue-500 text-white px-2 py-1 rounded">Active</span>
+        <span class="ml-2 bg-red-500 text-white px-2 py-1 rounded">Disabled</span>
+        <span class="ml-2 bg-green-500 text-white px-2 py-1 rounded">Vulnerable</span>
+      </p>
+    `;
+    puzzleContainer.appendChild(instructions);
 
-    // Submit button
-    this.submitButton = document.createElement("button");
-    this.submitButton.className = "heist-button";
-    this.submitButton.textContent = "Submit Mapping";
-    this.submitButton.addEventListener("click", () => this._handleSubmit());
-    buttonContainer.appendChild(this.submitButton);
+    // Canvas for security system visualization
+    this.canvasElement = document.createElement("canvas");
+    this.canvasElement.width = this.canvasWidth;
+    this.canvasElement.height = this.canvasHeight;
+    this.canvasElement.className = "bg-gray-900 rounded-lg";
+    this.canvasElement.addEventListener(
+      "click",
+      this._handleCanvasClick.bind(this)
+    );
+    puzzleContainer.appendChild(this.canvasElement);
 
-    gameArea.appendChild(buttonContainer);
-
-    // Message element for feedback
+    // Message element
     this.messageElement = document.createElement("div");
     this.messageElement.className =
-      "mb-4 text-yellow-400 text-center hidden mt-4";
-    gameArea.appendChild(this.messageElement);
+      "mt-4 text-center h-8 text-white font-medium";
+    puzzleContainer.appendChild(this.messageElement);
 
-    // Generate security cameras and coverage
-    this._generateSecuritySystem();
-
-    // Start timer
-    this._startTimer();
+    this.containerElement.appendChild(puzzleContainer);
   }
 
   /**
-   * Get puzzle title
-   * @returns {string} - Puzzle title
+   * Initialize security system nodes
    */
-  getTitle() {
-    return "Security System Mapping";
+  _initializeNodes() {
+    this.securityNodes = [];
+
+    for (let i = 0; i < this.numNodes; i++) {
+      // Calculate position on a circle
+      const angle = (i / this.numNodes) * 2 * Math.PI;
+      const x = this.centerX + this.radius * Math.cos(angle);
+      const y = this.centerY + this.radius * Math.sin(angle);
+
+      this.securityNodes.push({
+        id: i,
+        x,
+        y,
+        angle,
+        status: "active", // active, vulnerable, disabled
+        blinking: false,
+        size: 25,
+        connections: [],
+      });
+    }
+
+    // Add a central node
+    this.securityNodes.push({
+      id: this.numNodes,
+      x: this.centerX,
+      y: this.centerY,
+      angle: 0,
+      status: "protected", // This one cannot be disabled
+      blinking: false,
+      size: 35,
+      connections: [],
+    });
   }
 
   /**
-   * Get puzzle instructions
-   * @returns {string} - Puzzle instructions
+   * Initialize connections between nodes
    */
-  getInstructions() {
-    return "Map the complete security system by identifying blind spots and camera coverage.";
+  _initializeConnections() {
+    this.connections = [];
+
+    // Connect each outer node to the center
+    const centerNodeId = this.numNodes;
+
+    for (let i = 0; i < this.numNodes; i++) {
+      this.connections.push({
+        sourceId: i,
+        targetId: centerNodeId,
+        active: true,
+      });
+
+      // Add to node's connection list
+      this.securityNodes[i].connections.push(centerNodeId);
+      this.securityNodes[centerNodeId].connections.push(i);
+    }
+
+    // Connect some nodes to each other
+    for (let i = 0; i < this.numNodes; i++) {
+      // Connect to next node (circular)
+      const nextNode = (i + 1) % this.numNodes;
+
+      this.connections.push({
+        sourceId: i,
+        targetId: nextNode,
+        active: true,
+      });
+
+      // Add to node's connection list
+      this.securityNodes[i].connections.push(nextNode);
+      this.securityNodes[nextNode].connections.push(i);
+
+      // Connect to a random node
+      const randomNode =
+        (i + 2 + Math.floor(Math.random() * (this.numNodes - 4))) %
+        this.numNodes;
+
+      // Avoid duplicate connections
+      if (!this.securityNodes[i].connections.includes(randomNode)) {
+        this.connections.push({
+          sourceId: i,
+          targetId: randomNode,
+          active: true,
+        });
+
+        // Add to node's connection list
+        this.securityNodes[i].connections.push(randomNode);
+        this.securityNodes[randomNode].connections.push(i);
+      }
+    }
   }
 
   /**
-   * Display success message and visuals
+   * Start blinking animation for nodes
    */
-  showSuccess() {
-    this.isCompleted = true;
-    this._stopTimer();
+  _startBlinking() {
+    this._stopBlinking();
 
-    // Update UI to show success
-    this.messageElement.textContent =
-      "Security system successfully mapped! The team now knows all safe paths.";
-    this.messageElement.className = "mb-4 text-green-400 text-center";
+    this.blinkingTimer = setInterval(() => {
+      for (const node of this.securityNodes) {
+        if (node.status === "active" || node.status === "vulnerable") {
+          node.blinking = !node.blinking;
+        }
+      }
 
-    // Show correct coverage
-    this._revealCorrectCoverage();
+      this._render();
+    }, this.blinkingSpeed);
+  }
 
-    // Update button
-    this.submitButton.disabled = true;
-    this.submitButton.textContent = "Mission Complete";
-    this.submitButton.className = "heist-button mx-auto block opacity-50";
+  /**
+   * Stop blinking animation
+   */
+  _stopBlinking() {
+    if (this.blinkingTimer) {
+      clearInterval(this.blinkingTimer);
+      this.blinkingTimer = null;
+    }
+  }
 
-    // Disable reset button
-    this.resetButton.disabled = true;
-    this.resetButton.className =
-      "px-4 py-2 bg-gray-700 text-white rounded opacity-50";
+  /**
+   * Start rotation animation
+   */
+  _startRotation() {
+    this._stopRotation();
+
+    this.rotationTimer = setInterval(() => {
+      this._rotateSecuritySystem();
+    }, this.rotationSpeed);
+  }
+
+  /**
+   * Stop rotation animation
+   */
+  _stopRotation() {
+    if (this.rotationTimer) {
+      clearInterval(this.rotationTimer);
+      this.rotationTimer = null;
+    }
+  }
+
+  /**
+   * Rotate the security system
+   */
+  _rotateSecuritySystem() {
+    // Randomly switch direction sometimes
+    if (Math.random() < 0.3) {
+      this.rotationDirection *= -1;
+    }
+
+    // Calculate rotation angle
+    const rotationAngle =
+      (Math.PI / (this.numNodes / 2)) * this.rotationDirection;
+
+    // Rotate each node (except center)
+    for (let i = 0; i < this.numNodes; i++) {
+      const node = this.securityNodes[i];
+
+      // Skip disabled nodes
+      if (node.status === "disabled") continue;
+
+      // Calculate new angle
+      node.angle += rotationAngle;
+
+      // Calculate new position
+      node.x = this.centerX + this.radius * Math.cos(node.angle);
+      node.y = this.centerY + this.radius * Math.sin(node.angle);
+    }
+
+    // Show rotation message
+    this._showMessage("Security system shifting...");
+
+    // Render the updated system
+    this._render();
+  }
+
+  /**
+   * Schedule a vulnerability window
+   */
+  _scheduleVulnerabilityWindow() {
+    // Clear any existing timer
+    if (this.vulnerabilityTimer) {
+      clearTimeout(this.vulnerabilityTimer);
+      this.vulnerabilityTimer = null;
+    }
+
+    // Schedule next vulnerability
+    const nextVulnerabilityTime = 10000 + Math.random() * 5000; // 10-15 seconds
+
+    setTimeout(() => {
+      this._openVulnerabilityWindow();
+    }, nextVulnerabilityTime);
+  }
+
+  /**
+   * Open a vulnerability window
+   */
+  _openVulnerabilityWindow() {
+    // Only if not already in a vulnerability window
+    if (this.vulnerabilityActive) return;
+
+    this.vulnerabilityActive = true;
+
+    // Select random nodes to be vulnerable (2-3 nodes)
+    const numVulnerable = 2 + Math.floor(Math.random() * 2);
+    const availableNodes = this.securityNodes
+      .filter((node) => node.status === "active")
+      .map((node) => node.id);
+
+    // Shuffle and select first few
+    availableNodes.sort(() => Math.random() - 0.5);
+
+    for (let i = 0; i < Math.min(numVulnerable, availableNodes.length); i++) {
+      const nodeId = availableNodes[i];
+      this.securityNodes[nodeId].status = "vulnerable";
+    }
+
+    // Show message
+    this._showMessage("Vulnerability detected! Disable nodes now!", "warning");
+
+    // Change background color to indicate vulnerability
+    this.canvasElement.classList.add("bg-gray-800");
+    this.canvasElement.classList.remove("bg-gray-900");
+
+    // Set timer to close vulnerability window
+    this.vulnerabilityTimer = setTimeout(() => {
+      this._closeVulnerabilityWindow();
+    }, this.vulnerabilityWindow);
+
+    // Render the updated system
+    this._render();
+  }
+
+  /**
+   * Close the vulnerability window
+   */
+  _closeVulnerabilityWindow() {
+    this.vulnerabilityActive = false;
+
+    // Reset vulnerable nodes to active
+    for (const node of this.securityNodes) {
+      if (node.status === "vulnerable") {
+        node.status = "active";
+      }
+    }
+
+    // Show message
+    this._showMessage("Security restored. Wait for next vulnerability.");
+
+    // Reset background color
+    this.canvasElement.classList.remove("bg-gray-800");
+    this.canvasElement.classList.add("bg-gray-900");
+
+    // Schedule next vulnerability window
+    this._scheduleVulnerabilityWindow();
+
+    // Render the updated system
+    this._render();
+  }
+
+  /**
+   * Handle canvas click
+   * @param {MouseEvent} event - Mouse event
+   */
+  _handleCanvasClick(event) {
+    if (this.isComplete) return;
+
+    // Get click coordinates relative to canvas
+    const rect = this.canvasElement.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    // Check if a node was clicked
+    const clickedNode = this._getNodeAtPosition(x, y);
+
+    if (clickedNode) {
+      this._handleNodeClick(clickedNode);
+    }
+  }
+
+  /**
+   * Get node at position
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   * @returns {Object} - Node at position or null
+   */
+  _getNodeAtPosition(x, y) {
+    for (const node of this.securityNodes) {
+      const distance = Math.sqrt(
+        Math.pow(x - node.x, 2) + Math.pow(y - node.y, 2)
+      );
+
+      if (distance <= node.size) {
+        return node;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Handle node click
+   * @param {Object} node - Clicked node
+   */
+  _handleNodeClick(node) {
+    // Cannot click disabled nodes
+    if (node.status === "disabled") {
+      this._showMessage("Node already disabled.", "info");
+      return;
+    }
+
+    // Cannot click protected nodes
+    if (node.status === "protected") {
+      this._showMessage(
+        "This node is protected and cannot be disabled.",
+        "error"
+      );
+      return;
+    }
+
+    // Can only disable vulnerable nodes
+    if (node.status !== "vulnerable") {
+      this._showMessage(
+        "Node not vulnerable. Wait for vulnerability window.",
+        "error"
+      );
+      return;
+    }
+
+    // Disable the node
+    node.status = "disabled";
+    node.blinking = false;
+    this.disabledNodes++;
+
+    // Update status display
+    this._updateStatus();
+
+    // Show message
+    this._showMessage("Node disabled successfully!", "success");
+
+    // Check if puzzle is complete
+    if (this.disabledNodes >= this.requiredDisabledNodes) {
+      this._handleSuccess();
+    }
+
+    // Render the updated system
+    this._render();
+  }
+
+  /**
+   * Update status display
+   */
+  _updateStatus() {
+    if (this.statusElement) {
+      this.statusElement.textContent = `Security Nodes Disabled: ${this.disabledNodes}/${this.requiredDisabledNodes}`;
+    }
+  }
+
+  /**
+   * Render the security system
+   */
+  _render() {
+    const ctx = this.canvasElement.getContext("2d");
+
+    // Clear canvas
+    ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
+
+    // Draw system background
+    this._drawSystemBackground(ctx);
+
+    // Draw connections
+    this._drawConnections(ctx);
+
+    // Draw nodes
+    this._drawNodes(ctx);
+  }
+
+  /**
+   * Draw system background
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   */
+  _drawSystemBackground(ctx) {
+    // Draw outer circle
+    ctx.beginPath();
+    ctx.arc(this.centerX, this.centerY, this.radius + 10, 0, 2 * Math.PI);
+    ctx.strokeStyle = "rgba(100, 100, 150, 0.3)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Draw inner circle
+    ctx.beginPath();
+    ctx.arc(this.centerX, this.centerY, 50, 0, 2 * Math.PI);
+    ctx.strokeStyle = "rgba(100, 100, 150, 0.2)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Draw vulnerability indicator
+    if (this.vulnerabilityActive) {
+      ctx.beginPath();
+      ctx.arc(this.centerX, this.centerY, this.radius + 25, 0, 2 * Math.PI);
+      ctx.strokeStyle = "rgba(0, 255, 0, 0.2)";
+      ctx.lineWidth = 15;
+      ctx.stroke();
+    }
+  }
+
+  /**
+   * Draw connections between nodes
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   */
+  _drawConnections(ctx) {
+    for (const connection of this.connections) {
+      const sourceNode = this.securityNodes[connection.sourceId];
+      const targetNode = this.securityNodes[connection.targetId];
+
+      // Skip connections to disabled nodes
+      if (
+        sourceNode.status === "disabled" ||
+        targetNode.status === "disabled"
+      ) {
+        continue;
+      }
+
+      // Draw line
+      ctx.beginPath();
+      ctx.moveTo(sourceNode.x, sourceNode.y);
+      ctx.lineTo(targetNode.x, targetNode.y);
+
+      // Set color based on node status
+      if (
+        sourceNode.status === "vulnerable" ||
+        targetNode.status === "vulnerable"
+      ) {
+        ctx.strokeStyle = "rgba(0, 255, 0, 0.5)";
+      } else {
+        ctx.strokeStyle = "rgba(100, 150, 255, 0.3)";
+      }
+
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+  }
+
+  /**
+   * Draw nodes
+   * @param {CanvasRenderingContext2D} ctx - Canvas context
+   */
+  _drawNodes(ctx) {
+    for (const node of this.securityNodes) {
+      // Draw node circle
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, node.size, 0, 2 * Math.PI);
+
+      // Set fill color based on status
+      switch (node.status) {
+        case "active":
+          ctx.fillStyle = node.blinking
+            ? "rgba(50, 100, 255, 0.9)"
+            : "rgba(50, 100, 255, 0.6)";
+          break;
+        case "vulnerable":
+          ctx.fillStyle = node.blinking
+            ? "rgba(0, 255, 0, 0.9)"
+            : "rgba(0, 255, 0, 0.6)";
+          break;
+        case "disabled":
+          ctx.fillStyle = "rgba(255, 50, 50, 0.7)";
+          break;
+        case "protected":
+          ctx.fillStyle = "rgba(200, 200, 200, 0.8)";
+          break;
+      }
+
+      ctx.fill();
+
+      // Draw node border
+      ctx.strokeStyle = "rgba(200, 200, 200, 0.8)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Draw node ID
+      ctx.fillStyle = "white";
+      ctx.font = "bold 16px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(node.id.toString(), node.x, node.y);
+    }
+  }
+
+  /**
+   * Handle successful puzzle completion
+   */
+  _handleSuccess() {
+    this.isComplete = true;
+
+    // Stop animations
+    this._stopBlinking();
+    this._stopRotation();
+
+    // Cancel vulnerability timers
+    if (this.vulnerabilityTimer) {
+      clearTimeout(this.vulnerabilityTimer);
+      this.vulnerabilityTimer = null;
+    }
+
+    this._showMessage("Security system bypassed successfully!", "success");
+
+    if (this.callbacks && this.callbacks.showSuccess) {
+      this.callbacks.showSuccess();
+    }
+  }
+
+  /**
+   * Show a message to the player
+   * @param {string} message - Message to display
+   * @param {string} type - Message type (info, success, error, warning)
+   */
+  _showMessage(message, type = "info") {
+    if (!this.messageElement) return;
+
+    // Reset classes
+    this.messageElement.className = "mt-4 text-center h-8 font-medium";
+
+    // Apply type-specific styling
+    switch (type) {
+      case "success":
+        this.messageElement.classList.add("text-green-400");
+        break;
+      case "error":
+        this.messageElement.classList.add("text-red-400");
+        break;
+      case "warning":
+        this.messageElement.classList.add("text-yellow-400");
+        break;
+      default:
+        this.messageElement.classList.add("text-white");
+    }
+
+    this.messageElement.textContent = message;
+  }
+
+  /**
+   * Clean up event listeners and timers
+   */
+  cleanup() {
+    this._stopBlinking();
+    this._stopRotation();
+
+    if (this.vulnerabilityTimer) {
+      clearTimeout(this.vulnerabilityTimer);
+      this.vulnerabilityTimer = null;
+    }
+
+    // Remove click handler
+    if (this.canvasElement) {
+      this.canvasElement.removeEventListener("click", this._handleCanvasClick);
+    }
+  }
+
+  /**
+   * Get the current solution
+   * @returns {Object} - The solution data
+   */
+  getSolution() {
+    return {
+      disabledNodes: this.disabledNodes,
+      requiredNodes: this.requiredDisabledNodes,
+      isComplete: this.isComplete,
+    };
+  }
+
+  /**
+   * Validate the current solution
+   * @returns {boolean} - Whether the solution is valid
+   */
+  validateSolution() {
+    return this.isComplete;
+  }
+
+  /**
+   * Get error message for invalid solution
+   * @returns {string} - Error message
+   */
+  getErrorMessage() {
+    return `Need to disable ${this.requiredDisabledNodes} nodes to complete the puzzle!`;
   }
 
   /**
@@ -144,553 +733,43 @@ class SecuritySystemPuzzle {
    * @param {number} duration - Duration in seconds
    */
   handleRandomEvent(eventType, duration) {
-    if (this.isCompleted) return;
-
-    // Show message about the random event
-    this.messageElement.textContent = this._getRandomEventMessage(eventType);
-    this.messageElement.className = "mb-4 text-red-400 text-center";
-
-    // For the Lookout role, make random events less disruptive
-    setTimeout(() => {
-      this.messageElement.className = "mb-4 text-yellow-400 text-center hidden";
-    }, duration * 500); // Half the time of other roles
-  }
-
-  /**
-   * Cleanup event listeners and references
-   */
-  cleanup() {
-    this._stopTimer();
-
-    // Clear references
-    this.mapGrid = null;
-    this.messageElement = null;
-    this.submitButton = null;
-    this.resetButton = null;
-    this.timerElement = null;
-  }
-
-  /**
-   * Create security map grid
-   * @param {HTMLElement} container - Container element
-   */
-  _createSecurityMap(container) {
-    const mapContainer = document.createElement("div");
-    mapContainer.className =
-      "bg-gray-800 rounded-lg p-4 border border-gray-700 mb-4";
-
-    // Create grid
-    this.mapGrid = document.createElement("div");
-    this.mapGrid.className = "grid grid-cols-8 gap-1";
-    this.mapGrid.style.width = "min(100%, 400px)";
-
-    // Create grid cells
-    for (let row = 0; row < this.gridSize; row++) {
-      for (let col = 0; col < this.gridSize; col++) {
-        const cell = document.createElement("div");
-        cell.className =
-          "aspect-square bg-gray-900 hover:bg-gray-700 cursor-pointer transition-colors";
-        cell.dataset.row = row;
-        cell.dataset.col = col;
-
-        // Add click event
-        cell.addEventListener("click", () =>
-          this._toggleCellMarking(cell, row, col)
-        );
-
-        this.mapGrid.appendChild(cell);
-      }
-    }
-
-    mapContainer.appendChild(this.mapGrid);
-    container.appendChild(mapContainer);
-  }
-
-  /**
-   * Create camera list sidebar
-   * @param {HTMLElement} container - Container element
-   */
-  _createCameraList(container) {
-    const cameraListContainer = document.createElement("div");
-    cameraListContainer.className =
-      "bg-gray-800 rounded-lg p-4 border border-gray-700 w-full mb-4";
-
-    const cameraListTitle = document.createElement("h5");
-    cameraListTitle.className = "text-green-400 font-semibold mb-2";
-    cameraListTitle.textContent = "Active Security Cameras";
-
-    const cameraList = document.createElement("div");
-    cameraList.className = "grid grid-cols-2 sm:grid-cols-3 gap-2";
-    cameraList.id = "camera-list";
-
-    cameraListContainer.appendChild(cameraListTitle);
-    cameraListContainer.appendChild(cameraList);
-    container.appendChild(cameraListContainer);
-  }
-
-  /**
-   * Generate security system data
-   */
-  _generateSecuritySystem() {
-    // Clear existing data
-    this.securityCameras = [];
-    this.correctCoverageCells = [];
-
-    // Camera types with different ranges
-    const cameraTypes = [
-      { type: "Standard", range: 2, color: "blue" },
-      { type: "Wide-Angle", range: 3, color: "purple" },
-      { type: "PTZ", range: 4, color: "red" },
-    ];
-
-    // Place 5-8 cameras depending on difficulty
-    const difficulty = this.puzzleData.difficulty || 1;
-    const numCameras = 5 + Math.min(difficulty, 3);
-
-    // Generate cameras with random positions
-    const placedPositions = new Set();
-
-    for (let i = 0; i < numCameras; i++) {
-      // Find a position that's not already used
-      let row, col;
-      do {
-        row = Math.floor(Math.random() * this.gridSize);
-        col = Math.floor(Math.random() * this.gridSize);
-      } while (placedPositions.has(`${row},${col}`));
-
-      placedPositions.add(`${row},${col}`);
-
-      // Random camera type
-      const cameraType =
-        cameraTypes[Math.floor(Math.random() * cameraTypes.length)];
-
-      // Random direction (0: up, 1: right, 2: down, 3: left)
-      const direction = Math.floor(Math.random() * 4);
-
-      const camera = {
-        id: `cam-${i + 1}`,
-        name: `${cameraType.type} Camera ${i + 1}`,
-        position: { row, col },
-        range: cameraType.range,
-        direction,
-        color: cameraType.color,
-        type: cameraType.type,
-      };
-
-      this.securityCameras.push(camera);
-
-      // Calculate coverage for this camera
-      this._calculateCameraCoverage(camera);
-    }
-
-    // Update camera list UI
-    this._updateCameraList();
-
-    // Mark camera positions on the grid
-    this._markCameraPositions();
-  }
-
-  /**
-   * Calculate and store camera coverage
-   * @param {Object} camera - Camera data
-   */
-  _calculateCameraCoverage(camera) {
-    const { row, col } = camera.position;
-    const range = camera.range;
-    const direction = camera.direction;
-
-    // Mark the camera position itself
-    this.correctCoverageCells.push(`${row},${col}`);
-
-    // Calculate coverage based on direction and range
-    switch (direction) {
-      case 0: // Up
-        for (let r = row - 1; r >= Math.max(0, row - range); r--) {
-          this.correctCoverageCells.push(`${r},${col}`);
-        }
-        break;
-      case 1: // Right
-        for (
-          let c = col + 1;
-          c <= Math.min(this.gridSize - 1, col + range);
-          c++
-        ) {
-          this.correctCoverageCells.push(`${row},${c}`);
-        }
-        break;
-      case 2: // Down
-        for (
-          let r = row + 1;
-          r <= Math.min(this.gridSize - 1, row + range);
-          r++
-        ) {
-          this.correctCoverageCells.push(`${r},${col}`);
-        }
-        break;
-      case 3: // Left
-        for (let c = col - 1; c >= Math.max(0, col - range); c--) {
-          this.correctCoverageCells.push(`${row},${c}`);
-        }
-        break;
-    }
-
-    // Remove duplicates
-    this.correctCoverageCells = [...new Set(this.correctCoverageCells)];
-  }
-
-  /**
-   * Update camera list in the UI
-   */
-  _updateCameraList() {
-    const cameraList = document.getElementById("camera-list");
-    if (!cameraList) return;
-
-    cameraList.innerHTML = "";
-
-    this.securityCameras.forEach((camera) => {
-      const cameraItem = document.createElement("div");
-      cameraItem.className = "text-sm flex items-center space-x-2";
-
-      // Direction indicators
-      const directions = ["↑", "→", "↓", "←"];
-
-      cameraItem.innerHTML = `
-        <div class="w-3 h-3 rounded-full bg-${camera.color}-500"></div>
-        <div class="text-gray-300">${camera.name} ${
-        directions[camera.direction]
-      }</div>
-      `;
-
-      cameraList.appendChild(cameraItem);
-    });
-  }
-
-  /**
-   * Mark camera positions on the grid
-   */
-  _markCameraPositions() {
-    this.securityCameras.forEach((camera) => {
-      const { row, col } = camera.position;
-      const cell = this.mapGrid.querySelector(
-        `[data-row="${row}"][data-col="${col}"]`
-      );
-
-      if (cell) {
-        // Add camera icon and color
-        cell.className = `aspect-square flex items-center justify-center bg-${camera.color}-900 text-${camera.color}-500 font-bold border border-${camera.color}-500`;
-
-        // Direction indicators
-        const directions = ["↑", "→", "↓", "←"];
-        cell.textContent = directions[camera.direction];
-      }
-    });
-  }
-
-  /**
-   * Toggle cell marking when clicked
-   * @param {HTMLElement} cell - The clicked cell
-   * @param {number} row - Cell row
-   * @param {number} col - Cell column
-   */
-  _toggleCellMarking(cell, row, col) {
-    if (this.isCompleted) return;
-
-    // Skip if this is a camera position
-    const isCameraPosition = this.securityCameras.some(
-      (camera) => camera.position.row === row && camera.position.col === col
-    );
-
-    if (isCameraPosition) return;
-
-    const cellKey = `${row},${col}`;
-    const isMarked = this.playerMarkedCells.includes(cellKey);
-
-    if (isMarked) {
-      // Unmark cell
-      this.playerMarkedCells = this.playerMarkedCells.filter(
-        (c) => c !== cellKey
-      );
-      cell.className =
-        "aspect-square bg-gray-900 hover:bg-gray-700 cursor-pointer transition-colors";
-    } else {
-      // Mark cell
-      this.playerMarkedCells.push(cellKey);
-      cell.className =
-        "aspect-square bg-yellow-800 hover:bg-yellow-700 cursor-pointer transition-colors";
-    }
-  }
-
-  /**
-   * Reset the map to initial state
-   */
-  _resetMap() {
-    if (this.isCompleted) return;
-
-    // Clear player markings
-    this.playerMarkedCells = [];
-
-    // Reset cell appearance
-    const cells = this.mapGrid.querySelectorAll("div[data-row]");
-    cells.forEach((cell) => {
-      const row = parseInt(cell.dataset.row);
-      const col = parseInt(cell.dataset.col);
-
-      // Check if it's a camera position
-      const camera = this.securityCameras.find(
-        (cam) => cam.position.row === row && cam.position.col === col
-      );
-
-      if (camera) {
-        // Keep camera styling
-        const directions = ["↑", "→", "↓", "←"];
-        cell.className = `aspect-square flex items-center justify-center bg-${camera.color}-900 text-${camera.color}-500 font-bold border border-${camera.color}-500`;
-        cell.textContent = directions[camera.direction];
-      } else {
-        // Reset to default
-        cell.className =
-          "aspect-square bg-gray-900 hover:bg-gray-700 cursor-pointer transition-colors";
-        cell.textContent = "";
-      }
-    });
-
-    // Hide any messages
-    this.messageElement.className = "mb-4 text-yellow-400 text-center hidden";
-  }
-
-  /**
-   * Reveal the correct coverage
-   */
-  _revealCorrectCoverage() {
-    // Mark all cells with their correct status
-    const cells = this.mapGrid.querySelectorAll("div[data-row]");
-
-    cells.forEach((cell) => {
-      const row = parseInt(cell.dataset.row);
-      const col = parseInt(cell.dataset.col);
-      const cellKey = `${row},${col}`;
-
-      // Skip camera positions
-      const isCameraPosition = this.securityCameras.some(
-        (camera) => camera.position.row === row && camera.position.col === col
-      );
-
-      if (isCameraPosition) return;
-
-      const shouldBeMarked = this.correctCoverageCells.includes(cellKey);
-      const wasMarked = this.playerMarkedCells.includes(cellKey);
-
-      if (shouldBeMarked && wasMarked) {
-        // Correct marking
-        cell.className = "aspect-square bg-green-700 transition-colors";
-      } else if (shouldBeMarked && !wasMarked) {
-        // Missed marking
-        cell.className = "aspect-square bg-red-900 transition-colors";
-      } else if (!shouldBeMarked && wasMarked) {
-        // False marking
-        cell.className = "aspect-square bg-orange-900 transition-colors";
-      }
-    });
-  }
-
-  /**
-   * Start the countdown timer
-   */
-  _startTimer() {
-    this.timerInterval = setInterval(() => {
-      this.timeRemaining--;
-
-      // Update timer display
-      if (this.timerElement) {
-        this.timerElement.textContent = this._formatTime(this.timeRemaining);
-
-        // Change color when low on time
-        if (this.timeRemaining <= 30) {
-          this.timerElement.className = "text-red-400 font-mono";
-        }
-      }
-
-      // Time's up
-      if (this.timeRemaining <= 0) {
-        this._stopTimer();
-        this._handleTimeUp();
-      }
-    }, 1000);
-  }
-
-  /**
-   * Stop the timer
-   */
-  _stopTimer() {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = null;
-    }
-  }
-
-  /**
-   * Format time as MM:SS
-   * @param {number} seconds - Time in seconds
-   * @returns {string} - Formatted time
-   */
-  _formatTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  }
-
-  /**
-   * Handle time running out
-   */
-  _handleTimeUp() {
-    this.messageElement.textContent = "Time's up! Submit your current mapping.";
-    this.messageElement.className = "mb-4 text-red-400 text-center";
-  }
-
-  /**
-   * Calculate score based on player's mapping accuracy
-   * @returns {Object} - Score data with correctCount, totalCount and accuracy
-   */
-  _calculateScore() {
-    let correctCount = 0;
-    let falsePositives = 0;
-
-    // Count correct markings
-    this.playerMarkedCells.forEach((cellKey) => {
-      if (this.correctCoverageCells.includes(cellKey)) {
-        correctCount++;
-      } else {
-        falsePositives++;
-      }
-    });
-
-    // Calculate false negatives (missed cells)
-    const falseNegatives = this.correctCoverageCells.length - correctCount;
-
-    // Calculate total errors
-    const totalErrors = falsePositives + falseNegatives;
-
-    // Calculate accuracy
-    const totalCount = this.correctCoverageCells.length;
-    const accuracy = correctCount / totalCount;
-
-    // Penalize for false positives
-    const adjustedAccuracy = Math.max(
-      0,
-      accuracy - (falsePositives / (this.gridSize * this.gridSize)) * 0.5
-    );
-
-    return {
-      correctCount,
-      totalCount,
-      falsePositives,
-      falseNegatives,
-      accuracy,
-      adjustedAccuracy,
-      totalErrors,
-    };
-  }
-
-  /**
-   * Handle submit button click
-   */
-  _handleSubmit() {
-    this._stopTimer();
-
-    // Calculate score
-    const score = this._calculateScore();
-
-    // Create solution data to submit
-    const solutionData = {
-      playerMap: this.playerMarkedCells,
-      correctMap: this.correctCoverageCells,
-      score: score.adjustedAccuracy,
-    };
-
-    // Determine if player has passed based on accuracy
-    const hasPassed = score.adjustedAccuracy >= this.minimumAccuracy;
-
-    // Submit to game
-    this.submitSolution(solutionData)
-      .then((success) => {
-        if (success) {
-          this.showSuccess();
-        } else {
-          // Show feedback based on accuracy
-          this._revealCorrectCoverage();
-
-          let message = "";
-          if (score.adjustedAccuracy >= 0.7) {
-            message = `Almost there! (${(score.adjustedAccuracy * 100).toFixed(
-              1
-            )}% accuracy). Try again with fewer errors.`;
-          } else if (score.adjustedAccuracy >= 0.5) {
-            message = `Improvement needed (${(
-              score.adjustedAccuracy * 100
-            ).toFixed(1)}% accuracy). Focus on camera directions.`;
-          } else {
-            message = `Low accuracy (${(score.adjustedAccuracy * 100).toFixed(
-              1
-            )}%). Remember to mark all cells covered by cameras.`;
-          }
-
-          this.messageElement.textContent = message;
-          this.messageElement.className = "mb-4 text-red-400 text-center";
-
-          // Enable reset for retry
-          this.resetButton.textContent = "Try Again";
-          this.resetButton.addEventListener("click", () =>
-            this._regeneratePuzzle()
-          );
-        }
-      })
-      .catch((error) => {
-        console.error("Error submitting solution:", error);
-        this.messageElement.textContent =
-          "Error submitting mapping. Try again!";
-        this.messageElement.className = "mb-4 text-red-400 text-center";
-      });
-  }
-
-  /**
-   * Regenerate the puzzle for a retry
-   */
-  _regeneratePuzzle() {
-    // Reset player data
-    this.playerMarkedCells = [];
-    this.correctCoverageCells = [];
-
-    // Reset timer
-    this.timeRemaining = 180;
-    if (this.timerElement) {
-      this.timerElement.textContent = this._formatTime(this.timeRemaining);
-      this.timerElement.className = "text-yellow-400 font-mono";
-    }
-
-    // Generate new security system
-    this._generateSecuritySystem();
-
-    // Reset UI
-    this._resetMap();
-
-    // Restart timer
-    this._startTimer();
-  }
-
-  /**
-   * Get random event message
-   * @param {string} eventType - Type of random event
-   * @returns {string} - Event message
-   */
-  _getRandomEventMessage(eventType) {
     switch (eventType) {
       case "security_patrol":
-        return "Alert: Unexpected security patrol detected! Continuing surveillance...";
-      case "camera_sweep":
-        return "Notice: Camera systems performing diagnostic sweep. Maintaining monitor status...";
+        this._showMessage(
+          "Security patrol detected! System on high alert.",
+          "warning"
+        );
+
+        // Speed up rotation temporarily
+        const originalSpeed = this.rotationSpeed;
+        this.rotationSpeed = Math.max(1000, this.rotationSpeed / 2);
+
+        // Update rotation timer
+        this._stopRotation();
+        this._startRotation();
+
+        // Reset after duration
+        setTimeout(() => {
+          this.rotationSpeed = originalSpeed;
+          this._stopRotation();
+          this._startRotation();
+          this._showMessage(
+            "Security patrol moved on. System returning to normal."
+          );
+        }, duration * 1000);
+        break;
+
       case "system_check":
-        return "Update: Security system check in progress. Adapting observation...";
-      default:
-        return "Security alert detected! Maintaining surveillance...";
+        this._showMessage(
+          "System diagnostics in progress! Random vulnerability.",
+          "warning"
+        );
+
+        // Force a vulnerability window
+        if (!this.vulnerabilityActive) {
+          this._openVulnerabilityWindow();
+        }
+        break;
     }
   }
 }

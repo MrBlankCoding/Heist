@@ -1,572 +1,790 @@
-// Explosive Sequence Puzzle - Stage 4 puzzle for the Demolitions role
+// explosiveSequencePuzzle.js - Explosive Sequence Puzzle for the Demolitions role
+// Difficulty: 4/5 - Hard difficulty
 
 class ExplosiveSequencePuzzle {
-  constructor(container, puzzleData, callbacks) {
-    this.container = container;
+  constructor(containerElement, puzzleData, callbacks) {
+    this.containerElement = containerElement;
     this.puzzleData = puzzleData;
     this.callbacks = callbacks;
-    this.isCompleted = false;
+    this.isComplete = false;
 
-    // Puzzle-specific properties
-    this.gridSize = 4; // 4x4 grid
-    this.explosiveCharges = [];
-    this.playerSequence = [];
+    // Explosive device properties
+    this.sequenceLength = 6; // Length of sequence to disarm
+    this.currentStep = 0;
+    this.maxAttempts = 3;
+    this.attempts = 0;
+
+    // Sequence settings
     this.correctSequence = [];
-    this.detonating = false;
+    this.playerSequence = [];
+    this.nodeTypes = [
+      "power",
+      "trigger",
+      "timer",
+      "signal",
+      "detonator",
+      "buffer",
+    ];
+    this.nodeColors = ["red", "blue", "green", "yellow", "purple", "orange"];
+    this.nodeStates = {};
 
-    // DOM elements
-    this.puzzleContainer = null;
-    this.gridContainer = null;
+    // UI elements
+    this.deviceContainer = null;
     this.sequenceDisplay = null;
+    this.nodeContainer = null;
+    this.messageElement = null;
+    this.timerElement = null;
+
+    // Timer properties
+    this.timer = null;
+    this.timeRemaining = 90; // 90 seconds to complete
+    this.pulseTimer = null;
+    this.pulseSpeed = 1000; // Start with 1 second per pulse
+
+    // Difficulty adjustments
+    this.difficulty = this.puzzleData.difficulty || 4;
+    this._adjustDifficulty();
   }
 
+  /**
+   * Initialize the puzzle
+   */
   initialize() {
-    // Create the main puzzle container
-    this.puzzleContainer = document.createElement("div");
-    this.puzzleContainer.className =
-      "bg-gray-900 rounded-lg p-6 w-full max-w-lg";
+    // Create UI
+    this._createUI();
 
-    // Add title
-    const title = document.createElement("h4");
-    title.className = "text-center text-red-500 mb-4";
-    title.textContent = "Explosive Breach Sequence";
-    this.puzzleContainer.appendChild(title);
+    // Generate sequence
+    this._generateSequence();
 
-    // Add instructions
-    const instructions = document.createElement("div");
-    instructions.className =
-      "mb-4 p-3 bg-gray-800 rounded border border-red-600 text-sm";
+    // Start timer
+    this._startTimer();
 
-    instructions.innerHTML = `
-      <div class="text-sm text-gray-300 mb-2">Breach Manual - Section 4.1:</div>
-      <div class="text-yellow-400">
-        <p>Set the explosive charges in the correct sequence.</p>
-        <p>Charges must detonate in order from lowest to highest power.</p>
-        <p>Follow the numeric patterns to determine the correct sequence.</p>
-        <p>An incorrect sequence will result in mission failure.</p>
-      </div>
-    `;
-    this.puzzleContainer.appendChild(instructions);
+    // Display instructions
+    this._showMessage(
+      "Disarm the explosive by deactivating nodes in the correct sequence."
+    );
+  }
 
-    // Create the explosive grid
-    this.gridContainer = document.createElement("div");
-    this.gridContainer.className =
-      "grid grid-cols-4 gap-3 mb-6 bg-black p-4 rounded-lg";
+  /**
+   * Create the puzzle UI
+   */
+  _createUI() {
+    // Clear container
+    this.containerElement.innerHTML = "";
 
-    // Generate the explosive charges pattern
-    this.generateExplosivePattern();
+    // Create puzzle container
+    const puzzleContainer = document.createElement("div");
+    puzzleContainer.className =
+      "explosive-sequence-puzzle flex flex-col items-center p-4";
 
-    // Create the explosive charges grid
-    for (let i = 0; i < 16; i++) {
-      const row = Math.floor(i / this.gridSize);
-      const col = i % this.gridSize;
+    // Create timer display
+    const timerContainer = document.createElement("div");
+    timerContainer.className =
+      "timer-container bg-black p-2 rounded-lg mb-4 w-full max-w-xs border-2 border-red-600";
 
-      const chargeData = this.explosiveCharges.find((c) => c.position === i);
+    this.timerElement = document.createElement("div");
+    this.timerElement.className =
+      "timer-display text-red-600 text-3xl font-mono text-center";
+    this.timerElement.textContent = this._formatTime(this.timeRemaining);
 
-      const cell = document.createElement("div");
-      cell.className =
-        "explosive-charge w-16 h-16 bg-gray-800 rounded-lg flex flex-col items-center justify-center cursor-pointer relative transition-all";
-      cell.dataset.position = i;
-      cell.dataset.value = chargeData ? chargeData.value : 0;
+    timerContainer.appendChild(this.timerElement);
+    puzzleContainer.appendChild(timerContainer);
 
-      // Add visual appearance for charge
-      const chargeElement = document.createElement("div");
-      chargeElement.className =
-        "w-12 h-12 rounded-full flex items-center justify-center";
+    // Create explosive device
+    this.deviceContainer = document.createElement("div");
+    this.deviceContainer.className =
+      "device-container bg-gray-900 p-4 rounded-lg mb-4 border border-gray-700 w-full max-w-xl";
 
-      if (chargeData) {
-        // This is an active charge
-        chargeElement.style.backgroundColor = this.getChargeColor(
-          chargeData.value
-        );
-        chargeElement.style.border = "2px solid #f59e0b";
-        chargeElement.innerHTML = `<span class="text-white font-bold text-xl">${chargeData.value}</span>`;
+    // Create pulse indicator
+    const pulseIndicator = document.createElement("div");
+    pulseIndicator.className =
+      "pulse-indicator flex items-center justify-center mb-3";
 
-        // Add clicking behavior
-        cell.addEventListener("click", () =>
-          this.selectCharge(cell, chargeData)
-        );
-      } else {
-        // Empty cell
-        chargeElement.style.backgroundColor = "#374151";
-      }
+    const pulseLight = document.createElement("div");
+    pulseLight.className = "pulse-light w-4 h-4 bg-red-600 rounded-full mr-2";
+    pulseIndicator.appendChild(pulseLight);
 
-      cell.appendChild(chargeElement);
-      this.gridContainer.appendChild(cell);
-    }
+    const pulseLabel = document.createElement("div");
+    pulseLabel.className = "text-white text-sm";
+    pulseLabel.textContent = "System pulse active - Sequence required";
+    pulseIndicator.appendChild(pulseLabel);
 
-    this.puzzleContainer.appendChild(this.gridContainer);
+    this.deviceContainer.appendChild(pulseIndicator);
 
-    // Add sequence display
-    const sequenceSection = document.createElement("div");
-    sequenceSection.className = "mb-4";
-
-    const sequenceLabel = document.createElement("div");
-    sequenceLabel.className = "text-white text-sm mb-2";
-    sequenceLabel.textContent = "Current Detonation Sequence:";
-    sequenceSection.appendChild(sequenceLabel);
-
+    // Create sequence display
     this.sequenceDisplay = document.createElement("div");
     this.sequenceDisplay.className =
-      "flex items-center justify-center gap-2 h-16 bg-gray-800 rounded p-2";
-    this.updateSequenceDisplay();
-    sequenceSection.appendChild(this.sequenceDisplay);
+      "sequence-display flex justify-center space-x-2 mb-4";
 
-    this.puzzleContainer.appendChild(sequenceSection);
-
-    // Add control buttons
-    const controlButtons = document.createElement("div");
-    controlButtons.className = "flex justify-center gap-4";
-
-    // Reset button
-    const resetButton = document.createElement("button");
-    resetButton.className =
-      "px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors";
-    resetButton.textContent = "Reset Sequence";
-    resetButton.addEventListener("click", () => this.resetSequence());
-    controlButtons.appendChild(resetButton);
-
-    // Detonate button
-    const detonateButton = document.createElement("button");
-    detonateButton.className =
-      "px-4 py-2 bg-red-700 text-white rounded hover:bg-red-600 transition-colors font-bold";
-    detonateButton.textContent = "DETONATE";
-    detonateButton.addEventListener("click", () => this.detonateSequence());
-    controlButtons.appendChild(detonateButton);
-
-    this.puzzleContainer.appendChild(controlButtons);
-
-    // Add hint section based on difficulty
-    if (this.puzzleData.difficulty <= 2) {
-      const hintSection = document.createElement("div");
-      hintSection.className =
-        "mt-4 p-2 bg-gray-800 rounded border border-yellow-600";
-
-      const hintTitle = document.createElement("div");
-      hintTitle.className = "text-xs text-yellow-400 mb-1";
-      hintTitle.textContent = "HINT:";
-      hintSection.appendChild(hintTitle);
-
-      const hintContent = document.createElement("div");
-      hintContent.className = "text-xs text-white";
-
-      // Provide a hint based on the pattern
-      const patternHint = this.getPatternHint();
-      hintContent.textContent = patternHint;
-
-      hintSection.appendChild(hintContent);
-      this.puzzleContainer.appendChild(hintSection);
+    // Create sequence slots
+    for (let i = 0; i < this.sequenceLength; i++) {
+      const sequenceSlot = document.createElement("div");
+      sequenceSlot.className =
+        "sequence-slot w-8 h-8 bg-gray-800 border border-gray-600 rounded-md flex items-center justify-center";
+      this.sequenceDisplay.appendChild(sequenceSlot);
     }
+
+    this.deviceContainer.appendChild(this.sequenceDisplay);
+    puzzleContainer.appendChild(this.deviceContainer);
+
+    // Create node selection area
+    const nodesTitle = document.createElement("div");
+    nodesTitle.className = "text-white text-center mb-2";
+    nodesTitle.textContent = "Control Nodes:";
+    puzzleContainer.appendChild(nodesTitle);
+
+    this.nodeContainer = document.createElement("div");
+    this.nodeContainer.className = "node-container grid grid-cols-3 gap-3 mb-4";
+    puzzleContainer.appendChild(this.nodeContainer);
+
+    // Create nodes
+    this._createNodes();
+
+    // Create attempt counter
+    const attemptCounter = document.createElement("div");
+    attemptCounter.className = "attempt-counter text-sm text-gray-400 mb-2";
+    attemptCounter.textContent = `Attempts: ${this.attempts}/${this.maxAttempts}`;
+    puzzleContainer.appendChild(attemptCounter);
+
+    // Create message element
+    this.messageElement = document.createElement("div");
+    this.messageElement.className =
+      "message mt-2 p-2 w-full text-center rounded-lg";
+    puzzleContainer.appendChild(this.messageElement);
 
     // Add to main container
-    this.container.appendChild(this.puzzleContainer);
-
-    // Start countdown timer via callback
-    this.callbacks.startCountdown(this.onTimeUp.bind(this));
+    this.containerElement.appendChild(puzzleContainer);
   }
 
-  generateExplosivePattern() {
-    // Clear existing data
-    this.explosiveCharges = [];
-    this.correctSequence = [];
+  /**
+   * Create interactive nodes
+   */
+  _createNodes() {
+    // Clear node container
+    this.nodeContainer.innerHTML = "";
 
-    // Determine complexity based on difficulty
-    const numCharges = 6 + this.puzzleData.difficulty;
+    // Create a node for each type
+    this.nodeTypes.forEach((nodeType, index) => {
+      const nodeElement = document.createElement("div");
+      nodeElement.className = `node ${nodeType} bg-gray-800 p-3 rounded-lg flex flex-col items-center relative ${
+        this.nodeStates[nodeType] ? "node-active" : ""
+      }`;
+      nodeElement.dataset.type = nodeType;
 
-    if (this.puzzleData.difficulty <= 1) {
-      // Easy - simple sequential pattern
-      this.generateSimpleSequence(numCharges);
-    } else if (this.puzzleData.difficulty === 2) {
-      // Medium - numeric pattern with mathematical rule
-      this.generatePatternSequence(numCharges);
-    } else {
-      // Hard - complex pattern with multiple rules
-      this.generateComplexSequence(numCharges);
-    }
-  }
+      // Add color indicator
+      const nodeColor = this.nodeColors[index % this.nodeColors.length];
+      const colorIndicator = document.createElement("div");
+      colorIndicator.className = `node-color w-6 h-6 rounded-full mb-2`;
+      colorIndicator.style.backgroundColor = this._getColorValue(nodeColor);
+      nodeElement.appendChild(colorIndicator);
 
-  generateSimpleSequence(numCharges) {
-    // Simple sequence: just count from 1 to numCharges
-    const positions = this.generateRandomPositions(numCharges);
+      // Add node label
+      const nodeLabel = document.createElement("div");
+      nodeLabel.className = "node-label text-white text-xs capitalize";
+      nodeLabel.textContent = nodeType;
+      nodeElement.appendChild(nodeLabel);
 
-    for (let i = 0; i < numCharges; i++) {
-      const value = i + 1;
-      this.explosiveCharges.push({
-        position: positions[i],
-        value: value,
-      });
+      // Add status indicator
+      const statusIndicator = document.createElement("div");
+      statusIndicator.className = `status-indicator absolute top-1 right-1 w-2 h-2 rounded-full ${
+        this.nodeStates[nodeType] ? "bg-green-500" : "bg-red-500"
+      }`;
+      nodeElement.appendChild(statusIndicator);
 
-      // The correct sequence is just in ascending order
-      this.correctSequence.push(value);
-    }
-
-    // Sort the correct sequence
-    this.correctSequence.sort((a, b) => a - b);
-  }
-
-  generatePatternSequence(numCharges) {
-    // Pattern sequence: use a simple mathematical pattern
-    // Example: Fibonacci or powers of 2
-    const pattern = Math.random() < 0.5 ? "fibonacci" : "powers";
-    const positions = this.generateRandomPositions(numCharges);
-
-    let values = [];
-    if (pattern === "fibonacci") {
-      // Fibonacci sequence
-      values = [1, 2, 3, 5, 8, 13, 21, 34, 55];
-    } else {
-      // Powers of 2
-      values = [1, 2, 4, 8, 16, 32, 64, 128, 256];
-    }
-
-    // Use only as many values as needed
-    values = values.slice(0, numCharges);
-
-    for (let i = 0; i < numCharges; i++) {
-      this.explosiveCharges.push({
-        position: positions[i],
-        value: values[i],
-      });
-
-      // The correct sequence is just in ascending order
-      this.correctSequence.push(values[i]);
-    }
-
-    // Sort the correct sequence
-    this.correctSequence.sort((a, b) => a - b);
-  }
-
-  generateComplexSequence(numCharges) {
-    // Complex sequence: use a combination of patterns
-    // That require player to understand the rule
-    const positions = this.generateRandomPositions(numCharges);
-
-    // Create values with a hidden relationship
-    // Example: values divisible by 3 go first, then even, then odd
-    let values = [];
-    let order = [];
-
-    // Generate values that follow a complex rule
-    for (let i = 0; i < numCharges; i++) {
-      // Generate a number between 10 and 99
-      const value = Math.floor(Math.random() * 90) + 10;
-      values.push(value);
-
-      // Determine detonation order based on the digit sum
-      const digitSum = Math.floor(value / 10) + (value % 10);
-      order.push({ value, digitSum });
-    }
-
-    // Sort by the rule (digit sum)
-    order.sort((a, b) => a.digitSum - b.digitSum);
-
-    // Create the explosive charges
-    for (let i = 0; i < numCharges; i++) {
-      this.explosiveCharges.push({
-        position: positions[i],
-        value: values[i],
-      });
-
-      // The correct sequence follows our rule
-      this.correctSequence.push(order[i].value);
-    }
-  }
-
-  generateRandomPositions(count) {
-    // Generate random positions on the grid
-    const positions = [];
-    const totalCells = this.gridSize * this.gridSize;
-
-    while (positions.length < count) {
-      const position = Math.floor(Math.random() * totalCells);
-      if (!positions.includes(position)) {
-        positions.push(position);
-      }
-    }
-
-    return positions;
-  }
-
-  selectCharge(cell, chargeData) {
-    // Ignore if already detonating
-    if (this.detonating) return;
-
-    // Check if charge is already in sequence
-    if (this.playerSequence.includes(chargeData.value)) {
-      // Remove it from sequence
-      this.playerSequence = this.playerSequence.filter(
-        (v) => v !== chargeData.value
+      // Add click event
+      nodeElement.addEventListener("click", () =>
+        this._handleNodeClick(nodeType, nodeElement)
       );
-      cell.classList.remove("ring-2", "ring-yellow-400");
-    } else {
-      // Add to sequence
-      this.playerSequence.push(chargeData.value);
-      cell.classList.add("ring-2", "ring-yellow-400");
-    }
 
-    // Update the display
-    this.updateSequenceDisplay();
-  }
-
-  updateSequenceDisplay() {
-    // Clear existing content
-    this.sequenceDisplay.innerHTML = "";
-
-    if (this.playerSequence.length === 0) {
-      // No charges selected yet
-      const placeholder = document.createElement("div");
-      placeholder.className = "text-gray-500 text-sm";
-      placeholder.textContent =
-        "Select charges to create a detonation sequence...";
-      this.sequenceDisplay.appendChild(placeholder);
-      return;
-    }
-
-    // Add each charge to the sequence display
-    this.playerSequence.forEach((value, index) => {
-      const sequenceItem = document.createElement("div");
-      sequenceItem.className =
-        "w-10 h-10 rounded-full flex items-center justify-center";
-      sequenceItem.style.backgroundColor = this.getChargeColor(value);
-      sequenceItem.style.border = "2px solid #f59e0b";
-      sequenceItem.innerHTML = `<span class="text-white font-bold">${value}</span>`;
-
-      // Add order indicator
-      const orderIndicator = document.createElement("div");
-      orderIndicator.className =
-        "absolute -top-2 -right-2 w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center text-xs text-white";
-      orderIndicator.textContent = index + 1;
-      sequenceItem.style.position = "relative";
-      sequenceItem.appendChild(orderIndicator);
-
-      this.sequenceDisplay.appendChild(sequenceItem);
+      this.nodeContainer.appendChild(nodeElement);
     });
   }
 
-  resetSequence() {
-    // Clear the player sequence
+  /**
+   * Generate the correct disarm sequence
+   */
+  _generateSequence() {
+    this.correctSequence = [];
+    this.nodeStates = {};
+
+    // Initialize all nodes as inactive
+    this.nodeTypes.forEach((type) => {
+      this.nodeStates[type] = false;
+    });
+
+    // Generate random sequence
+    const availableNodes = [...this.nodeTypes];
+
+    for (let i = 0; i < this.sequenceLength; i++) {
+      // If we've used all nodes, reset the available nodes
+      if (availableNodes.length === 0) {
+        availableNodes.push(...this.nodeTypes);
+      }
+
+      // Pick a random node
+      const index = Math.floor(Math.random() * availableNodes.length);
+      const selectedNode = availableNodes[index];
+
+      // Remove from available
+      availableNodes.splice(index, 1);
+
+      // Add to sequence
+      this.correctSequence.push(selectedNode);
+    }
+
+    console.log("Correct sequence:", this.correctSequence);
+  }
+
+  /**
+   * Start main timer and pulse animation
+   */
+  _startTimer() {
+    // Clear any existing timers
+    this._clearTimers();
+
+    // Start main countdown
+    this.timer = setInterval(() => {
+      this.timeRemaining--;
+
+      // Update timer display
+      this._updateTimerDisplay();
+
+      // Check for time expiration
+      if (this.timeRemaining <= 0) {
+        this._handleFailure("Time's up! The explosive has detonated.");
+      }
+    }, 1000);
+
+    // Start pulse animation
+    this._startPulseAnimation();
+  }
+
+  /**
+   * Start pulse animation
+   */
+  _startPulseAnimation() {
+    let pulseOn = true;
+    const pulseLight = this.containerElement.querySelector(".pulse-light");
+
+    this.pulseTimer = setInterval(() => {
+      if (pulseLight) {
+        if (pulseOn) {
+          pulseLight.classList.remove("bg-red-600");
+          pulseLight.classList.add("bg-gray-800");
+        } else {
+          pulseLight.classList.remove("bg-gray-800");
+          pulseLight.classList.add("bg-red-600");
+        }
+      }
+
+      pulseOn = !pulseOn;
+
+      // As time decreases, pulse faster
+      if (this.timeRemaining < 30 && this.pulseSpeed > 300) {
+        clearInterval(this.pulseTimer);
+        this.pulseSpeed = Math.max(300, this.pulseSpeed - 200);
+        this._startPulseAnimation();
+      }
+    }, this.pulseSpeed / 2);
+  }
+
+  /**
+   * Clear all timers
+   */
+  _clearTimers() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+
+    if (this.pulseTimer) {
+      clearInterval(this.pulseTimer);
+      this.pulseTimer = null;
+    }
+  }
+
+  /**
+   * Update timer display
+   */
+  _updateTimerDisplay() {
+    if (this.timerElement) {
+      this.timerElement.textContent = this._formatTime(this.timeRemaining);
+
+      // Change color based on time remaining
+      if (this.timeRemaining <= 10) {
+        this.timerElement.classList.add("text-red-600", "animate-pulse");
+        this.timerElement.classList.remove("text-yellow-500");
+      } else if (this.timeRemaining <= 30) {
+        this.timerElement.classList.add("text-yellow-500");
+        this.timerElement.classList.remove("text-red-600", "animate-pulse");
+      } else {
+        this.timerElement.classList.remove(
+          "text-yellow-500",
+          "text-red-600",
+          "animate-pulse"
+        );
+      }
+    }
+  }
+
+  /**
+   * Format time for display
+   * @param {number} seconds - Time in seconds
+   * @returns {string} - Formatted time string (00:00)
+   */
+  _formatTime(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  }
+
+  /**
+   * Handle node click
+   * @param {string} nodeType - Type of node that was clicked
+   * @param {HTMLElement} nodeElement - The DOM element of the node
+   */
+  _handleNodeClick(nodeType, nodeElement) {
+    if (this.isComplete) return;
+
+    // Toggle node state
+    this.nodeStates[nodeType] = !this.nodeStates[nodeType];
+
+    // Update node appearance
+    const statusIndicator = nodeElement.querySelector(".status-indicator");
+    if (statusIndicator) {
+      if (this.nodeStates[nodeType]) {
+        statusIndicator.classList.remove("bg-red-500");
+        statusIndicator.classList.add("bg-green-500");
+        nodeElement.classList.add("node-active");
+      } else {
+        statusIndicator.classList.remove("bg-green-500");
+        statusIndicator.classList.add("bg-red-500");
+        nodeElement.classList.remove("node-active");
+      }
+    }
+
+    // Play activation sound
+    this._playActivationSound();
+
+    // Add to player sequence if activated
+    if (this.nodeStates[nodeType]) {
+      this.playerSequence.push(nodeType);
+      this._updateSequenceDisplay();
+
+      // Check if sequence is complete
+      if (this.playerSequence.length === this.sequenceLength) {
+        this._checkSequence();
+      }
+    } else {
+      // Remove from player sequence if deactivated
+      const index = this.playerSequence.lastIndexOf(nodeType);
+      if (index !== -1) {
+        this.playerSequence.splice(index, 1);
+        this._updateSequenceDisplay();
+      }
+    }
+  }
+
+  /**
+   * Update sequence display
+   */
+  _updateSequenceDisplay() {
+    const slots = this.sequenceDisplay.querySelectorAll(".sequence-slot");
+
+    // Reset all slots
+    slots.forEach((slot, index) => {
+      slot.innerHTML = "";
+      slot.className =
+        "sequence-slot w-8 h-8 bg-gray-800 border border-gray-600 rounded-md flex items-center justify-center";
+    });
+
+    // Fill slots with active nodes
+    this.playerSequence.forEach((nodeType, index) => {
+      if (index < slots.length) {
+        const nodeColor =
+          this.nodeColors[
+            this.nodeTypes.indexOf(nodeType) % this.nodeColors.length
+          ];
+
+        slots[index].innerHTML = `
+          <div class="w-6 h-6 rounded-full" style="background-color: ${this._getColorValue(
+            nodeColor
+          )}"></div>
+        `;
+      }
+    });
+  }
+
+  /**
+   * Check if the sequence is correct
+   */
+  _checkSequence() {
+    this.attempts++;
+
+    // Update attempt counter
+    const attemptCounter =
+      this.containerElement.querySelector(".attempt-counter");
+    if (attemptCounter) {
+      attemptCounter.textContent = `Attempts: ${this.attempts}/${this.maxAttempts}`;
+    }
+
+    // Check if sequence matches
+    let correct = true;
+    for (let i = 0; i < this.sequenceLength; i++) {
+      if (this.playerSequence[i] !== this.correctSequence[i]) {
+        correct = false;
+        break;
+      }
+    }
+
+    if (correct) {
+      this._handleSuccess();
+    } else {
+      // Wrong sequence
+      this._handleWrongSequence();
+    }
+  }
+
+  /**
+   * Handle wrong sequence
+   */
+  _handleWrongSequence() {
+    // Play error sound
+    this._playErrorSound();
+
+    // Show error message
+    this._showMessage("Incorrect sequence! System reset required.", "error");
+
+    // Reduce time as penalty
+    this.timeRemaining = Math.max(10, this.timeRemaining - 15);
+
+    // Reset sequence and nodes
     this.playerSequence = [];
 
-    // Reset the highlighting on all charges
-    const charges = document.querySelectorAll(".explosive-charge");
-    charges.forEach((charge) => {
-      charge.classList.remove("ring-2", "ring-yellow-400");
+    // Reset node states
+    this.nodeTypes.forEach((type) => {
+      this.nodeStates[type] = false;
     });
 
-    // Update the display
-    this.updateSequenceDisplay();
+    // Update UI
+    this._updateSequenceDisplay();
+    this._createNodes();
 
-    this.callbacks.showMessage("Sequence reset", "info");
-  }
-
-  detonateSequence() {
-    // Check if we have the right number of charges
-    if (this.playerSequence.length !== this.correctSequence.length) {
-      this.callbacks.showMessage(
-        `You need exactly ${this.correctSequence.length} charges!`,
-        "error"
+    // Check for too many attempts
+    if (this.attempts >= this.maxAttempts) {
+      this._handleFailure(
+        "Too many failed attempts! System lockout initiated."
       );
       return;
     }
 
-    // Start the detonation animation
-    this.detonating = true;
-    this.callbacks.showMessage("Detonation sequence initiated...", "warning");
-
-    // Disable interaction during animation
-    this.gridContainer.classList.add("pointer-events-none");
-
-    // Run the detonation sequence
-    this.runDetonationSequence().then((success) => {
-      if (success) {
-        // Sequence correct!
-        this.isCompleted = true;
-        this.callbacks.showSuccess();
-      } else {
-        // Sequence incorrect
-        this.detonating = false;
-        this.gridContainer.classList.remove("pointer-events-none");
-        this.callbacks.showMessage(
-          "Detonation failed! Incorrect sequence.",
-          "error"
-        );
-      }
-    });
-  }
-
-  runDetonationSequence() {
-    return new Promise((resolve) => {
-      // Check if the sequence is correct
-      const isCorrect = this.checkSequence();
-
-      // Animate the detonation sequence
-      let index = 0;
-      const detonateNext = () => {
-        if (index >= this.playerSequence.length) {
-          // We've gone through all charges
-          setTimeout(() => {
-            resolve(isCorrect);
-          }, 500);
-          return;
-        }
-
-        const value = this.playerSequence[index];
-        const charge = this.explosiveCharges.find((c) => c.value === value);
-        const cell = document.querySelector(
-          `.explosive-charge[data-position="${charge.position}"]`
-        );
-
-        // Detonate animation
-        cell.classList.add("detonating");
-
-        // Add explosion effect
-        const explosion = document.createElement("div");
-        explosion.className =
-          "absolute inset-0 rounded-lg flex items-center justify-center explosion-effect";
-        explosion.innerHTML = `<span class="animate-ping text-2xl">💥</span>`;
-        cell.appendChild(explosion);
-
-        // Check if this is in the right sequence
-        const isCorrectPosition = value === this.correctSequence[index];
-
-        if (!isCorrectPosition && isCorrect) {
-          // Stop the sequence if incorrect
-          setTimeout(() => {
-            resolve(false);
-          }, 500);
-          return;
-        }
-
-        // Move to next charge after delay
-        setTimeout(() => {
-          index++;
-          detonateNext();
-        }, 800);
-      };
-
-      // Start the sequence
-      detonateNext();
-    });
-  }
-
-  checkSequence() {
-    // Compare player sequence with correct sequence
-    if (this.playerSequence.length !== this.correctSequence.length) {
-      return false;
-    }
-
-    // Check each position
-    for (let i = 0; i < this.playerSequence.length; i++) {
-      if (this.playerSequence[i] !== this.correctSequence[i]) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  getChargeColor(value) {
-    // Color based on the value
-    if (value < 10) {
-      return "#3b82f6"; // Blue for small values
-    } else if (value < 20) {
-      return "#8b5cf6"; // Purple for medium values
-    } else if (value < 50) {
-      return "#ef4444"; // Red for large values
-    } else {
-      return "#f97316"; // Orange for very large values
+    // Give a hint after first failure
+    if (this.attempts === 1) {
+      this._provideHint();
     }
   }
 
-  getPatternHint() {
-    if (this.puzzleData.difficulty <= 1) {
-      return "Arrange charges in ascending order by their number value.";
-    } else if (this.puzzleData.difficulty === 2) {
-      // Check if it's a Fibonacci sequence
-      if (this.correctSequence[0] === 1 && this.correctSequence[1] === 2) {
-        return "The sequence follows the Fibonacci pattern where each number is the sum of the two preceding ones.";
-      } else {
-        return "The sequence follows powers of 2 - each number is twice the previous one.";
-      }
-    } else {
-      return "Look for a pattern in the digits. Try adding the digits together for each number.";
+  /**
+   * Provide a hint for the correct sequence
+   */
+  _provideHint() {
+    // Reveal the first two nodes
+    const hint = `Hint: The sequence starts with ${this.correctSequence[0]} followed by ${this.correctSequence[1]}.`;
+
+    setTimeout(() => {
+      this._showMessage(hint, "info");
+    }, 2000);
+  }
+
+  /**
+   * Handle successful completion
+   */
+  _handleSuccess() {
+    this.isComplete = true;
+
+    // Stop timers
+    this._clearTimers();
+
+    // Play success sound
+    this._playSuccessSound();
+
+    // Show success message
+    this._showMessage("Explosive sequence successfully disarmed!", "success");
+
+    // Update sequence display to show correct sequence
+    this._showCorrectSequence();
+
+    // Trigger success callback
+    if (this.callbacks && this.callbacks.showSuccess) {
+      this.callbacks.showSuccess();
     }
   }
 
-  onTimeUp() {
-    if (this.isCompleted) return;
+  /**
+   * Handle failure
+   * @param {string} message - Failure message
+   */
+  _handleFailure(message) {
+    // Stop timers
+    this._clearTimers();
+
+    // Play explosion sound
+    this._playExplosionSound();
 
     // Show failure message
-    this.callbacks.showMessage("Time's up! Breach failed.", "error");
+    this._showMessage(message, "error");
 
-    // Disable further interaction
-    this.puzzleContainer.classList.add("opacity-75", "pointer-events-none");
-    this.callbacks.disableSubmit();
-  }
+    // Show correct sequence
+    this._showCorrectSequence();
 
-  handleRandomEvent(eventType, duration) {
-    if (this.isCompleted) return;
+    // Disable all nodes
+    const nodes = this.nodeContainer.querySelectorAll(".node");
+    nodes.forEach((node) => {
+      node.style.pointerEvents = "none";
+      node.classList.add("opacity-50");
+    });
 
-    // Special effects for events
-    if (eventType === "security_patrol") {
-      // Security patrol - briefly hide all numbers
-      const chargeValues = document.querySelectorAll(".explosive-charge span");
-
-      // Hide all values
-      chargeValues.forEach((span) => {
-        span.dataset.originalText = span.textContent;
-        span.textContent = "?";
-      });
-
-      // Show values again after duration
-      setTimeout(() => {
-        chargeValues.forEach((span) => {
-          if (span.dataset.originalText) {
-            span.textContent = span.dataset.originalText;
-            delete span.dataset.originalText;
-          }
-        });
-      }, duration * 1000);
+    // Reduce time as penalty
+    if (this.callbacks && this.callbacks.reduceTime) {
+      this.callbacks.reduceTime(20);
     }
   }
 
-  cleanup() {
-    // Clean up event listeners
-    if (this.puzzleContainer) {
-      this.puzzleContainer.remove();
-    }
+  /**
+   * Show the correct sequence
+   */
+  _showCorrectSequence() {
+    const slots = this.sequenceDisplay.querySelectorAll(".sequence-slot");
 
-    this.puzzleContainer = null;
-    this.gridContainer = null;
-    this.sequenceDisplay = null;
+    // Fill slots with correct sequence
+    this.correctSequence.forEach((nodeType, index) => {
+      if (index < slots.length) {
+        const nodeColor =
+          this.nodeColors[
+            this.nodeTypes.indexOf(nodeType) % this.nodeColors.length
+          ];
+
+        slots[index].innerHTML = `
+          <div class="w-6 h-6 rounded-full" style="background-color: ${this._getColorValue(
+            nodeColor
+          )}"></div>
+        `;
+
+        // Highlight if it was correct
+        if (this.playerSequence[index] === nodeType) {
+          slots[index].classList.add("border-green-500");
+        } else {
+          slots[index].classList.add("border-red-500");
+        }
+      }
+    });
   }
 
-  getSubmissionData() {
+  /**
+   * Get color CSS value
+   * @param {string} colorName - Name of the color
+   * @returns {string} - CSS color value
+   */
+  _getColorValue(colorName) {
+    switch (colorName) {
+      case "red":
+        return "rgb(239, 68, 68)";
+      case "blue":
+        return "rgb(59, 130, 246)";
+      case "green":
+        return "rgb(34, 197, 94)";
+      case "yellow":
+        return "rgb(234, 179, 8)";
+      case "purple":
+        return "rgb(139, 92, 246)";
+      case "orange":
+        return "rgb(249, 115, 22)";
+      default:
+        return "rgb(107, 114, 128)";
+    }
+  }
+
+  /**
+   * Play activation sound
+   */
+  _playActivationSound() {
+    try {
+      const sound = new Audio("../static/sounds/click.mp3");
+      sound.volume = 0.2;
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play activation sound:", e);
+    }
+  }
+
+  /**
+   * Play error sound
+   */
+  _playErrorSound() {
+    try {
+      const sound = new Audio("../static/sounds/error.mp3");
+      sound.volume = 0.3;
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play error sound:", e);
+    }
+  }
+
+  /**
+   * Play success sound
+   */
+  _playSuccessSound() {
+    try {
+      const sound = new Audio("../static/sounds/success.mp3");
+      sound.volume = 0.3;
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play success sound:", e);
+    }
+  }
+
+  /**
+   * Play explosion sound
+   */
+  _playExplosionSound() {
+    try {
+      const sound = new Audio("../static/sounds/explosion.mp3");
+      sound.volume = 0.4;
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play explosion sound:", e);
+    }
+  }
+
+  /**
+   * Show message
+   * @param {string} message - Message to display
+   * @param {string} type - Type of message (info, success, error)
+   */
+  _showMessage(message, type = "info") {
+    if (!this.messageElement) return;
+
+    // Remove previous classes
+    this.messageElement.className =
+      "message mt-2 p-2 w-full text-center rounded-lg";
+
+    // Add type-specific class
+    switch (type) {
+      case "success":
+        this.messageElement.classList.add("bg-green-700", "text-white");
+        break;
+      case "error":
+        this.messageElement.classList.add("bg-red-700", "text-white");
+        break;
+      default:
+        this.messageElement.classList.add("bg-blue-700", "text-white");
+    }
+
+    this.messageElement.textContent = message;
+  }
+
+  /**
+   * Adjust difficulty based on level
+   */
+  _adjustDifficulty() {
+    if (this.difficulty === 4) {
+      // Level 4 (Hard) is the default
+      this.sequenceLength = 6;
+      this.maxAttempts = 3;
+      this.timeRemaining = 90;
+    } else if (this.difficulty > 4) {
+      // Level 5 (Very Hard)
+      this.sequenceLength = 8;
+      this.maxAttempts = 2;
+      this.timeRemaining = 75;
+    }
+  }
+
+  /**
+   * Check if the solution is valid
+   * @returns {boolean} - True if solution is valid
+   */
+  validateSolution() {
+    return this.isComplete;
+  }
+
+  /**
+   * Get the current solution
+   * @returns {Object} - Current sequence
+   */
+  getSolution() {
     return {
       playerSequence: this.playerSequence,
       correctSequence: this.correctSequence,
-      success: this.isCompleted,
+      completed: this.isComplete,
     };
   }
-}
 
-// Add CSS to handle animations
-const style = document.createElement("style");
-style.textContent = `
-  .detonating {
-    animation: pulse 0.8s ease-in-out;
+  /**
+   * Get error message for invalid solution
+   * @returns {string} - Error message
+   */
+  getErrorMessage() {
+    return "Activate the nodes in the correct sequence to disarm the explosive.";
   }
-  
-  .explosion-effect {
-    z-index: 10;
+
+  /**
+   * Show success animation
+   */
+  showSuccess() {
+    // Create success overlay
+    const successOverlay = document.createElement("div");
+    successOverlay.className =
+      "absolute inset-0 bg-green-500 bg-opacity-20 flex items-center justify-center z-10";
+    successOverlay.innerHTML = `
+      <div class="text-4xl font-bold text-white">DISARMED</div>
+    `;
+
+    // Make container position relative for absolute positioning
+    this.deviceContainer.style.position = "relative";
+
+    // Add to container
+    this.deviceContainer.appendChild(successOverlay);
+
+    // Animate in and out
+    successOverlay.style.opacity = "0";
+    successOverlay.style.transition = "opacity 0.5s";
+
+    setTimeout(() => {
+      successOverlay.style.opacity = "1";
+
+      setTimeout(() => {
+        successOverlay.style.opacity = "0";
+        setTimeout(() => {
+          successOverlay.remove();
+        }, 500);
+      }, 2000);
+    }, 100);
   }
-  
-  @keyframes pulse {
-    0% { transform: scale(1); }
-    50% { transform: scale(1.2); background-color: #f97316; }
-    100% { transform: scale(1); }
+
+  /**
+   * Clean up resources
+   */
+  cleanup() {
+    // Stop timers
+    this._clearTimers();
+
+    // Remove node event listeners
+    const nodes = this.nodeContainer
+      ? this.nodeContainer.querySelectorAll(".node")
+      : [];
+    nodes.forEach((node) => {
+      const clone = node.cloneNode(true);
+      node.parentNode.replaceChild(clone, node);
+    });
+
+    // Reset state
+    this.playerSequence = [];
+    this.correctSequence = [];
+    this.nodeStates = {};
   }
-`;
-document.head.appendChild(style);
+}
 
 export default ExplosiveSequencePuzzle;

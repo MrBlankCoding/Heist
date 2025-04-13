@@ -1,130 +1,688 @@
-// AlarmPuzzle.js - Lookout puzzle for alarm system interface (type 4)
+// AlarmPuzzle.js - Alarm System Control Puzzle for the Lookout role
+// Difficulty: 4/5 - Hard difficulty
 
 class AlarmPuzzle {
-  constructor(containerElement, puzzleData, submitSolutionCallback) {
+  constructor(containerElement, puzzleData, callbacks) {
     this.containerElement = containerElement;
     this.puzzleData = puzzleData;
-    this.submitSolution = submitSolutionCallback;
-    this.isCompleted = false;
+    this.callbacks = callbacks;
+    this.isComplete = false;
 
-    // Alarm puzzle specific properties
-    this.facilityMap = null;
-    this.alarmTriggers = [];
-    this.playerMarkedTriggers = [];
-    this.correctTriggerCount = 0;
-    this.timeRemaining = 120; // 2 minutes
+    // Alarm system properties
+    this.alarmZones = [];
+    this.numZones = 8; // Number of alarm zones
+    this.activeAlarms = 0; // Number of currently active alarms
+    this.totalDisabled = 0; // Total number of alarms successfully disabled
 
-    // DOM elements
+    // Sequence properties
+    this.correctSequence = []; // The correct sequence to disable the alarm
+    this.playerSequence = []; // The sequence entered by the player
+    this.sequenceLength = 6; // Length of sequence to memorize
+
+    // UI elements
+    this.gridElement = null;
     this.messageElement = null;
-    this.submitButton = null;
-    this.timerElement = null;
-    this.timerInterval = null;
+    this.sequenceDisplayElement = null;
+    this.statusElement = null;
+
+    // Timer for active alarms and sequence display
+    this.alarmTimer = null;
+    this.sequenceTimer = null;
+    this.alarmActivationDelay = 12000; // 12 seconds between alarms
+
+    // Puzzle states
+    this.isShowingSequence = false;
+    this.isDisarmingMode = false;
+
+    // Difficulty adjustments
+    this.difficulty = this.puzzleData.difficulty || 4;
+    this._adjustForDifficulty();
+
+    // Solution tracking
+    this.requiredDisarmed = 4; // Need to disarm 4 alarm sequences to complete
+  }
+
+  /**
+   * Adjust parameters based on difficulty
+   */
+  _adjustForDifficulty() {
+    // Adjust sequence length
+    this.sequenceLength = 4 + this.difficulty; // 8 for difficulty 4
+
+    // Adjust alarm activation delay (faster at higher difficulties)
+    this.alarmActivationDelay = Math.max(6000, 15000 - this.difficulty * 2000);
+
+    // Adjust required disarmed alarms
+    this.requiredDisarmed = 3 + Math.floor(this.difficulty / 2); // 5 for difficulty 4
   }
 
   /**
    * Initialize the puzzle
    */
   initialize() {
-    // Create game area
-    const gameArea = document.createElement("div");
-    gameArea.className = "flex flex-col items-center mb-6";
-    this.containerElement.appendChild(gameArea);
+    // Create UI elements
+    this._createUI();
 
-    // Create header with title and timer
-    const headerContainer = document.createElement("div");
-    headerContainer.className = "flex justify-between items-center w-full mb-4";
+    // Initialize alarm zones
+    this._initializeAlarmZones();
 
-    const title = document.createElement("h4");
-    title.className = "text-lg text-green-400 font-bold";
-    title.textContent = "Alarm System Interface";
+    // Start first alarm after delay
+    this._scheduleNextAlarm();
 
-    this.timerElement = document.createElement("div");
-    this.timerElement.className = "text-yellow-400 font-mono";
-    this.timerElement.textContent = this._formatTime(this.timeRemaining);
+    // Render initial state
+    this._render();
 
-    headerContainer.appendChild(title);
-    headerContainer.appendChild(this.timerElement);
-    gameArea.appendChild(headerContainer);
+    // Display instructions
+    this._showMessage(
+      "Memorize alarm sequences and disable them before they trigger!"
+    );
+  }
 
-    // Create instructions
-    const instructions = document.createElement("p");
-    instructions.className = "text-gray-300 mb-4 text-sm";
-    instructions.innerHTML =
-      "Identify and mark potential alarm triggers throughout the facility. <strong class='text-yellow-400'>Click on suspicious objects or areas</strong> that might trigger security alarms. Find at least 80% of triggers to succeed.";
-    gameArea.appendChild(instructions);
+  /**
+   * Create the UI elements for the puzzle
+   */
+  _createUI() {
+    const puzzleContainer = document.createElement("div");
+    puzzleContainer.className =
+      "alarm-puzzle flex flex-col items-center justify-center h-full";
 
-    // Create facility map
-    this._createFacilityMap(gameArea);
+    // Header with status
+    this.statusElement = document.createElement("div");
+    this.statusElement.className = "mb-4 text-white font-medium text-center";
+    this.statusElement.textContent = `Alarms Disabled: 0/${this.requiredDisarmed}`;
+    puzzleContainer.appendChild(this.statusElement);
 
-    // Create controls
-    const controlsContainer = document.createElement("div");
-    controlsContainer.className =
-      "flex justify-between items-center w-full mt-4";
+    // Instructions
+    const instructions = document.createElement("div");
+    instructions.className = "mb-4 text-center text-gray-300";
+    instructions.innerHTML = `
+      <p class="mb-2">Watch the sequence, then press the zones in the same order to disable the alarm.</p>
+      <p class="text-sm">
+        <span class="bg-blue-500 text-white px-2 py-1 rounded">Inactive</span>
+        <span class="ml-2 bg-red-500 text-white px-2 py-1 rounded">Active</span>
+        <span class="ml-2 bg-green-500 text-white px-2 py-1 rounded">Sequence</span>
+      </p>
+    `;
+    puzzleContainer.appendChild(instructions);
 
-    // Trigger counter
-    const triggerCounter = document.createElement("div");
-    triggerCounter.className = "text-green-400";
-    triggerCounter.id = "trigger-counter";
-    triggerCounter.textContent = `Triggers identified: 0/${this.correctTriggerCount}`;
+    // Sequence display area
+    this.sequenceDisplayElement = document.createElement("div");
+    this.sequenceDisplayElement.className =
+      "mb-4 flex justify-center gap-2 h-8";
+    puzzleContainer.appendChild(this.sequenceDisplayElement);
 
-    // Submit button
-    this.submitButton = document.createElement("button");
-    this.submitButton.className = "heist-button";
-    this.submitButton.textContent = "Submit Analysis";
-    this.submitButton.addEventListener("click", () => this._handleSubmit());
+    // Alarm grid
+    this.gridElement = document.createElement("div");
+    this.gridElement.className = "grid grid-cols-4 gap-4 w-96 h-96";
+    puzzleContainer.appendChild(this.gridElement);
 
-    controlsContainer.appendChild(triggerCounter);
-    controlsContainer.appendChild(this.submitButton);
-    gameArea.appendChild(controlsContainer);
-
-    // Message element for feedback
+    // Message element
     this.messageElement = document.createElement("div");
     this.messageElement.className =
-      "mb-4 text-yellow-400 text-center hidden mt-4";
-    gameArea.appendChild(this.messageElement);
+      "mt-4 text-center h-8 text-white font-medium";
+    puzzleContainer.appendChild(this.messageElement);
 
-    // Generate the alarm system data
-    this._generateAlarmSystem();
-
-    // Start timer
-    this._startTimer();
+    this.containerElement.appendChild(puzzleContainer);
   }
 
   /**
-   * Get puzzle title
-   * @returns {string} - Puzzle title
+   * Initialize alarm zones
    */
-  getTitle() {
-    return "Alarm System Interface";
+  _initializeAlarmZones() {
+    this.alarmZones = [];
+
+    for (let i = 0; i < this.numZones; i++) {
+      this.alarmZones.push({
+        id: i,
+        status: "inactive", // inactive, active, sequence, pressed
+        countdown: 0,
+        label: String.fromCharCode(65 + i), // A, B, C, D, etc.
+      });
+    }
   }
 
   /**
-   * Get puzzle instructions
-   * @returns {string} - Puzzle instructions
+   * Schedule next alarm activation
    */
-  getInstructions() {
-    return "Identify and mark potential alarm triggers throughout the facility.";
+  _scheduleNextAlarm() {
+    // Don't schedule if puzzle is complete
+    if (this.isComplete) return;
+
+    // Don't schedule if we're already showing a sequence
+    if (this.isShowingSequence) return;
+
+    // Don't schedule if an alarm is already active
+    if (this.activeAlarms > 0) return;
+
+    // Schedule alarm activation
+    setTimeout(() => {
+      this._activateRandomAlarm();
+    }, this.alarmActivationDelay);
   }
 
   /**
-   * Display success message and visuals
+   * Activate a random alarm
    */
-  showSuccess() {
-    this.isCompleted = true;
-    this._stopTimer();
+  _activateRandomAlarm() {
+    // Find available zones (inactive ones)
+    const availableZones = this.alarmZones.filter(
+      (zone) => zone.status === "inactive"
+    );
 
-    // Update UI to show success
-    this.messageElement.textContent =
-      "Alarm system successfully analyzed! The team can now navigate safely.";
-    this.messageElement.className = "mb-4 text-green-400 text-center";
+    if (availableZones.length === 0) {
+      // No available zones, try again later
+      this._scheduleNextAlarm();
+      return;
+    }
 
-    // Reveal all triggers
-    this._revealAllTriggers();
+    // Select a random zone
+    const randomZone =
+      availableZones[Math.floor(Math.random() * availableZones.length)];
+    const zoneId = randomZone.id;
 
-    // Update button
-    this.submitButton.disabled = true;
-    this.submitButton.textContent = "Mission Complete";
-    this.submitButton.className = "heist-button mx-auto block opacity-50";
+    // Generate a random sequence for this alarm
+    this._generateSequence();
+
+    // Show the sequence to the player
+    this._showSequence(zoneId);
+  }
+
+  /**
+   * Generate a random sequence for disarming
+   */
+  _generateSequence() {
+    this.correctSequence = [];
+
+    // Generate random sequence of zone IDs
+    for (let i = 0; i < this.sequenceLength; i++) {
+      const randomId = Math.floor(Math.random() * this.numZones);
+      this.correctSequence.push(randomId);
+    }
+
+    // Reset player sequence
+    this.playerSequence = [];
+  }
+
+  /**
+   * Show the sequence to the player
+   * @param {number} alarmZoneId - ID of the alarm zone being activated
+   */
+  _showSequence(alarmZoneId) {
+    this.isShowingSequence = true;
+    this.isDisarmingMode = false;
+
+    // Update zone status
+    this.alarmZones[alarmZoneId].status = "active";
+    this.activeAlarms++;
+
+    // Show message
+    this._showMessage("Memorize the sequence to disable the alarm!", "warning");
+
+    // Clear sequence display
+    this._updateSequenceDisplay();
+
+    // Render state
+    this._render();
+
+    // Show sequence with delay between each step
+    let step = 0;
+
+    const showNextStep = () => {
+      // Clear all sequence highlights
+      for (const zone of this.alarmZones) {
+        if (zone.status === "sequence") {
+          zone.status = zone.id === alarmZoneId ? "active" : "inactive";
+        }
+      }
+
+      if (step < this.correctSequence.length) {
+        // Highlight next zone in sequence
+        const sequenceZoneId = this.correctSequence[step];
+
+        // If sequence zone is the active alarm zone, use a different color
+        if (sequenceZoneId === alarmZoneId) {
+          // Using pressed status for a different visual
+          this.alarmZones[sequenceZoneId].status = "pressed";
+        } else {
+          this.alarmZones[sequenceZoneId].status = "sequence";
+        }
+
+        // Render updated state
+        this._render();
+
+        // Move to next step
+        step++;
+
+        // Schedule next step
+        setTimeout(showNextStep, 800);
+      } else {
+        // Sequence finished, enter disarming mode
+        this._enterDisarmingMode(alarmZoneId);
+      }
+    };
+
+    // Start showing sequence
+    setTimeout(showNextStep, 1000);
+  }
+
+  /**
+   * Enter disarming mode after showing sequence
+   * @param {number} alarmZoneId - ID of the alarm zone being disarmed
+   */
+  _enterDisarmingMode(alarmZoneId) {
+    this.isShowingSequence = false;
+    this.isDisarmingMode = true;
+
+    // Reset all zones except the active alarm
+    for (const zone of this.alarmZones) {
+      if (zone.status === "sequence" || zone.status === "pressed") {
+        zone.status = zone.id === alarmZoneId ? "active" : "inactive";
+      }
+    }
+
+    // Clear player sequence
+    this.playerSequence = [];
+    this._updateSequenceDisplay();
+
+    // Start alarm countdown
+    this.alarmZones[alarmZoneId].countdown = 30; // 30 seconds to disarm
+
+    // Start countdown timer
+    this._startAlarmCountdown(alarmZoneId);
+
+    // Show message
+    this._showMessage("Enter the sequence to disable the alarm!", "warning");
+
+    // Render state
+    this._render();
+  }
+
+  /**
+   * Start countdown for an active alarm
+   * @param {number} alarmZoneId - ID of the alarm zone with countdown
+   */
+  _startAlarmCountdown(alarmZoneId) {
+    // Clear any existing timer
+    if (this.alarmTimer) {
+      clearInterval(this.alarmTimer);
+      this.alarmTimer = null;
+    }
+
+    this.alarmTimer = setInterval(() => {
+      // Reduce countdown
+      this.alarmZones[alarmZoneId].countdown--;
+
+      // Render updated state
+      this._render();
+
+      // Check if countdown expired
+      if (this.alarmZones[alarmZoneId].countdown <= 0) {
+        // Alarm triggered!
+        this._handleAlarmTriggered(alarmZoneId);
+      }
+    }, 1000);
+  }
+
+  /**
+   * Handle an alarm being triggered (failed to disarm in time)
+   * @param {number} alarmZoneId - ID of the triggered alarm zone
+   */
+  _handleAlarmTriggered(alarmZoneId) {
+    // Clear countdown timer
+    if (this.alarmTimer) {
+      clearInterval(this.alarmTimer);
+      this.alarmTimer = null;
+    }
+
+    // Show failure message
+    this._showMessage("Alarm triggered! Security alert raised.", "error");
+
+    // Reset the zone after a delay
+    setTimeout(() => {
+      this.alarmZones[alarmZoneId].status = "inactive";
+      this.activeAlarms--;
+
+      // Render updated state
+      this._render();
+
+      // Schedule next alarm
+      this._scheduleNextAlarm();
+    }, 3000);
+  }
+
+  /**
+   * Handle player pressing an alarm zone
+   * @param {number} zoneId - ID of the pressed zone
+   */
+  _handleZonePress(zoneId) {
+    // Ignore if we're showing sequence or puzzle is complete
+    if (this.isShowingSequence || this.isComplete) return;
+
+    // Ignore if we're not in disarming mode
+    if (!this.isDisarmingMode) return;
+
+    // Find the active alarm
+    const activeAlarmZone = this.alarmZones.find(
+      (zone) => zone.status === "active"
+    );
+
+    if (!activeAlarmZone) return;
+
+    // Add to player sequence
+    this.playerSequence.push(zoneId);
+
+    // Update sequence display
+    this._updateSequenceDisplay();
+
+    // Temporarily change zone status to show it was pressed
+    const originalStatus = this.alarmZones[zoneId].status;
+    this.alarmZones[zoneId].status = "pressed";
+
+    // Render update
+    this._render();
+
+    // Restore original status after a short delay
+    setTimeout(() => {
+      this.alarmZones[zoneId].status = originalStatus;
+      this._render();
+
+      // Check if sequence is complete
+      if (this.playerSequence.length === this.correctSequence.length) {
+        this._checkDisarmSequence(activeAlarmZone.id);
+      }
+    }, 300);
+  }
+
+  /**
+   * Check if player entered the correct disarm sequence
+   * @param {number} alarmZoneId - ID of the alarm zone being disarmed
+   */
+  _checkDisarmSequence(alarmZoneId) {
+    // Compare sequences
+    let isCorrect = true;
+
+    for (let i = 0; i < this.correctSequence.length; i++) {
+      if (this.playerSequence[i] !== this.correctSequence[i]) {
+        isCorrect = false;
+        break;
+      }
+    }
+
+    if (isCorrect) {
+      // Disarm successful!
+      this._handleDisarmSuccess(alarmZoneId);
+    } else {
+      // Disarm failed
+      this._handleDisarmFailure(alarmZoneId);
+    }
+  }
+
+  /**
+   * Handle successful alarm disarm
+   * @param {number} alarmZoneId - ID of the disarmed alarm zone
+   */
+  _handleDisarmSuccess(alarmZoneId) {
+    // Clear countdown timer
+    if (this.alarmTimer) {
+      clearInterval(this.alarmTimer);
+      this.alarmTimer = null;
+    }
+
+    // Reset alarm zone
+    this.alarmZones[alarmZoneId].status = "inactive";
+    this.activeAlarms--;
+
+    // Increment disarm counter
+    this.totalDisabled++;
+
+    // Update status display
+    this._updateStatus();
+
+    // Show success message
+    this._showMessage("Alarm successfully disabled!", "success");
+
+    // Check if puzzle is complete
+    if (this.totalDisabled >= this.requiredDisarmed) {
+      this._handlePuzzleSuccess();
+      return;
+    }
+
+    // Reset state
+    this.isDisarmingMode = false;
+    this.playerSequence = [];
+    this._updateSequenceDisplay();
+
+    // Render updated state
+    this._render();
+
+    // Schedule next alarm
+    this._scheduleNextAlarm();
+  }
+
+  /**
+   * Handle failed alarm disarm
+   * @param {number} alarmZoneId - ID of the alarm zone
+   */
+  _handleDisarmFailure(alarmZoneId) {
+    // Show error message
+    this._showMessage("Incorrect sequence! Try again.", "error");
+
+    // Reset player sequence
+    this.playerSequence = [];
+    this._updateSequenceDisplay();
+
+    // Apply penalty to countdown
+    this.alarmZones[alarmZoneId].countdown = Math.max(
+      5,
+      this.alarmZones[alarmZoneId].countdown - 5
+    );
+
+    // Render updated state
+    this._render();
+  }
+
+  /**
+   * Handle successful puzzle completion
+   */
+  _handlePuzzleSuccess() {
+    this.isComplete = true;
+
+    // Clear any timers
+    if (this.alarmTimer) {
+      clearInterval(this.alarmTimer);
+      this.alarmTimer = null;
+    }
+
+    // Show success message
+    this._showMessage(
+      "All alarms disabled! Security system bypassed.",
+      "success"
+    );
+
+    if (this.callbacks && this.callbacks.showSuccess) {
+      this.callbacks.showSuccess();
+    }
+  }
+
+  /**
+   * Update the status display
+   */
+  _updateStatus() {
+    if (this.statusElement) {
+      this.statusElement.textContent = `Alarms Disabled: ${this.totalDisabled}/${this.requiredDisarmed}`;
+    }
+  }
+
+  /**
+   * Update the sequence display
+   */
+  _updateSequenceDisplay() {
+    if (!this.sequenceDisplayElement) return;
+
+    // Clear existing display
+    this.sequenceDisplayElement.innerHTML = "";
+
+    if (this.isShowingSequence) {
+      // Show "memorizing" message
+      const message = document.createElement("div");
+      message.className = "text-white font-medium animate-pulse";
+      message.textContent = "Memorize the sequence...";
+      this.sequenceDisplayElement.appendChild(message);
+      return;
+    }
+
+    // Create dots/indicators for each step in the sequence
+    for (let i = 0; i < this.sequenceLength; i++) {
+      const dot = document.createElement("div");
+
+      // Check if this position has been entered by player
+      if (i < this.playerSequence.length) {
+        // Show the zone label that was pressed
+        const zoneId = this.playerSequence[i];
+        const zoneLabel = this.alarmZones[zoneId].label;
+
+        dot.className =
+          "w-8 h-8 flex items-center justify-center bg-blue-600 text-white font-bold rounded-full";
+        dot.textContent = zoneLabel;
+      } else {
+        // Empty slot
+        dot.className = "w-8 h-8 border-2 border-gray-500 rounded-full";
+      }
+
+      this.sequenceDisplayElement.appendChild(dot);
+    }
+  }
+
+  /**
+   * Render the alarm zones
+   */
+  _render() {
+    if (!this.gridElement) return;
+
+    // Clear grid
+    this.gridElement.innerHTML = "";
+
+    // Create zone elements
+    for (let i = 0; i < this.numZones; i++) {
+      const zone = this.alarmZones[i];
+      const zoneElement = document.createElement("div");
+
+      // Basic styling
+      zoneElement.className =
+        "flex flex-col items-center justify-center h-full rounded-lg cursor-pointer relative";
+
+      // Status-specific styling
+      switch (zone.status) {
+        case "inactive":
+          zoneElement.classList.add("bg-blue-800", "hover:bg-blue-700");
+          break;
+        case "active":
+          zoneElement.classList.add(
+            "bg-red-600",
+            "ring-2",
+            "ring-red-400",
+            "animate-pulse"
+          );
+          break;
+        case "sequence":
+          zoneElement.classList.add("bg-green-600");
+          break;
+        case "pressed":
+          zoneElement.classList.add("bg-yellow-500");
+          break;
+      }
+
+      // Zone label
+      const label = document.createElement("div");
+      label.className = "text-white font-bold text-2xl";
+      label.textContent = zone.label;
+      zoneElement.appendChild(label);
+
+      // Countdown for active alarms
+      if (zone.status === "active" && zone.countdown > 0) {
+        const countdown = document.createElement("div");
+        countdown.className = "text-white text-sm mt-1";
+        countdown.textContent = `${zone.countdown}s`;
+        zoneElement.appendChild(countdown);
+      }
+
+      // Add click handler
+      zoneElement.addEventListener("click", () => this._handleZonePress(i));
+
+      this.gridElement.appendChild(zoneElement);
+    }
+  }
+
+  /**
+   * Show a message to the player
+   * @param {string} message - Message to display
+   * @param {string} type - Message type (info, success, error, warning)
+   */
+  _showMessage(message, type = "info") {
+    if (!this.messageElement) return;
+
+    // Reset classes
+    this.messageElement.className = "mt-4 text-center h-8 font-medium";
+
+    // Apply type-specific styling
+    switch (type) {
+      case "success":
+        this.messageElement.classList.add("text-green-400");
+        break;
+      case "error":
+        this.messageElement.classList.add("text-red-400");
+        break;
+      case "warning":
+        this.messageElement.classList.add("text-yellow-400");
+        break;
+      default:
+        this.messageElement.classList.add("text-white");
+    }
+
+    this.messageElement.textContent = message;
+  }
+
+  /**
+   * Clean up event listeners and timers
+   */
+  cleanup() {
+    if (this.alarmTimer) {
+      clearInterval(this.alarmTimer);
+      this.alarmTimer = null;
+    }
+
+    if (this.sequenceTimer) {
+      clearTimeout(this.sequenceTimer);
+      this.sequenceTimer = null;
+    }
+  }
+
+  /**
+   * Get the current solution
+   * @returns {Object} - The solution data
+   */
+  getSolution() {
+    return {
+      disabledAlarms: this.totalDisabled,
+      requiredAlarms: this.requiredDisarmed,
+      isComplete: this.isComplete,
+    };
+  }
+
+  /**
+   * Validate the current solution
+   * @returns {boolean} - Whether the solution is valid
+   */
+  validateSolution() {
+    return this.isComplete;
+  }
+
+  /**
+   * Get error message for invalid solution
+   * @returns {string} - Error message
+   */
+  getErrorMessage() {
+    return `Need to disable ${this.requiredDisarmed} alarms to complete the puzzle!`;
   }
 
   /**
@@ -133,440 +691,37 @@ class AlarmPuzzle {
    * @param {number} duration - Duration in seconds
    */
   handleRandomEvent(eventType, duration) {
-    if (this.isCompleted) return;
-
-    // Show message about the random event
-    this.messageElement.textContent = this._getRandomEventMessage(eventType);
-    this.messageElement.className = "mb-4 text-red-400 text-center";
-
-    // For the Lookout role, make random events less disruptive
-    setTimeout(() => {
-      this.messageElement.className = "mb-4 text-yellow-400 text-center hidden";
-    }, duration * 500); // Half the time of other roles
-  }
-
-  /**
-   * Cleanup event listeners and references
-   */
-  cleanup() {
-    this._stopTimer();
-
-    // Clear references
-    this.facilityMap = null;
-    this.messageElement = null;
-    this.submitButton = null;
-    this.timerElement = null;
-  }
-
-  /**
-   * Create facility map
-   * @param {HTMLElement} container - Container element
-   */
-  _createFacilityMap(container) {
-    const mapContainer = document.createElement("div");
-    mapContainer.className =
-      "relative bg-gray-800 rounded-lg border border-gray-700 mb-4";
-    mapContainer.style.width = "min(100%, 600px)";
-    mapContainer.style.height = "400px";
-
-    // Store reference to map
-    this.facilityMap = mapContainer;
-
-    // Add building outline
-    const buildingOutline = document.createElement("div");
-    buildingOutline.className =
-      "absolute inset-4 border-2 border-green-500 border-opacity-50";
-    mapContainer.appendChild(buildingOutline);
-
-    // Add room outlines
-    this._createRooms(mapContainer);
-
-    container.appendChild(mapContainer);
-  }
-
-  /**
-   * Create room outlines in the facility
-   * @param {HTMLElement} mapContainer - Map container element
-   */
-  _createRooms(mapContainer) {
-    // Define room layouts
-    const rooms = [
-      { name: "Entrance", x: "10%", y: "10%", width: "25%", height: "20%" },
-      { name: "Hallway", x: "35%", y: "10%", width: "50%", height: "20%" },
-      { name: "Office A", x: "10%", y: "30%", width: "20%", height: "30%" },
-      { name: "Office B", x: "10%", y: "60%", width: "20%", height: "30%" },
-      { name: "Main Hall", x: "30%", y: "30%", width: "40%", height: "60%" },
-      { name: "Security", x: "70%", y: "30%", width: "20%", height: "25%" },
-      { name: "Server Room", x: "70%", y: "55%", width: "20%", height: "35%" },
-      { name: "Vault", x: "85%", y: "10%", width: "10%", height: "20%" },
-    ];
-
-    rooms.forEach((room) => {
-      const roomElement = document.createElement("div");
-      roomElement.className =
-        "absolute border border-green-500 border-opacity-70";
-      roomElement.style.left = room.x;
-      roomElement.style.top = room.y;
-      roomElement.style.width = room.width;
-      roomElement.style.height = room.height;
-
-      // Add room label
-      const label = document.createElement("div");
-      label.className =
-        "absolute top-0 left-0 text-xs text-green-400 bg-gray-800 px-1";
-      label.textContent = room.name;
-      roomElement.appendChild(label);
-
-      mapContainer.appendChild(roomElement);
-    });
-  }
-
-  /**
-   * Generate alarm system data
-   */
-  _generateAlarmSystem() {
-    // Clear existing data
-    this.alarmTriggers = [];
-    this.playerMarkedTriggers = [];
-
-    // Trigger types with descriptions
-    const triggerTypes = [
-      { type: "motion", icon: "M", description: "Motion Sensor", color: "red" },
-      {
-        type: "pressure",
-        icon: "P",
-        description: "Pressure Plate",
-        color: "yellow",
-      },
-      { type: "laser", icon: "L", description: "Laser Beam", color: "orange" },
-      {
-        type: "thermal",
-        icon: "T",
-        description: "Thermal Sensor",
-        color: "purple",
-      },
-      {
-        type: "sound",
-        icon: "S",
-        description: "Sound Detector",
-        color: "blue",
-      },
-    ];
-
-    // Place triggers based on difficulty
-    const difficulty = this.puzzleData.difficulty || 1;
-    const triggerCount = 8 + difficulty * 2; // 10-14 triggers based on difficulty
-
-    // Create unique ID for each trigger
-    let triggerId = 1;
-
-    // Generate triggers at random positions
-    for (let i = 0; i < triggerCount; i++) {
-      // Random position within the map
-      const x = 5 + Math.floor(Math.random() * 90);
-      const y = 5 + Math.floor(Math.random() * 90);
-
-      // Random trigger type
-      const triggerType =
-        triggerTypes[Math.floor(Math.random() * triggerTypes.length)];
-
-      // Create trigger data
-      const trigger = {
-        id: `trigger-${triggerId++}`,
-        position: { x: `${x}%`, y: `${y}%` },
-        type: triggerType.type,
-        icon: triggerType.icon,
-        description: triggerType.description,
-        color: triggerType.color,
-        visible: Math.random() < 0.3, // Only 30% are immediately visible
-      };
-
-      this.alarmTriggers.push(trigger);
-    }
-
-    // Set the correct trigger count
-    this.correctTriggerCount = this.alarmTriggers.length;
-
-    // Update the counter
-    const counterElement = document.getElementById("trigger-counter");
-    if (counterElement) {
-      counterElement.textContent = `Triggers identified: 0/${this.correctTriggerCount}`;
-    }
-
-    // Place triggers on the map
-    this._placeTriggers();
-  }
-
-  /**
-   * Place triggers on the map
-   */
-  _placeTriggers() {
-    this.alarmTriggers.forEach((trigger) => {
-      const triggerElement = document.createElement("div");
-      triggerElement.id = trigger.id;
-      triggerElement.className = `absolute w-6 h-6 flex items-center justify-center rounded-full cursor-pointer transition-all duration-200 ${
-        trigger.visible
-          ? `bg-${trigger.color}-500 bg-opacity-70`
-          : "bg-gray-700 bg-opacity-20 hover:bg-opacity-40"
-      }`;
-      triggerElement.style.left = trigger.position.x;
-      triggerElement.style.top = trigger.position.y;
-      triggerElement.style.transform = "translate(-50%, -50%)";
-
-      // Add trigger icon
-      triggerElement.innerHTML = `<span class="text-xs font-bold ${
-        trigger.visible ? "text-white" : "text-transparent"
-      }">${trigger.icon}</span>`;
-
-      // Add click event
-      triggerElement.addEventListener("click", () =>
-        this._handleTriggerClick(trigger, triggerElement)
-      );
-
-      // Add to map
-      this.facilityMap.appendChild(triggerElement);
-    });
-  }
-
-  /**
-   * Handle click on a trigger
-   * @param {Object} trigger - Trigger data
-   * @param {HTMLElement} element - Trigger DOM element
-   */
-  _handleTriggerClick(trigger, element) {
-    if (this.isCompleted) return;
-
-    // If trigger is already visible, do nothing
-    if (trigger.visible) return;
-
-    // If already marked by player, unmark it
-    if (this.playerMarkedTriggers.includes(trigger.id)) {
-      // Remove from marked triggers
-      this.playerMarkedTriggers = this.playerMarkedTriggers.filter(
-        (id) => id !== trigger.id
-      );
-
-      // Update appearance
-      element.className =
-        "absolute w-6 h-6 flex items-center justify-center rounded-full cursor-pointer transition-all duration-200 bg-gray-700 bg-opacity-20 hover:bg-opacity-40";
-      element.querySelector("span").className =
-        "text-xs font-bold text-transparent";
-    } else {
-      // Add to marked triggers
-      this.playerMarkedTriggers.push(trigger.id);
-
-      // Update appearance to show as marked
-      element.className = `absolute w-6 h-6 flex items-center justify-center rounded-full cursor-pointer transition-all duration-200 bg-yellow-500 bg-opacity-70`;
-      element.querySelector("span").className = "text-xs font-bold text-white";
-    }
-
-    // Update counter
-    const counterElement = document.getElementById("trigger-counter");
-    if (counterElement) {
-      counterElement.textContent = `Triggers identified: ${this.playerMarkedTriggers.length}/${this.correctTriggerCount}`;
-    }
-  }
-
-  /**
-   * Reveal all triggers on the map
-   */
-  _revealAllTriggers() {
-    this.alarmTriggers.forEach((trigger) => {
-      const element = document.getElementById(trigger.id);
-      if (!element) return;
-
-      // Did player mark this correctly?
-      const isMarkedByPlayer = this.playerMarkedTriggers.includes(trigger.id);
-
-      if (trigger.visible || isMarkedByPlayer) {
-        // Correctly identified trigger
-        element.className = `absolute w-6 h-6 flex items-center justify-center rounded-full cursor-default bg-${trigger.color}-500 bg-opacity-70`;
-      } else {
-        // Missed trigger
-        element.className = `absolute w-6 h-6 flex items-center justify-center rounded-full cursor-default bg-${trigger.color}-500 bg-opacity-40 border-2 border-red-500`;
-      }
-
-      // Show icon and type
-      element.innerHTML = `<span class="text-xs font-bold text-white">${trigger.icon}</span>`;
-
-      // Add tooltip
-      const tooltip = document.createElement("div");
-      tooltip.className =
-        "absolute top-full left-1/2 transform -translate-x-1/2 text-xs bg-gray-900 text-white px-2 py-1 rounded whitespace-nowrap";
-      tooltip.textContent = trigger.description;
-      element.appendChild(tooltip);
-    });
-  }
-
-  /**
-   * Start the countdown timer
-   */
-  _startTimer() {
-    this.timerInterval = setInterval(() => {
-      this.timeRemaining--;
-
-      // Update timer display
-      if (this.timerElement) {
-        this.timerElement.textContent = this._formatTime(this.timeRemaining);
-
-        // Change color when low on time
-        if (this.timeRemaining <= 30) {
-          this.timerElement.className = "text-red-400 font-mono";
-        }
-      }
-
-      // Time's up
-      if (this.timeRemaining <= 0) {
-        this._stopTimer();
-        this._handleTimeUp();
-      }
-    }, 1000);
-  }
-
-  /**
-   * Stop the timer
-   */
-  _stopTimer() {
-    if (this.timerInterval) {
-      clearInterval(this.timerInterval);
-      this.timerInterval = null;
-    }
-  }
-
-  /**
-   * Format time as MM:SS
-   * @param {number} seconds - Time in seconds
-   * @returns {string} - Formatted time
-   */
-  _formatTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  }
-
-  /**
-   * Handle time running out
-   */
-  _handleTimeUp() {
-    this.messageElement.textContent =
-      "Time's up! Submit your current analysis.";
-    this.messageElement.className = "mb-4 text-red-400 text-center";
-  }
-
-  /**
-   * Calculate score based on player's identification accuracy
-   * @returns {Object} - Score data
-   */
-  _calculateScore() {
-    let correctlyMarked = 0;
-    let totalHidden = 0;
-
-    // Count hidden triggers (not immediately visible)
-    this.alarmTriggers.forEach((trigger) => {
-      if (!trigger.visible) {
-        totalHidden++;
-
-        // Check if player marked it
-        if (this.playerMarkedTriggers.includes(trigger.id)) {
-          correctlyMarked++;
-        }
-      }
-    });
-
-    // Calculate accuracy (just for hidden triggers)
-    const accuracy = totalHidden > 0 ? correctlyMarked / totalHidden : 0;
-
-    // Calculate overall completion (including visible ones)
-    const totalVisible = this.alarmTriggers.length - totalHidden;
-    const overallCompletion =
-      (correctlyMarked + totalVisible) / this.alarmTriggers.length;
-
-    return {
-      correctlyMarked,
-      totalHidden,
-      totalVisible,
-      accuracy,
-      overallCompletion,
-    };
-  }
-
-  /**
-   * Handle submit button click
-   */
-  _handleSubmit() {
-    this._stopTimer();
-
-    // Calculate score
-    const score = this._calculateScore();
-
-    // Create solution data to submit
-    const solutionData = {
-      identifiedTriggers: this.playerMarkedTriggers,
-      allTriggers: this.alarmTriggers.map((t) => t.id),
-      score: score.overallCompletion,
-    };
-
-    // Check if player has passed (require at least 80% overall completion)
-    const minimumCompletion = 0.8;
-    const hasPassed = score.overallCompletion >= minimumCompletion;
-
-    // Submit to game
-    this.submitSolution(solutionData)
-      .then((success) => {
-        if (success) {
-          this.showSuccess();
-        } else {
-          // Show feedback and reveal all triggers
-          this._revealAllTriggers();
-
-          let message = "";
-          if (score.overallCompletion >= 0.7) {
-            message = `Almost there! Identified ${Math.round(
-              score.overallCompletion * 100
-            )}% of triggers. More careful scanning needed.`;
-          } else if (score.overallCompletion >= 0.5) {
-            message = `Improvement needed. Identified ${Math.round(
-              score.overallCompletion * 100
-            )}% of triggers. Look for subtle indicators.`;
-          } else {
-            message = `Low detection rate (${Math.round(
-              score.overallCompletion * 100
-            )}%). Try a more methodical approach.`;
-          }
-
-          this.messageElement.textContent = message;
-          this.messageElement.className = "mb-4 text-red-400 text-center";
-
-          // Update button
-          this.submitButton.textContent = "Retry Analysis";
-          this.submitButton.addEventListener("click", () =>
-            window.location.reload()
-          );
-        }
-      })
-      .catch((error) => {
-        console.error("Error submitting solution:", error);
-        this.messageElement.textContent =
-          "Error submitting analysis. Try again!";
-        this.messageElement.className = "mb-4 text-red-400 text-center";
-      });
-  }
-
-  /**
-   * Get random event message
-   * @param {string} eventType - Type of random event
-   * @returns {string} - Event message
-   */
-  _getRandomEventMessage(eventType) {
     switch (eventType) {
       case "security_patrol":
-        return "Alert: Unexpected security patrol detected! Continuing surveillance...";
-      case "camera_sweep":
-        return "Notice: Camera systems performing diagnostic sweep. Maintaining monitor status...";
+        this._showMessage("Security patrol approaching! Hurry!", "warning");
+
+        // Reduce countdown time for active alarms
+        for (const zone of this.alarmZones) {
+          if (zone.status === "active" && zone.countdown > 0) {
+            zone.countdown = Math.max(5, zone.countdown - 10);
+          }
+        }
+
+        // Update display
+        this._render();
+        break;
+
       case "system_check":
-        return "Update: Security system check in progress. Adapting observation...";
-      default:
-        return "Security alert detected! Maintaining surveillance...";
+        this._showMessage(
+          "System diagnostic in progress! Sequence scrambled.",
+          "warning"
+        );
+
+        // If in disarming mode, scramble the display (but not actual sequence)
+        if (this.isDisarmingMode) {
+          // Temporarily hide display
+          this.sequenceDisplayElement.classList.add("opacity-0");
+
+          setTimeout(() => {
+            this.sequenceDisplayElement.classList.remove("opacity-0");
+          }, 3000);
+        }
+        break;
     }
   }
 }

@@ -1,605 +1,828 @@
-// Circuit Board Puzzle - Repair puzzle for the Demolitions role
+// circuitBoardPuzzle.js - Circuit Board Repair Puzzle for the Demolitions role
+// Difficulty: 3/5 - Medium-Hard difficulty
 
 class CircuitBoardPuzzle {
-  constructor(container, puzzleData, callbacks) {
-    this.container = container;
+  constructor(containerElement, puzzleData, callbacks) {
+    this.containerElement = containerElement;
     this.puzzleData = puzzleData;
     this.callbacks = callbacks;
-    this.isCompleted = false;
+    this.isComplete = false;
 
-    // Puzzle-specific properties
-    this.boardSize = 5; // 5x5 grid
-    this.circuitConnections = [];
-    this.connections = [];
+    // Circuit board properties
+    this.gridSize = 6; // 6x6 grid for medium difficulty
+    this.grid = [];
+    this.paths = []; // Array of circuit paths
+    this.components = []; // Array of components to place
+    this.brokenComponents = []; // Components that need fixing
+
+    // Active component and placement
     this.selectedComponent = null;
-    this.correctPathFound = false;
+    this.selectedRotation = 0;
 
-    // DOM elements
-    this.boardContainer = null;
+    // Component types
+    this.componentTypes = [
+      { type: "resistor", shape: "I", connections: [0, 2] },
+      { type: "capacitor", shape: "I", connections: [0, 2] },
+      { type: "diode", shape: "I", connections: [0, 2] },
+      { type: "transistor", shape: "T", connections: [0, 1, 2] },
+      { type: "switch", shape: "L", connections: [0, 1] },
+      { type: "ic", shape: "+", connections: [0, 1, 2, 3] },
+    ];
+
+    // UI elements
+    this.boardElement = null;
     this.componentsContainer = null;
-    this.circuitElements = [];
+    this.messageElement = null;
+    this.rotateButton = null;
+
+    // Timer for blinking broken components
+    this.blinkTimer = null;
+
+    // Adjacency directions (Up, Right, Down, Left)
+    this.directions = [
+      { x: 0, y: -1 },
+      { x: 1, y: 0 },
+      { x: 0, y: 1 },
+      { x: -1, y: 0 },
+    ];
+
+    // Difficulty adjustments
+    this.difficulty = this.puzzleData.difficulty || 3;
+    this._adjustDifficulty();
   }
 
+  /**
+   * Initialize the puzzle
+   */
   initialize() {
-    // Create circuit board container
-    this.boardContainer = document.createElement("div");
-    this.boardContainer.className =
-      "bg-gray-900 rounded-lg p-6 w-full max-w-lg";
+    // Create UI elements
+    this._createUI();
 
-    // Add circuit board title
-    const boardTitle = document.createElement("h4");
-    boardTitle.className = "text-center text-yellow-500 mb-4";
-    boardTitle.textContent = "Circuit Board Repair System";
-    this.boardContainer.appendChild(boardTitle);
+    // Initialize grid
+    this._initializeGrid();
 
-    // Add instructions
-    const instructions = document.createElement("div");
-    instructions.className =
-      "mb-4 p-3 bg-gray-800 rounded border border-blue-600 text-sm";
+    // Generate circuit paths and broken components
+    this._generateCircuitPaths();
 
-    instructions.innerHTML = `
-      <div class="text-sm text-gray-300 mb-2">Repair Manual - Section 3.7:</div>
-      <div class="text-yellow-400">
-        <p>Complete the circuit by connecting components from START to END.</p>
-        <p>The circuit must pass through exactly ${
-          3 + this.puzzleData.difficulty
-        } components.</p>
-        <p>Create a valid path without crossing wires.</p>
-      </div>
-    `;
-    this.boardContainer.appendChild(instructions);
+    // Generate components to place
+    this._generateComponents();
 
-    // Generate the circuit board puzzle
-    this.generateCircuitPuzzle();
+    // Render the circuit board
+    this._renderBoard();
 
-    // Create the circuit board grid
-    const boardGrid = document.createElement("div");
-    boardGrid.className = "grid grid-cols-5 gap-2 p-2 bg-black rounded-lg mb-4";
+    // Start blinking effect for broken components
+    this._startBlinkEffect();
 
-    // Create cells for the grid
-    for (let row = 0; row < this.boardSize; row++) {
-      for (let col = 0; col < this.boardSize; col++) {
-        const cell = document.createElement("div");
-        cell.className =
-          "circuit-cell w-16 h-16 bg-gray-800 rounded-md flex items-center justify-center relative";
-        cell.dataset.row = row;
-        cell.dataset.col = col;
-        cell.dataset.id = `${row}-${col}`;
+    // Display instructions
+    this._showMessage(
+      "Repair the circuit board by placing components in the correct positions."
+    );
+  }
 
-        // Check if this is a special cell
-        const isStart = row === 0 && col === 0;
-        const isEnd = row === this.boardSize - 1 && col === this.boardSize - 1;
+  /**
+   * Create the puzzle UI
+   */
+  _createUI() {
+    // Clear container
+    this.containerElement.innerHTML = "";
 
-        if (isStart) {
-          cell.classList.add("bg-green-900");
-          cell.innerHTML = `<div class="text-green-400 font-bold text-sm">START</div>`;
-        } else if (isEnd) {
-          cell.classList.add("bg-red-900");
-          cell.innerHTML = `<div class="text-red-400 font-bold text-sm">END</div>`;
-        } else {
-          // Make the cell a potential drop target
-          cell.addEventListener("click", () =>
-            this.handleCellClick(cell, row, col)
-          );
-        }
+    // Create puzzle container
+    const puzzleContainer = document.createElement("div");
+    puzzleContainer.className = "circuit-puzzle flex flex-col items-center p-4";
 
-        boardGrid.appendChild(cell);
-      }
-    }
+    // Create circuit board
+    this.boardElement = document.createElement("div");
+    this.boardElement.className =
+      "circuit-board grid gap-1 mb-4 bg-gray-900 p-3 rounded-lg";
+    this.boardElement.style.gridTemplateColumns = `repeat(${this.gridSize}, 1fr)`;
+    puzzleContainer.appendChild(this.boardElement);
 
-    this.boardContainer.appendChild(boardGrid);
+    // Create rotate button
+    this.rotateButton = document.createElement("button");
+    this.rotateButton.className =
+      "rotate-button px-3 py-2 bg-blue-600 text-white rounded mb-4 disabled:opacity-50";
+    this.rotateButton.textContent = "Rotate Component";
+    this.rotateButton.disabled = true;
+    this.rotateButton.addEventListener("click", () =>
+      this._rotateSelectedComponent()
+    );
+    puzzleContainer.appendChild(this.rotateButton);
 
-    // Create component palette
+    // Create component selection area
+    const componentsTitle = document.createElement("div");
+    componentsTitle.className = "text-white text-center mb-2";
+    componentsTitle.textContent = "Available Components:";
+    puzzleContainer.appendChild(componentsTitle);
+
     this.componentsContainer = document.createElement("div");
     this.componentsContainer.className =
-      "flex flex-wrap justify-center gap-2 mt-4 p-2 bg-gray-800 rounded-lg";
+      "components-container flex flex-wrap gap-2 mb-4 justify-center";
+    puzzleContainer.appendChild(this.componentsContainer);
 
-    // Add component types
-    const components = [
-      { type: "straight", symbol: "│", rotations: ["│", "─"] },
-      { type: "corner", symbol: "┌", rotations: ["┌", "┐", "┘", "└"] },
-      { type: "t-junction", symbol: "┬", rotations: ["┬", "┤", "┴", "├"] },
-      { type: "cross", symbol: "┼", rotations: ["┼"] },
-    ];
-
-    components.forEach((component) => {
-      const componentElm = document.createElement("div");
-      componentElm.className =
-        "component w-10 h-10 bg-blue-900 rounded-md flex items-center justify-center cursor-pointer text-2xl text-yellow-300 hover:bg-blue-800 transition-colors";
-      componentElm.dataset.type = component.type;
-      componentElm.dataset.rotations = JSON.stringify(component.rotations);
-      componentElm.dataset.currentRotation = 0;
-      componentElm.textContent = component.symbol;
-
-      // Add click handler to select component
-      componentElm.addEventListener("click", () =>
-        this.selectComponent(componentElm, component)
-      );
-
-      this.componentsContainer.appendChild(componentElm);
-    });
-
-    this.boardContainer.appendChild(this.componentsContainer);
-
-    // Add a reset button
-    const resetButton = document.createElement("button");
-    resetButton.className =
-      "mt-4 px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 transition-colors";
-    resetButton.textContent = "Reset Board";
-    resetButton.addEventListener("click", () => this.resetBoard());
-    this.boardContainer.appendChild(resetButton);
+    // Create message element
+    this.messageElement = document.createElement("div");
+    this.messageElement.className =
+      "message mt-4 p-2 w-full text-center rounded-lg";
+    puzzleContainer.appendChild(this.messageElement);
 
     // Add to main container
-    this.container.appendChild(this.boardContainer);
-
-    // Start countdown timer via callback
-    this.callbacks.startCountdown(this.onTimeUp.bind(this));
+    this.containerElement.appendChild(puzzleContainer);
   }
 
-  generateCircuitPuzzle() {
-    // For this puzzle, we'll create a valid path from start to end
-    // that the player will need to recreate using the components
+  /**
+   * Initialize the grid
+   */
+  _initializeGrid() {
+    this.grid = [];
 
-    // Define start and end points
-    const start = { row: 0, col: 0 };
-    const end = { row: this.boardSize - 1, col: this.boardSize - 1 };
-
-    // Determine complexity based on difficulty
-    const requiredComponents = 3 + this.puzzleData.difficulty;
-
-    // Generate a random but valid path that passes through the required number of components
-    this.generateValidPath(start, end, requiredComponents);
-  }
-
-  generateValidPath(start, end, componentCount) {
-    // Initialize the circuit path, starting with just the start point
-    this.circuitConnections = [
-      { row: start.row, col: start.col, type: "start" },
-    ];
-
-    // For simplicity in this demo, we'll define a preset path based on difficulty
-    // In a real game, this would use a proper algorithm to generate varied paths
-
-    if (this.puzzleData.difficulty === 1) {
-      // Easy path - mostly straight line with a few turns
-      this.circuitConnections.push({
-        row: 0,
-        col: 1,
-        type: "straight",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 0,
-        col: 2,
-        type: "corner",
-        rotation: 2,
-      });
-      this.circuitConnections.push({
-        row: 1,
-        col: 2,
-        type: "straight",
-        rotation: 0,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 2,
-        type: "corner",
-        rotation: 3,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 3,
-        type: "straight",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 4,
-        type: "corner",
-        rotation: 2,
-      });
-      this.circuitConnections.push({
-        row: 3,
-        col: 4,
-        type: "straight",
-        rotation: 0,
-      });
-      this.circuitConnections.push({ row: 4, col: 4, type: "end" });
-    } else if (this.puzzleData.difficulty === 2) {
-      // Medium path - more complex with T-junctions
-      this.circuitConnections.push({
-        row: 0,
-        col: 1,
-        type: "straight",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 0,
-        col: 2,
-        type: "t-junction",
-        rotation: 2,
-      });
-      this.circuitConnections.push({
-        row: 1,
-        col: 2,
-        type: "corner",
-        rotation: 3,
-      });
-      this.circuitConnections.push({
-        row: 1,
-        col: 3,
-        type: "straight",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 1,
-        col: 4,
-        type: "corner",
-        rotation: 2,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 4,
-        type: "t-junction",
-        rotation: 3,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 3,
-        type: "corner",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 3,
-        col: 3,
-        type: "corner",
-        rotation: 3,
-      });
-      this.circuitConnections.push({
-        row: 3,
-        col: 4,
-        type: "straight",
-        rotation: 0,
-      });
-      this.circuitConnections.push({ row: 4, col: 4, type: "end" });
-    } else {
-      // Hard path - complex with crosses and multiple junctions
-      this.circuitConnections.push({
-        row: 1,
-        col: 0,
-        type: "straight",
-        rotation: 0,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 0,
-        type: "corner",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 1,
-        type: "t-junction",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 2,
-        type: "cross",
-        rotation: 0,
-      });
-      this.circuitConnections.push({
-        row: 2,
-        col: 3,
-        type: "corner",
-        rotation: 1,
-      });
-      this.circuitConnections.push({
-        row: 3,
-        col: 3,
-        type: "corner",
-        rotation: 3,
-      });
-      this.circuitConnections.push({
-        row: 3,
-        col: 2,
-        type: "t-junction",
-        rotation: 0,
-      });
-      this.circuitConnections.push({
-        row: 4,
-        col: 2,
-        type: "corner",
-        rotation: 0,
-      });
-      this.circuitConnections.push({
-        row: 4,
-        col: 3,
-        type: "straight",
-        rotation: 1,
-      });
-      this.circuitConnections.push({ row: 4, col: 4, type: "end" });
+    for (let y = 0; y < this.gridSize; y++) {
+      this.grid[y] = [];
+      for (let x = 0; x < this.gridSize; x++) {
+        this.grid[y][x] = {
+          x: x,
+          y: y,
+          type: "empty",
+          connections: [],
+          isPath: false,
+          isBroken: false,
+          component: null,
+          rotation: 0,
+          element: null,
+        };
+      }
     }
   }
 
-  selectComponent(element, component) {
-    // Deselect previously selected component
-    if (this.selectedComponent) {
-      this.selectedComponent.classList.remove("ring-2", "ring-yellow-400");
+  /**
+   * Generate circuit paths for the board
+   */
+  _generateCircuitPaths() {
+    this.paths = [];
+    this.brokenComponents = [];
+
+    // Number of paths based on difficulty
+    const numPaths = 2 + Math.min(2, this.difficulty - 2);
+
+    // Generate each path
+    for (let i = 0; i < numPaths; i++) {
+      const path = this._generateSinglePath();
+      if (path && path.length > 0) {
+        this.paths.push(path);
+
+        // Place some components on the path
+        this._placeBrokenComponentsOnPath(path);
+      }
     }
-
-    // Select new component
-    this.selectedComponent = element;
-    element.classList.add("ring-2", "ring-yellow-400");
-
-    // Show a hint about the component
-    this.callbacks.showMessage(
-      `Selected: ${component.type} component. Click on the board to place.`,
-      "info"
-    );
   }
 
-  handleCellClick(cell, row, col) {
-    // Check if a component is selected
-    if (!this.selectedComponent) {
-      this.callbacks.showMessage("Select a component first!", "warning");
-      return;
-    }
+  /**
+   * Generate a single circuit path
+   * @returns {Array} - Array of cells on the path
+   */
+  _generateSinglePath() {
+    // Start from an edge
+    const edge = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
+    let startX, startY;
 
-    // Check if cell is already occupied
-    if (cell.dataset.occupied === "true") {
-      // Allow rotating the component if it's already placed
-      this.rotateComponent(cell);
-      return;
-    }
-
-    // Get component data
-    const type = this.selectedComponent.dataset.type;
-    const rotations = JSON.parse(this.selectedComponent.dataset.rotations);
-
-    // Place the component
-    cell.dataset.occupied = "true";
-    cell.dataset.componentType = type;
-    cell.dataset.rotation = "0";
-
-    // Add the symbol
-    const componentDisplay = document.createElement("div");
-    componentDisplay.className = "text-3xl text-yellow-300";
-    componentDisplay.textContent = rotations[0];
-    cell.innerHTML = "";
-    cell.appendChild(componentDisplay);
-
-    // Add to connections
-    this.connections.push({
-      row,
-      col,
-      type,
-      rotation: 0,
-      element: cell,
-    });
-
-    // Check if the path is complete
-    this.checkCircuitPath();
-  }
-
-  rotateComponent(cell) {
-    const type = cell.dataset.componentType;
-    const currentRotation = parseInt(cell.dataset.rotation);
-    const rotations = JSON.parse(this.selectedComponent.dataset.rotations);
-
-    // Calculate new rotation
-    const newRotation = (currentRotation + 1) % rotations.length;
-    cell.dataset.rotation = newRotation.toString();
-
-    // Update display
-    const componentDisplay = cell.querySelector("div");
-    componentDisplay.textContent = rotations[newRotation];
-
-    // Update connections data
-    const connection = this.connections.find(
-      (c) =>
-        c.row === parseInt(cell.dataset.row) &&
-        c.col === parseInt(cell.dataset.col)
-    );
-    if (connection) {
-      connection.rotation = newRotation;
-    }
-
-    // Check if the path is complete
-    this.checkCircuitPath();
-  }
-
-  checkCircuitPath() {
-    // For a simplified version, we'll just check if all the right positions
-    // have components matching our solution path
-
-    if (this.connections.length < this.circuitConnections.length - 2) {
-      // Not enough components placed yet
-      return;
-    }
-
-    // Check each required position (excluding start and end)
-    let allCorrect = true;
-
-    for (let i = 1; i < this.circuitConnections.length - 1; i++) {
-      const required = this.circuitConnections[i];
-      const placed = this.connections.find(
-        (c) => c.row === required.row && c.col === required.col
-      );
-
-      if (
-        !placed ||
-        placed.type !== required.type ||
-        placed.rotation !== required.rotation
-      ) {
-        allCorrect = false;
+    switch (edge) {
+      case 0: // Top edge
+        startX = Math.floor(Math.random() * this.gridSize);
+        startY = 0;
         break;
-      }
+      case 1: // Right edge
+        startX = this.gridSize - 1;
+        startY = Math.floor(Math.random() * this.gridSize);
+        break;
+      case 2: // Bottom edge
+        startX = Math.floor(Math.random() * this.gridSize);
+        startY = this.gridSize - 1;
+        break;
+      case 3: // Left edge
+        startX = 0;
+        startY = Math.floor(Math.random() * this.gridSize);
+        break;
     }
 
-    if (allCorrect) {
-      // Path is complete!
-      this.correctPathFound = true;
-      this.isCompleted = true;
-      this.handleSuccess();
-    }
-  }
+    // Path finding
+    const visited = {};
+    const path = [];
+    const queue = [{ x: startX, y: startY, path: [] }];
 
-  handleSuccess() {
-    // Animation for success
-    this.animations = [];
+    while (queue.length > 0) {
+      const current = queue.shift();
+      const key = `${current.x},${current.y}`;
 
-    // Highlight the correct path
-    this.circuitConnections.forEach((connection, index) => {
-      setTimeout(() => {
-        const cell = document.querySelector(
-          `.circuit-cell[data-id="${connection.row}-${connection.col}"]`
-        );
-        if (cell) {
-          // Add glow effect
-          cell.classList.add("ring-2", "ring-green-500");
+      if (visited[key]) continue;
+      visited[key] = true;
 
-          // Animate power flowing
-          const glow = document.createElement("div");
-          glow.className = "absolute inset-0 bg-green-500 rounded-md opacity-0";
-          cell.appendChild(glow);
+      const currentPath = [...current.path, this.grid[current.y][current.x]];
 
-          // Animate the glow
-          setTimeout(() => {
-            glow.style.transition = "opacity 0.3s";
-            glow.style.opacity = "0.3";
-          }, 50);
-        }
-      }, index * 200);
-    });
-
-    // Show success after animation completes
-    setTimeout(() => {
-      this.callbacks.showSuccess();
-    }, this.circuitConnections.length * 200 + 500);
-  }
-
-  resetBoard() {
-    // Clear all placed components
-    this.connections = [];
-
-    // Reset the board visually
-    const cells = document.querySelectorAll(".circuit-cell");
-    cells.forEach((cell) => {
-      const row = parseInt(cell.dataset.row);
-      const col = parseInt(cell.dataset.col);
-
-      // Skip start and end cells
+      // If we've reached another edge and path is long enough
       if (
-        (row === 0 && col === 0) ||
-        (row === this.boardSize - 1 && col === this.boardSize - 1)
+        (current.x === 0 ||
+          current.x === this.gridSize - 1 ||
+          current.y === 0 ||
+          current.y === this.gridSize - 1) &&
+        current.x !== startX &&
+        current.y !== startY &&
+        currentPath.length > 4
       ) {
-        return;
+        return currentPath;
       }
 
-      // Clear the cell
-      cell.innerHTML = "";
-      cell.classList.remove("ring-2", "ring-green-500");
-      delete cell.dataset.occupied;
-      delete cell.dataset.componentType;
-      delete cell.dataset.rotation;
-    });
+      // Try each direction
+      this.directions.forEach((dir, dirIndex) => {
+        const nextX = current.x + dir.x;
+        const nextY = current.y + dir.y;
 
-    // Deselect component
-    if (this.selectedComponent) {
-      this.selectedComponent.classList.remove("ring-2", "ring-yellow-400");
-      this.selectedComponent = null;
-    }
-
-    this.callbacks.showMessage("Board reset", "info");
-  }
-
-  onTimeUp() {
-    if (this.isCompleted) return;
-
-    // Show failure message
-    this.callbacks.showMessage("Time's up! Circuit repair failed.", "error");
-
-    // Disable further interaction
-    this.boardContainer.classList.add("opacity-75", "pointer-events-none");
-    this.callbacks.disableSubmit();
-  }
-
-  handleRandomEvent(eventType, duration) {
-    if (this.isCompleted) return;
-
-    // For circuit overload, show sparks on random components
-    if (eventType === "system_check") {
-      // Create spark effect on a few random components
-      const cells = document.querySelectorAll(
-        ".circuit-cell[data-occupied='true']"
-      );
-      const affectedCells = Array.from(cells)
-        .sort(() => 0.5 - Math.random())
-        .slice(0, 3);
-
-      affectedCells.forEach((cell) => {
-        // Add spark animation
-        cell.classList.add("spark-effect");
-
-        // Remove after duration
-        setTimeout(() => {
-          cell.classList.remove("spark-effect");
-        }, duration * 1000);
+        // Check if the next position is valid
+        if (
+          nextX >= 0 &&
+          nextX < this.gridSize &&
+          nextY >= 0 &&
+          nextY < this.gridSize &&
+          !visited[`${nextX},${nextY}`]
+        ) {
+          // Add to queue
+          queue.push({
+            x: nextX,
+            y: nextY,
+            path: currentPath,
+          });
+        }
       });
     }
+
+    // If no complete path found, return partial path
+    return [];
   }
 
-  cleanup() {
-    // Clean up event listeners
-    if (this.boardContainer) {
-      // Using cloneNode would be more thorough for cleaning listeners,
-      // but for simplicity we'll just remove the container
-      this.boardContainer.remove();
+  /**
+   * Place broken components on a circuit path
+   * @param {Array} path - Path to place components on
+   */
+  _placeBrokenComponentsOnPath(path) {
+    if (path.length < 3) return;
+
+    // Number of components to break
+    const numBroken = 1 + Math.floor(Math.random() * 2);
+
+    // Find appropriate positions (not at the edges)
+    const validPositions = path.filter((cell, index) => {
+      return index > 0 && index < path.length - 1;
+    });
+
+    // Shuffle array
+    const shuffled = [...validPositions].sort(() => 0.5 - Math.random());
+
+    // Take the first numBroken elements
+    for (let i = 0; i < Math.min(numBroken, shuffled.length); i++) {
+      const cell = shuffled[i];
+
+      // Mark as broken
+      this.grid[cell.y][cell.x].isBroken = true;
+      this.grid[cell.y][cell.x].type = "broken";
+
+      // Determine connections based on adjacent path cells
+      const connections = [];
+      this.directions.forEach((dir, dirIndex) => {
+        const adjX = cell.x + dir.x;
+        const adjY = cell.y + dir.y;
+
+        // If adjacent cell is in the path, add its direction to connections
+        const adjInPath = path.some((p) => p.x === adjX && p.y === adjY);
+        if (adjInPath) {
+          connections.push(dirIndex);
+        }
+      });
+
+      // Store broken component with required connections
+      this.brokenComponents.push({
+        x: cell.x,
+        y: cell.y,
+        connections: connections,
+        fixed: false,
+      });
+
+      this.grid[cell.y][cell.x].connections = connections;
     }
 
-    this.boardContainer = null;
-    this.componentsContainer = null;
-    this.circuitElements = [];
-    this.selectedComponent = null;
+    // Mark all path cells
+    path.forEach((cell) => {
+      this.grid[cell.y][cell.x].isPath = true;
+      if (!this.grid[cell.y][cell.x].isBroken) {
+        this.grid[cell.y][cell.x].type = "path";
+      }
+    });
   }
 
-  getSubmissionData() {
+  /**
+   * Generate components that can be placed
+   */
+  _generateComponents() {
+    this.components = [];
+
+    // Create components for each broken part plus some extras
+    const totalComponents = this.brokenComponents.length + 2;
+
+    // For each broken component, create a matching component
+    this.brokenComponents.forEach((broken) => {
+      const connections = broken.connections;
+
+      // Find a suitable component type
+      let matchingType = this.componentTypes.find((type) => {
+        return type.connections.length === connections.length;
+      });
+
+      // If no exact match, use a component with more connections
+      if (!matchingType) {
+        matchingType = this.componentTypes.find((type) => {
+          return type.connections.length >= connections.length;
+        });
+      }
+
+      // Create the component
+      if (matchingType) {
+        this.components.push({
+          type: matchingType.type,
+          shape: matchingType.shape,
+          connections: [...matchingType.connections],
+          used: false,
+        });
+      }
+    });
+
+    // Add some random extra components
+    for (let i = this.components.length; i < totalComponents; i++) {
+      const randomType =
+        this.componentTypes[
+          Math.floor(Math.random() * this.componentTypes.length)
+        ];
+      this.components.push({
+        type: randomType.type,
+        shape: randomType.shape,
+        connections: [...randomType.connections],
+        used: false,
+      });
+    }
+
+    // Shuffle components
+    this.components.sort(() => 0.5 - Math.random());
+
+    // Render components
+    this._renderComponents();
+  }
+
+  /**
+   * Render the circuit board
+   */
+  _renderBoard() {
+    this.boardElement.innerHTML = "";
+
+    for (let y = 0; y < this.gridSize; y++) {
+      for (let x = 0; x < this.gridSize; x++) {
+        const cell = this.grid[y][x];
+
+        // Create cell element
+        const cellElement = document.createElement("div");
+        cellElement.className =
+          "circuit-cell w-10 h-10 flex items-center justify-center rounded";
+
+        // Style based on cell type
+        if (cell.isPath) {
+          cellElement.classList.add("bg-gray-800");
+
+          // Add wires for path cells
+          if (cell.type === "path") {
+            // Add copper traces
+            cellElement.classList.add("circuit-trace");
+          }
+        } else {
+          cellElement.classList.add("bg-gray-700");
+        }
+
+        // Add broken component indicator
+        if (cell.isBroken) {
+          cellElement.classList.add("broken-component");
+          cellElement.innerHTML = `<div class="absolute inset-0 flex items-center justify-center">X</div>`;
+        }
+
+        // Add component if present
+        if (cell.component) {
+          const componentElement = document.createElement("div");
+          componentElement.className = `component ${cell.component.type} absolute inset-0 flex items-center justify-center`;
+
+          // Add visual for component based on shape
+          let componentVisual = "";
+          switch (cell.component.shape) {
+            case "I":
+              componentVisual = '<div class="bg-blue-500 h-2 w-8"></div>';
+              break;
+            case "L":
+              componentVisual =
+                '<div class="bg-green-500 h-2 w-5 absolute right-1 top-3"></div><div class="bg-green-500 h-5 w-2 absolute right-1 top-3"></div>';
+              break;
+            case "T":
+              componentVisual =
+                '<div class="bg-yellow-500 h-2 w-8"></div><div class="bg-yellow-500 h-4 w-2 absolute top-4 left-4"></div>';
+              break;
+            case "+":
+              componentVisual =
+                '<div class="bg-purple-500 h-2 w-8"></div><div class="bg-purple-500 h-8 w-2 absolute left-4"></div>';
+              break;
+          }
+
+          componentElement.innerHTML = componentVisual;
+
+          // Apply rotation
+          componentElement.style.transform = `rotate(${cell.rotation * 90}deg)`;
+
+          cellElement.appendChild(componentElement);
+        }
+
+        // Add drop functionality
+        cellElement.addEventListener("click", () =>
+          this._handleCellClick(x, y)
+        );
+
+        // Store reference to the element
+        cell.element = cellElement;
+        this.boardElement.appendChild(cellElement);
+      }
+    }
+  }
+
+  /**
+   * Render available components
+   */
+  _renderComponents() {
+    this.componentsContainer.innerHTML = "";
+
+    this.components.forEach((component, index) => {
+      if (component.used) return;
+
+      const componentElement = document.createElement("div");
+      componentElement.className = `component-item ${
+        component.type
+      } w-12 h-12 bg-gray-800 rounded flex items-center justify-center relative ${
+        this.selectedComponent === index ? "ring-2 ring-yellow-400" : ""
+      }`;
+      componentElement.dataset.index = index;
+
+      // Add visual for component based on shape
+      let componentVisual = "";
+      switch (component.shape) {
+        case "I":
+          componentVisual = '<div class="bg-blue-500 h-2 w-8"></div>';
+          break;
+        case "L":
+          componentVisual =
+            '<div class="bg-green-500 h-2 w-5 absolute right-1 top-3"></div><div class="bg-green-500 h-5 w-2 absolute right-1 top-3"></div>';
+          break;
+        case "T":
+          componentVisual =
+            '<div class="bg-yellow-500 h-2 w-8"></div><div class="bg-yellow-500 h-4 w-2 absolute top-4 left-4"></div>';
+          break;
+        case "+":
+          componentVisual =
+            '<div class="bg-purple-500 h-2 w-8"></div><div class="bg-purple-500 h-8 w-2 absolute left-4"></div>';
+          break;
+      }
+
+      componentElement.innerHTML = componentVisual;
+
+      // Add label
+      const label = document.createElement("div");
+      label.className =
+        "absolute bottom-0 w-full text-center text-xs text-white";
+      label.textContent = component.type;
+      componentElement.appendChild(label);
+
+      // Apply rotation
+      if (this.selectedComponent === index) {
+        componentElement.style.transform = `rotate(${
+          this.selectedRotation * 90
+        }deg)`;
+      }
+
+      // Add click event
+      componentElement.addEventListener("click", () =>
+        this._selectComponent(index)
+      );
+
+      this.componentsContainer.appendChild(componentElement);
+    });
+  }
+
+  /**
+   * Start blinking effect for broken components
+   */
+  _startBlinkEffect() {
+    if (this.blinkTimer) {
+      clearInterval(this.blinkTimer);
+    }
+
+    let blinkState = true;
+    this.blinkTimer = setInterval(() => {
+      const brokenElements =
+        this.containerElement.querySelectorAll(".broken-component");
+
+      brokenElements.forEach((el) => {
+        if (blinkState) {
+          el.classList.add("bg-red-500", "bg-opacity-50");
+        } else {
+          el.classList.remove("bg-red-500", "bg-opacity-50");
+        }
+      });
+
+      blinkState = !blinkState;
+    }, 500);
+  }
+
+  /**
+   * Handle cell click on the circuit board
+   * @param {number} x - X coordinate
+   * @param {number} y - Y coordinate
+   */
+  _handleCellClick(x, y) {
+    const cell = this.grid[y][x];
+
+    // If no component selected, do nothing
+    if (this.selectedComponent === null) return;
+
+    // If cell is not a broken component, do nothing
+    if (!cell.isBroken) {
+      this._showMessage(
+        "You can only place components on broken circuit spots.",
+        "error"
+      );
+      return;
+    }
+
+    // If cell already has a component, remove it first
+    if (cell.component) {
+      // Find component in components array
+      const compIndex = this.components.findIndex(
+        (c) => c.type === cell.component.type && c.used
+      );
+
+      if (compIndex !== -1) {
+        this.components[compIndex].used = false;
+      }
+
+      // Clear cell
+      cell.component = null;
+      cell.rotation = 0;
+    }
+
+    // Place the selected component
+    const component = this.components[this.selectedComponent];
+
+    // Mark component as used
+    component.used = true;
+
+    // Set component in grid
+    cell.component = {
+      type: component.type,
+      shape: component.shape,
+      connections: this._rotateConnections(
+        component.connections,
+        this.selectedRotation
+      ),
+    };
+    cell.rotation = this.selectedRotation;
+
+    // Reset selection
+    this.selectedComponent = null;
+    this.selectedRotation = 0;
+    this.rotateButton.disabled = true;
+
+    // Re-render board and components
+    this._renderBoard();
+    this._renderComponents();
+
+    // Check if all broken components are fixed
+    this._checkCircuitComplete();
+  }
+
+  /**
+   * Select a component to place
+   * @param {number} index - Index of the component
+   */
+  _selectComponent(index) {
+    if (this.components[index].used) return;
+
+    this.selectedComponent = index;
+    this.selectedRotation = 0;
+    this.rotateButton.disabled = false;
+
+    // Re-render components to show selection
+    this._renderComponents();
+
+    this._showMessage(
+      `Selected ${this.components[index].type}. Click on a broken circuit spot to place it.`
+    );
+  }
+
+  /**
+   * Rotate the selected component
+   */
+  _rotateSelectedComponent() {
+    if (this.selectedComponent === null) return;
+
+    // Increment rotation (0, 1, 2, 3) = (0°, 90°, 180°, 270°)
+    this.selectedRotation = (this.selectedRotation + 1) % 4;
+
+    // Re-render components
+    this._renderComponents();
+  }
+
+  /**
+   * Rotate connection directions
+   * @param {Array} connections - Original connections
+   * @param {number} rotation - Rotation count (0-3)
+   * @returns {Array} - Rotated connections
+   */
+  _rotateConnections(connections, rotation) {
+    if (rotation === 0) return [...connections];
+
+    return connections.map((direction) => (direction + rotation) % 4);
+  }
+
+  /**
+   * Check if all broken components are fixed correctly
+   */
+  _checkCircuitComplete() {
+    // Check each broken component
+    const allFixed = this.brokenComponents.every((broken) => {
+      const cell = this.grid[broken.y][broken.x];
+
+      // If no component placed, not fixed
+      if (!cell.component) return false;
+
+      // Check if connections match
+      const requiredConnections = new Set(broken.connections);
+      const placedConnections = new Set(cell.component.connections);
+
+      // Must have same number of connections
+      if (requiredConnections.size !== placedConnections.size) return false;
+
+      // Each required connection must be present
+      for (const conn of requiredConnections) {
+        if (!placedConnections.has(conn)) return false;
+      }
+
+      return true;
+    });
+
+    if (allFixed) {
+      this._handleSuccess();
+    }
+  }
+
+  /**
+   * Handle successful completion
+   */
+  _handleSuccess() {
+    this.isComplete = true;
+
+    // Stop blinking
+    if (this.blinkTimer) {
+      clearInterval(this.blinkTimer);
+      this.blinkTimer = null;
+    }
+
+    // Show success message
+    this._showMessage("Circuit successfully repaired!", "success");
+
+    // Trigger success callback
+    if (this.callbacks && this.callbacks.showSuccess) {
+      this.callbacks.showSuccess();
+    }
+  }
+
+  /**
+   * Show message
+   * @param {string} message - Message to display
+   * @param {string} type - Type of message (info, success, error)
+   */
+  _showMessage(message, type = "info") {
+    if (!this.messageElement) return;
+
+    // Remove previous classes
+    this.messageElement.className =
+      "message mt-4 p-2 w-full text-center rounded-lg";
+
+    // Add type-specific class
+    switch (type) {
+      case "success":
+        this.messageElement.classList.add("bg-green-700", "text-white");
+        break;
+      case "error":
+        this.messageElement.classList.add("bg-red-700", "text-white");
+        break;
+      default:
+        this.messageElement.classList.add("bg-blue-700", "text-white");
+    }
+
+    this.messageElement.textContent = message;
+  }
+
+  /**
+   * Adjust difficulty based on level
+   */
+  _adjustDifficulty() {
+    if (this.difficulty > 3) {
+      // Increase grid size for higher difficulties
+      this.gridSize = 6 + (this.difficulty - 3);
+    }
+  }
+
+  /**
+   * Check if the solution is valid
+   * @returns {boolean} - True if solution is valid
+   */
+  validateSolution() {
+    return this.isComplete;
+  }
+
+  /**
+   * Get the current solution
+   * @returns {Object} - Current state of the board
+   */
+  getSolution() {
     return {
-      connections: this.connections.map((conn) => ({
-        row: conn.row,
-        col: conn.col,
-        type: conn.type,
-        rotation: conn.rotation,
-      })),
-      success: this.correctPathFound,
+      completed: this.isComplete,
+      brokenFixed: this.brokenComponents.length,
     };
   }
-}
 
-// Add some CSS that will be injected
-const style = document.createElement("style");
-style.textContent = `
-  .spark-effect {
-    animation: spark 0.5s ease-in-out infinite alternate;
+  /**
+   * Get error message for invalid solution
+   * @returns {string} - Error message
+   */
+  getErrorMessage() {
+    return "Please fix all broken circuit components.";
   }
-  
-  @keyframes spark {
-    0% { box-shadow: 0 0 5px #ffdd00; }
-    100% { box-shadow: 0 0 20px #ff9900, 0 0 30px #ff5500; }
+
+  /**
+   * Show success animation
+   */
+  showSuccess() {
+    // Highlight all fixed components
+    this.brokenComponents.forEach((broken) => {
+      const cell = this.grid[broken.y][broken.x];
+      if (cell && cell.element) {
+        cell.element.classList.add("bg-green-500", "bg-opacity-40");
+
+        // Add pulse animation
+        cell.element.classList.add("animate-pulse");
+
+        // Remove pulse after a few seconds
+        setTimeout(() => {
+          cell.element.classList.remove("animate-pulse");
+        }, 2000);
+      }
+    });
+
+    // Play circuit activation sound
+    try {
+      const activationSound = new Audio(
+        "../static/sounds/circuit-activate.mp3"
+      );
+      activationSound.volume = 0.3;
+      activationSound
+        .play()
+        .catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play circuit activation sound:", e);
+    }
   }
-  
-  .animate-shake {
-    animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+
+  /**
+   * Clean up resources
+   */
+  cleanup() {
+    // Stop blinking timer
+    if (this.blinkTimer) {
+      clearInterval(this.blinkTimer);
+      this.blinkTimer = null;
+    }
+
+    // Remove event listeners
+    if (this.rotateButton) {
+      const clone = this.rotateButton.cloneNode(true);
+      this.rotateButton.parentNode.replaceChild(clone, this.rotateButton);
+      this.rotateButton = clone;
+    }
+
+    // Reset state
+    this.grid = [];
+    this.paths = [];
+    this.components = [];
+    this.brokenComponents = [];
+    this.selectedComponent = null;
   }
-  
-  @keyframes shake {
-    10%, 90% { transform: translate3d(-1px, 0, 0); }
-    20%, 80% { transform: translate3d(2px, 0, 0); }
-    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
-    40%, 60% { transform: translate3d(4px, 0, 0); }
-  }
-`;
-document.head.appendChild(style);
+}
 
 export default CircuitBoardPuzzle;

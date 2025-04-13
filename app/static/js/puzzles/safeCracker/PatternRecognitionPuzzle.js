@@ -1,452 +1,538 @@
-// PatternRecognitionPuzzle.js - Stage 3 Pattern Recognition puzzle for Safe Cracker role
+// patternRecognitionPuzzle.js - Pattern recognition puzzle for safe cracker
+// Difficulty: 2/5 - Player must identify and replicate security patterns
 
-import BasePuzzle from "./BasePuzzle.js";
+class PatternRecognitionPuzzle {
+  constructor(gameAreaElement, puzzleData, callbacks) {
+    this.gameArea = gameAreaElement;
+    this.puzzleData = puzzleData;
+    this.callbacks = callbacks;
 
-class PatternRecognitionPuzzle extends BasePuzzle {
-  constructor(containerElement, puzzleData, submitSolutionCallback) {
-    super(containerElement, puzzleData, submitSolutionCallback);
-
-    // Pattern puzzle specific properties
-    this.gridSize = 5; // 5x5 grid
-    this.patternSequence = [];
-    this.playerSequence = [];
-    this.maxPatternLength = 8;
-    this.currentPatternLength = 5; // Start with 5 steps
+    // Puzzle properties
+    this.difficultyLevel = puzzleData.difficulty || 2;
+    this.gridSize = 4; // Default 4x4 grid
+    this.pattern = []; // Sequence of cells to activate
+    this.playerPattern = []; // Player's input pattern
     this.isShowingPattern = false;
+    this.isPlayerTurn = false;
+    this.maxPatternLength = 5; // Default pattern length
 
-    // Grid elements
+    // UI elements
     this.gridContainer = null;
     this.gridCells = [];
-    this.sequenceDisplay = null;
-    this.showPatternButton = null;
+
+    // Audio elements
+    this.cellSounds = [];
+    this.successSound = null;
+    this.errorSound = null;
+
+    // Animation timing
+    this.showPatternDelay = 1000; // ms between showing each pattern step
+    this.animationSpeed = 500; // ms for cell animations
   }
 
-  /**
-   * Initialize the puzzle
-   */
   initialize() {
-    super.initialize();
+    // Setup difficulty
+    this.setupDifficulty();
 
-    // Get game area div
-    const gameArea = this.containerElement.querySelector(
-      "div.flex.justify-center"
+    // Create the interface
+    this.createUI();
+
+    // Generate pattern
+    this.generatePattern();
+
+    // Initialize sounds
+    this.initializeSounds();
+
+    // Show instructions
+    this.callbacks.showMessage(
+      "Watch the pattern and repeat it to unlock the safe",
+      "info"
     );
-    this._setupPatternPuzzle(gameArea);
 
-    // Generate a pattern sequence if not provided
-    if (!this.puzzleData.data || !this.puzzleData.data.sequence) {
-      this._generateRandomPattern();
-    } else {
-      this.patternSequence = this.puzzleData.data.sequence;
-    }
-
-    // Initially disable submit button until pattern is shown
-    this.submitButton.disabled = true;
+    // Start the puzzle after a short delay
+    setTimeout(() => {
+      this.showPattern();
+    }, 1500);
   }
 
-  /**
-   * Set up the pattern recognition puzzle interface
-   * @param {HTMLElement} container - Container element
-   */
-  _setupPatternPuzzle(container) {
-    container.innerHTML = "";
-    container.className = "flex flex-col items-center";
+  setupDifficulty() {
+    // Adjust puzzle parameters based on difficulty
+    switch (this.difficultyLevel) {
+      case 1:
+        this.gridSize = 3;
+        this.maxPatternLength = 4;
+        break;
+      case 2:
+        this.gridSize = 4;
+        this.maxPatternLength = 5;
+        break;
+      case 3:
+        this.gridSize = 4;
+        this.maxPatternLength = 7;
+        break;
+      case 4:
+        this.gridSize = 5;
+        this.maxPatternLength = 8;
+        break;
+      case 5:
+        this.gridSize = 5;
+        this.maxPatternLength = 10;
+        break;
+      default:
+        this.gridSize = 4;
+        this.maxPatternLength = 5;
+    }
+  }
 
-    // Create show pattern button
-    this.showPatternButton = document.createElement("button");
-    this.showPatternButton.className =
-      "bg-yellow-500 hover:bg-yellow-600 text-black font-bold py-2 px-6 rounded-full mb-4 transition-all";
-    this.showPatternButton.textContent = "Show Pattern";
-    this.showPatternButton.addEventListener("click", () => this._showPattern());
-    container.appendChild(this.showPatternButton);
+  createUI() {
+    this.gameArea.innerHTML = "";
 
-    // Create grid container
+    // Main container
+    const container = document.createElement("div");
+    container.className =
+      "flex flex-col items-center justify-center h-full p-4 bg-gray-900 rounded-lg";
+
+    // Title
+    const title = document.createElement("h3");
+    title.className = "text-xl font-bold text-white mb-4";
+    title.textContent = "Security Pattern Lock";
+    container.appendChild(title);
+
+    // Instructions
+    const instruction = document.createElement("p");
+    instruction.className = "text-gray-300 mb-6 text-center";
+    instruction.textContent =
+      "Memorize the pattern sequence and repeat it exactly to bypass the security system.";
+    container.appendChild(instruction);
+
+    // Status display
+    const statusDisplay = document.createElement("div");
+    statusDisplay.className = "text-lg font-bold text-yellow-400 mb-4";
+    statusDisplay.id = "pattern-status";
+    statusDisplay.textContent = "Watch carefully...";
+    container.appendChild(statusDisplay);
+
+    // Grid container
     this.gridContainer = document.createElement("div");
-    this.gridContainer.className = "grid gap-1 mb-6";
+    this.gridContainer.className = "grid gap-2 mb-6";
     this.gridContainer.style.gridTemplateColumns = `repeat(${this.gridSize}, 1fr)`;
-    this.gridContainer.style.width = "300px";
-    this.gridContainer.style.height = "300px";
 
     // Create grid cells
     for (let i = 0; i < this.gridSize * this.gridSize; i++) {
       const cell = document.createElement("div");
       cell.className =
-        "bg-gray-700 rounded-md flex items-center justify-center transition-all";
-      cell.style.width = "56px";
-      cell.style.height = "56px";
+        "w-16 h-16 bg-gray-700 rounded-lg cursor-pointer transition-all duration-200 hover:bg-gray-600 flex items-center justify-center";
       cell.dataset.index = i;
 
-      // Highlight border of cells on the edge
-      const row = Math.floor(i / this.gridSize);
-      const col = i % this.gridSize;
-      if (
-        row === 0 ||
-        row === this.gridSize - 1 ||
-        col === 0 ||
-        col === this.gridSize - 1
-      ) {
-        cell.classList.add("border", "border-yellow-800");
-      }
-
       // Add click event
-      cell.addEventListener("click", () => this._cellClicked(i));
+      cell.addEventListener("click", () => this.onCellClick(i));
 
+      // Store cell reference
       this.gridCells.push(cell);
+
+      // Add to grid
       this.gridContainer.appendChild(cell);
     }
+
     container.appendChild(this.gridContainer);
 
-    // Create sequence display
-    this.sequenceDisplay = document.createElement("div");
-    this.sequenceDisplay.className = "flex space-x-2 mb-4";
-
-    // Create indicator lights for sequence length
-    for (let i = 0; i < this.maxPatternLength; i++) {
-      const light = document.createElement("div");
-      light.className = "w-4 h-4 rounded-full bg-gray-700";
-      if (i < this.currentPatternLength) {
-        light.className = "w-4 h-4 rounded-full bg-yellow-400";
+    // Reset button
+    const resetButton = document.createElement("button");
+    resetButton.className =
+      "px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 mt-4";
+    resetButton.textContent = "Show Pattern Again";
+    resetButton.addEventListener("click", () => {
+      if (!this.isShowingPattern) {
+        this.resetPlayerPattern();
+        this.showPattern();
       }
-      this.sequenceDisplay.appendChild(light);
-    }
-    container.appendChild(this.sequenceDisplay);
+    });
+    container.appendChild(resetButton);
 
-    // Add instruction note
-    const note = document.createElement("p");
-    note.className = "text-gray-400 text-sm mt-2";
-    note.textContent =
-      "Watch the pattern, then recreate it by clicking on the grid in the same order.";
-    container.appendChild(note);
+    // Submit button
+    const submitButton = document.createElement("button");
+    submitButton.className =
+      "px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 mt-4";
+    submitButton.textContent = "Submit Pattern";
+    submitButton.addEventListener("click", () => {
+      if (this.isPlayerTurn) {
+        this.checkPattern();
+      }
+    });
+    container.appendChild(submitButton);
+
+    this.gameArea.appendChild(container);
   }
 
-  /**
-   * Generate a random pattern sequence
-   */
-  _generateRandomPattern() {
-    this.patternSequence = [];
+  generatePattern() {
+    this.pattern = [];
+    const patternLength =
+      Math.floor(this.maxPatternLength * 0.7) +
+      Math.floor(Math.random() * (this.maxPatternLength * 0.3));
 
-    // Start with a cell on the perimeter
-    const perimeter = [];
+    // Generate random pattern
+    let lastCell = -1;
+    for (let i = 0; i < patternLength; i++) {
+      let cell;
+      do {
+        cell = Math.floor(Math.random() * (this.gridSize * this.gridSize));
+      } while (cell === lastCell); // Avoid immediate repeats for easier recognition
 
-    // Top and bottom rows
-    for (let i = 0; i < this.gridSize; i++) {
-      perimeter.push(i); // Top row
-      perimeter.push(this.gridSize * (this.gridSize - 1) + i); // Bottom row
+      this.pattern.push(cell);
+      lastCell = cell;
     }
 
-    // Left and right columns (excluding corners already counted)
-    for (let i = 1; i < this.gridSize - 1; i++) {
-      perimeter.push(i * this.gridSize); // Left column
-      perimeter.push(i * this.gridSize + (this.gridSize - 1)); // Right column
+    console.log("Generated pattern:", this.pattern); // For debugging
+  }
+
+  initializeSounds() {
+    // Create different sounds for each cell
+    const baseNotes = [261.63, 293.66, 329.63, 349.23, 392.0]; // C4, D4, E4, F4, G4
+
+    for (let i = 0; i < this.gridSize * this.gridSize; i++) {
+      const noteIndex = i % baseNotes.length;
+      const octaveShift = Math.floor(i / baseNotes.length);
+      const freq = baseNotes[noteIndex] * Math.pow(2, octaveShift / 2);
+
+      this.cellSounds.push({
+        frequency: freq,
+        play: () => this.playTone(freq, 0.3),
+      });
     }
 
-    // First cell is randomly chosen from the perimeter
-    const firstIndex = Math.floor(Math.random() * perimeter.length);
-    this.patternSequence.push(perimeter[firstIndex]);
+    // Success and error sounds
+    this.successSound = new Audio("../static/sounds/pattern-complete.mp3");
+    this.successSound.volume = 0.5;
 
-    // Generate the rest of the sequence by choosing cells adjacent to previous ones
-    for (let i = 1; i < this.maxPatternLength; i++) {
-      const lastCell = this.patternSequence[i - 1];
-      const row = Math.floor(lastCell / this.gridSize);
-      const col = lastCell % this.gridSize;
+    this.errorSound = new Audio("../static/sounds/pattern-error.mp3");
+    this.errorSound.volume = 0.3;
+  }
 
-      // Find possible adjacent cells (including diagonals)
-      const possibleNextCells = [];
+  playTone(frequency, duration) {
+    try {
+      const audioContext = new (window.AudioContext ||
+        window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
 
-      for (
-        let r = Math.max(0, row - 1);
-        r <= Math.min(this.gridSize - 1, row + 1);
-        r++
-      ) {
-        for (
-          let c = Math.max(0, col - 1);
-          c <= Math.min(this.gridSize - 1, col + 1);
-          c++
-        ) {
-          if (r !== row || c !== col) {
-            // Not the same cell
-            const cellIndex = r * this.gridSize + c;
-            // Don't use cells already in the sequence
-            if (!this.patternSequence.includes(cellIndex)) {
-              possibleNextCells.push(cellIndex);
-            }
-          }
-        }
-      }
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
 
-      // If no valid adjacent cells, pick any unused cell
-      if (possibleNextCells.length === 0) {
-        const unusedCells = Array.from(
-          { length: this.gridSize * this.gridSize },
-          (_, i) => i
-        ).filter((i) => !this.patternSequence.includes(i));
+      gainNode.gain.value = 0.3;
 
-        if (unusedCells.length > 0) {
-          possibleNextCells.push(
-            unusedCells[Math.floor(Math.random() * unusedCells.length)]
-          );
-        } else {
-          // If all cells are used (unlikely), just pick a random one
-          possibleNextCells.push(
-            Math.floor(Math.random() * (this.gridSize * this.gridSize))
-          );
-        }
-      }
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
 
-      // Pick a random cell from the possible next cells
-      const nextCell =
-        possibleNextCells[Math.floor(Math.random() * possibleNextCells.length)];
-      this.patternSequence.push(nextCell);
+      oscillator.start();
+
+      // Fade out for a more pleasant sound
+      gainNode.gain.exponentialRampToValueAtTime(
+        0.001,
+        audioContext.currentTime + duration
+      );
+
+      setTimeout(() => {
+        oscillator.stop();
+        audioContext.close();
+      }, duration * 1000);
+    } catch (e) {
+      console.warn("Could not play tone:", e);
     }
   }
 
-  /**
-   * Show the pattern sequence
-   */
-  _showPattern() {
-    if (this.isShowingPattern) return;
+  showPattern() {
+    const statusDisplay = document.getElementById("pattern-status");
+    if (statusDisplay) {
+      statusDisplay.textContent = "Watch carefully...";
+      statusDisplay.className = "text-lg font-bold text-yellow-400 mb-4";
+    }
 
     this.isShowingPattern = true;
-    this.showPatternButton.disabled = true;
-    this.playerSequence = [];
+    this.isPlayerTurn = false;
+    this.resetPlayerPattern();
 
-    // Reset grid
+    // Disable all cells during pattern display
     this.gridCells.forEach((cell) => {
-      cell.classList.remove("bg-green-500", "bg-yellow-500");
-      cell.classList.add("bg-gray-700");
+      cell.classList.add("opacity-70");
+      cell.classList.add("cursor-not-allowed");
+      cell.classList.remove("hover:bg-gray-600");
     });
 
-    // Update sequence lights
-    this._updateSequenceDisplay();
-
-    // Show each step in the pattern sequentially
-    let delay = 500; // Initial delay
-    const sequenceToShow = this.patternSequence.slice(
-      0,
-      this.currentPatternLength
-    );
-
-    // Show pattern message
-    this.messageElement.textContent = "Watch carefully...";
-    this.messageElement.className = "mb-4 text-yellow-400 text-center";
-
-    sequenceToShow.forEach((cellIndex, step) => {
+    // Show each step of the pattern with delay
+    this.pattern.forEach((cellIndex, step) => {
       setTimeout(() => {
-        // Highlight the cell
-        const cell = this.gridCells[cellIndex];
-        cell.classList.remove("bg-gray-700");
-        cell.classList.add("bg-yellow-500");
+        this.highlightCell(cellIndex);
 
-        // Add step number
-        const numElement = document.createElement("span");
-        numElement.className = "text-black font-bold text-lg";
-        numElement.textContent = (step + 1).toString();
-        cell.innerHTML = "";
-        cell.appendChild(numElement);
-
-        // Reset after a short delay
-        setTimeout(() => {
-          cell.classList.remove("bg-yellow-500");
-          cell.classList.add("bg-gray-700");
-          cell.innerHTML = "";
-
-          // After last step, enable interaction
-          if (step === sequenceToShow.length - 1) {
-            this.isShowingPattern = false;
-            this.showPatternButton.disabled = false;
-            this.messageElement.textContent = "Now recreate the pattern!";
-          }
-        }, 800);
-      }, delay);
-
-      delay += 1000; // 800ms highlight + 200ms gap
+        // If this is the last step, enable player input after the animation
+        if (step === this.pattern.length - 1) {
+          setTimeout(() => {
+            this.startPlayerTurn();
+          }, this.animationSpeed + 500);
+        }
+      }, step * this.showPatternDelay);
     });
   }
 
-  /**
-   * Handle cell click
-   * @param {number} cellIndex - Index of the clicked cell
-   */
-  _cellClicked(cellIndex) {
-    if (this.isShowingPattern) return;
+  startPlayerTurn() {
+    const statusDisplay = document.getElementById("pattern-status");
+    if (statusDisplay) {
+      statusDisplay.textContent = "Your turn - repeat the pattern";
+      statusDisplay.className = "text-lg font-bold text-green-400 mb-4";
+    }
 
-    // Add to player sequence
-    this.playerSequence.push(cellIndex);
+    this.isShowingPattern = false;
+    this.isPlayerTurn = true;
+    this.playerPattern = [];
 
-    // Show feedback
-    const cell = this.gridCells[cellIndex];
+    // Enable cells for player input
+    this.gridCells.forEach((cell) => {
+      cell.classList.remove("opacity-70");
+      cell.classList.remove("cursor-not-allowed");
+      cell.classList.add("hover:bg-gray-600");
+    });
+  }
+
+  highlightCell(index) {
+    if (index < 0 || index >= this.gridCells.length) return;
+
+    const cell = this.gridCells[index];
+
+    // Visual highlight
+    cell.classList.add("bg-blue-500");
     cell.classList.remove("bg-gray-700");
-    cell.classList.add("bg-green-500");
 
-    // Add step number
-    const numElement = document.createElement("span");
-    numElement.className = "text-white font-bold text-lg";
-    numElement.textContent = this.playerSequence.length.toString();
-    cell.innerHTML = "";
-    cell.appendChild(numElement);
-
-    // Update sequence display
-    this._updateSequenceDisplay();
-
-    // Check if the selected cell matches the pattern so far
-    const currentIndex = this.playerSequence.length - 1;
-    if (
-      this.playerSequence[currentIndex] !== this.patternSequence[currentIndex]
-    ) {
-      // Wrong cell
-      cell.classList.remove("bg-green-500");
-      cell.classList.add("bg-red-500");
-
-      this.messageElement.textContent = "Incorrect pattern! Try again.";
-      this.messageElement.className = "mb-4 text-red-400 text-center";
-
-      // Wait and reset
-      setTimeout(() => {
-        // Reset grid
-        this.gridCells.forEach((c) => {
-          c.classList.remove("bg-green-500", "bg-red-500");
-          c.classList.add("bg-gray-700");
-          c.innerHTML = "";
-        });
-
-        this.playerSequence = [];
-        this._updateSequenceDisplay();
-        this.messageElement.className =
-          "mb-4 text-yellow-400 text-center hidden";
-      }, 1500);
-
-      return;
+    // Play sound
+    if (this.cellSounds[index]) {
+      this.cellSounds[index].play();
     }
 
-    // Check if full pattern is entered
-    if (this.playerSequence.length === this.currentPatternLength) {
-      // Enable submit button
-      this.submitButton.disabled = false;
-      this.messageElement.textContent = "Pattern complete! Submit your answer.";
-      this.messageElement.className = "mb-4 text-green-400 text-center";
+    // Reset after animation
+    setTimeout(() => {
+      cell.classList.remove("bg-blue-500");
+      cell.classList.add("bg-gray-700");
+    }, this.animationSpeed);
+  }
+
+  onCellClick(index) {
+    if (!this.isPlayerTurn) return;
+
+    // Add to player pattern
+    this.playerPattern.push(index);
+
+    // Highlight cell
+    this.highlightCell(index);
+
+    // Check if pattern length matches - auto submit
+    if (this.playerPattern.length === this.pattern.length) {
+      setTimeout(() => {
+        this.checkPattern();
+      }, this.animationSpeed);
     }
   }
 
-  /**
-   * Update the sequence display
-   */
-  _updateSequenceDisplay() {
-    const lights = this.sequenceDisplay.querySelectorAll("div");
+  resetPlayerPattern() {
+    this.playerPattern = [];
+  }
 
-    lights.forEach((light, i) => {
-      if (i < this.currentPatternLength) {
-        // Set color based on whether this position has been entered
-        if (i < this.playerSequence.length) {
-          light.className = "w-4 h-4 rounded-full bg-green-500";
-        } else {
-          light.className = "w-4 h-4 rounded-full bg-yellow-400";
+  checkPattern() {
+    let isCorrect = true;
+
+    // Check if patterns match
+    if (this.playerPattern.length !== this.pattern.length) {
+      isCorrect = false;
+    } else {
+      for (let i = 0; i < this.pattern.length; i++) {
+        if (this.playerPattern[i] !== this.pattern[i]) {
+          isCorrect = false;
+          break;
         }
       }
-    });
-  }
-
-  /**
-   * Handle submit button click
-   */
-  _handleSubmit() {
-    // Check if full pattern has been entered
-    if (this.playerSequence.length < this.currentPatternLength) {
-      this.messageElement.textContent =
-        "You must recreate the full pattern first!";
-      this.messageElement.className = "mb-4 text-red-400 text-center";
-      return;
     }
 
-    // Submit solution
-    this.submitButton.disabled = true;
-    this.submitButton.textContent = "Verifying...";
-
-    this.submitSolution(this.playerSequence)
-      .then((success) => {
-        if (success) {
-          this.showSuccess();
-        } else {
-          this.messageElement.textContent = "Wrong pattern. Try again!";
-          this.messageElement.className = "mb-4 text-red-400 text-center";
-          this.submitButton.disabled = true;
-          this.submitButton.textContent = "Submit Pattern";
-
-          // Reset player sequence and grid
-          setTimeout(() => {
-            this.playerSequence = [];
-            this._updateSequenceDisplay();
-
-            // Reset grid
-            this.gridCells.forEach((cell) => {
-              cell.classList.remove("bg-green-500", "bg-red-500");
-              cell.classList.add("bg-gray-700");
-              cell.innerHTML = "";
-            });
-          }, 1500);
-        }
-      })
-      .catch((error) => {
-        console.error("Error submitting solution:", error);
-        this.messageElement.textContent =
-          "Error submitting pattern. Try again!";
-        this.messageElement.className = "mb-4 text-red-400 text-center";
-        this.submitButton.disabled = false;
-        this.submitButton.textContent = "Submit Pattern";
-      });
-  }
-
-  /**
-   * Disable or enable puzzle interaction
-   * @param {boolean} disabled - Whether to disable interaction
-   */
-  disableInteraction(disabled) {
-    super.disableInteraction(disabled);
-
-    this.showPatternButton.disabled = disabled;
-
-    if (disabled) {
-      this.gridContainer.classList.add("opacity-50", "pointer-events-none");
+    if (isCorrect) {
+      // Success!
+      this.showSuccess();
     } else {
-      this.gridContainer.classList.remove("opacity-50", "pointer-events-none");
+      // Incorrect pattern
+      this.showError();
+    }
+
+    return isCorrect;
+  }
+
+  showSuccess() {
+    const statusDisplay = document.getElementById("pattern-status");
+    if (statusDisplay) {
+      statusDisplay.textContent = "Pattern correct!";
+      statusDisplay.className = "text-lg font-bold text-green-500 mb-4";
+    }
+
+    // Play success sound
+    if (this.successSound) {
+      this.successSound
+        .play()
+        .catch((e) => console.warn("Could not play success sound:", e));
+    }
+
+    // Disable further input
+    this.isPlayerTurn = false;
+    this.gridCells.forEach((cell) => {
+      cell.classList.add("opacity-70");
+      cell.classList.add("cursor-not-allowed");
+      cell.classList.remove("hover:bg-gray-600");
+    });
+
+    // Show success animation
+    this.animateSuccess();
+
+    // Notify the callback
+    this.callbacks.showMessage(
+      "Pattern match successful! Security override complete.",
+      "success"
+    );
+  }
+
+  showError() {
+    const statusDisplay = document.getElementById("pattern-status");
+    if (statusDisplay) {
+      statusDisplay.textContent = "Incorrect pattern! Try again.";
+      statusDisplay.className = "text-lg font-bold text-red-500 mb-4";
+    }
+
+    // Play error sound
+    if (this.errorSound) {
+      this.errorSound
+        .play()
+        .catch((e) => console.warn("Could not play error sound:", e));
+    }
+
+    // Show error animation
+    this.animateError();
+
+    // Reset after delay
+    setTimeout(() => {
+      this.resetPlayerPattern();
+
+      if (statusDisplay) {
+        statusDisplay.textContent = "Your turn - repeat the pattern";
+        statusDisplay.className = "text-lg font-bold text-green-400 mb-4";
+      }
+    }, 2000);
+
+    // Notify the callback
+    this.callbacks.showMessage(
+      "Incorrect pattern! Watch carefully and try again.",
+      "error"
+    );
+  }
+
+  animateSuccess() {
+    // Highlight all cells in a wave pattern
+    this.gridCells.forEach((cell, index) => {
+      setTimeout(() => {
+        cell.classList.add("bg-green-500");
+        cell.classList.remove("bg-gray-700");
+
+        setTimeout(() => {
+          cell.classList.remove("bg-green-500");
+          cell.classList.add("bg-gray-700");
+        }, 300);
+      }, index * 50);
+    });
+
+    // Create success overlay
+    const successOverlay = document.createElement("div");
+    successOverlay.className =
+      "mt-4 p-4 bg-green-800 bg-opacity-30 rounded-lg text-center animate-fadeIn";
+    successOverlay.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-green-300 font-bold text-xl mt-2">PATTERN ACCEPTED</p>
+        `;
+
+    this.gameArea.querySelector(".flex.flex-col").appendChild(successOverlay);
+  }
+
+  animateError() {
+    // Shake the grid
+    if (this.gridContainer) {
+      this.gridContainer.classList.add("animate-shake");
+
+      setTimeout(() => {
+        this.gridContainer.classList.remove("animate-shake");
+      }, 500);
+    }
+
+    // Flash all cells red
+    this.gridCells.forEach((cell) => {
+      cell.classList.add("bg-red-500");
+      cell.classList.remove("bg-gray-700");
+
+      setTimeout(() => {
+        cell.classList.remove("bg-red-500");
+        cell.classList.add("bg-gray-700");
+      }, 300);
+    });
+
+    // Add keyframes for shake animation if they don't exist
+    if (!document.getElementById("shake-keyframes")) {
+      const style = document.createElement("style");
+      style.id = "shake-keyframes";
+      style.textContent = `
+                @keyframes shake {
+                    0%, 100% { transform: translateX(0); }
+                    20%, 60% { transform: translateX(-5px); }
+                    40%, 80% { transform: translateX(5px); }
+                }
+                .animate-shake {
+                    animation: shake 0.5s ease-in-out;
+                }
+                @keyframes fadeIn {
+                    0% { opacity: 0; }
+                    100% { opacity: 1; }
+                }
+                .animate-fadeIn {
+                    animation: fadeIn 0.5s ease-in-out;
+                }
+            `;
+      document.head.appendChild(style);
     }
   }
 
-  /**
-   * Clean up event listeners
-   */
+  getSolution() {
+    return { pattern: this.playerPattern };
+  }
+
+  validateSolution(solution) {
+    if (!solution || !solution.pattern || !Array.isArray(solution.pattern))
+      return false;
+
+    // Check if the provided pattern matches the correct one
+    if (solution.pattern.length !== this.pattern.length) return false;
+
+    for (let i = 0; i < this.pattern.length; i++) {
+      if (solution.pattern[i] !== this.pattern[i]) return false;
+    }
+
+    return true;
+  }
+
+  getErrorMessage() {
+    return "Pattern does not match the security sequence. Try again.";
+  }
+
   cleanup() {
-    super.cleanup();
+    // Stop any playing audio
+    if (this.successSound) this.successSound.pause();
+    if (this.errorSound) this.errorSound.pause();
 
-    if (this.showPatternButton) {
-      this.showPatternButton.removeEventListener("click", null);
-    }
+    // Remove event listeners by clearing the game area
+    this.gameArea.innerHTML = "";
 
-    if (this.gridCells) {
-      this.gridCells.forEach((cell) => {
-        cell.removeEventListener("click", null);
-      });
-    }
-
-    this.gridContainer = null;
+    // Clear references
     this.gridCells = [];
-    this.sequenceDisplay = null;
-    this.showPatternButton = null;
-  }
-
-  /**
-   * Get puzzle title
-   * @returns {string} Puzzle title
-   */
-  _getPuzzleTitle() {
-    return "Pattern Recognition";
-  }
-
-  /**
-   * Get puzzle instructions
-   * @returns {string} Puzzle instructions
-   */
-  _getInstructions() {
-    return "Identify the pattern sequence and recreate it in the exact same order. Click 'Show Pattern' to see the sequence.";
+    this.cellSounds = [];
   }
 }
 

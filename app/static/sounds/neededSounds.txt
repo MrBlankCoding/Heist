@@ -1,6 +1,29 @@
-
-## Required Sound Files
-- `lock_click.mp3` - Clicking sound when rotating the combination lock dial
-- `success.mp3` - Success sound when completing a puzzle
-- `failure.mp3` - Failure sound when making a mistake
-- `alarm.mp3` - Alarm sound for the timed puzzle or when security is alerted
+click.mp3
+error.mp3
+success.mp3
+expolosion.mp3
+tick.mp3
+wrong.mp3
+button-press.mp3
+wire-cut.mp3
+circuit-connect.mp3
+circuit-complete.mp3
+key-select.mp3
+key-place.mp3
+key-remove.mp3
+key-success.mp3
+key-error.mp3
+key-reset.mp3
+path-click.mp3
+packet-collect.mp3
+firewall-block.mp3
+firewall-bypass.mp3
+access-granted.mp3
+access-denied.mp3
+hint.mp3
+system-unlock.mp3
+system-error.mp3
+typing.mp3
+lock-click.mp3
+lock-open.mp3
+lock-error.mp3

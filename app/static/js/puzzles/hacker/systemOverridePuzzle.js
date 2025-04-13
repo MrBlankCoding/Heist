@@ -1,802 +1,808 @@
-// systemOverridePuzzle.js - Stage 5 Hacker puzzle - System override challenge
+// System Override Puzzle - Level 5
+// A multi-stage hacking challenge to override a security system
 
 class SystemOverridePuzzle {
-  constructor(containerElement, puzzleData) {
+  constructor(containerElement, puzzleData, callbacks) {
     this.containerElement = containerElement;
     this.puzzleData = puzzleData;
-    this.terminals = [];
-    this.numTerminals = 5; // Default
-    this.activeAlarms = [];
-    this.sequencesCompleted = 0;
-    this.timeElapsed = 0;
-    this.timer = null;
-    this.isActive = true;
-    this.commandHistory = [];
-
-    // DOM elements
-    this.systemElement = null;
-    this.terminalsContainer = null;
-    this.timerElement = null;
-    this.progressElement = null;
-  }
-
-  /**
-   * Initialize the puzzle
-   */
-  initialize() {
-    // Get puzzle data
-    const { num_terminals } = this.puzzleData.data;
-    this.numTerminals = num_terminals || 5;
-
-    // Create the terminals
-    this._initializeTerminals();
-
-    // Create UI
-    this._createSystemUI();
-
-    // Start timer
-    this._startTimer();
-
-    // Start alarm system
-    this._startAlarmSystem();
-  }
-
-  /**
-   * Initialize the terminal data
-   */
-  _initializeTerminals() {
-    this.terminals = [];
-
-    // Create terminal data
-    for (let i = 0; i < this.numTerminals; i++) {
-      // Command sequences for each terminal
-      const commands = this._generateCommands(3 + Math.floor(i / 2)); // Increasing difficulty
-
-      this.terminals.push({
-        id: i,
-        name: `TERM-${String.fromCharCode(65 + i)}`, // A, B, C, etc.
-        status: "locked",
-        commandSequence: commands,
-        currentCommand: 0,
-        isUnderAttack: false,
-      });
-    }
-  }
-
-  /**
-   * Create the system override UI
-   */
-  _createSystemUI() {
-    // Create main container
-    this.systemElement = document.createElement("div");
-    this.systemElement.className =
-      "bg-gray-900 border-2 border-red-500 rounded-lg p-4 w-full max-w-4xl text-gray-100 relative";
-
-    // Add header
-    const header = document.createElement("div");
-    header.className =
-      "flex justify-between items-center border-b border-red-500 pb-2 mb-4";
-
-    const title = document.createElement("h3");
-    title.className = "text-red-400 font-bold";
-    title.textContent = "MAINFRAME SECURITY OVERRIDE";
-
-    // Add status with timer
-    this.timerElement = document.createElement("div");
-    this.timerElement.className = "text-red-400 font-mono";
-    this.timerElement.textContent = "00:00";
-
-    header.appendChild(title);
-    header.appendChild(this.timerElement);
-
-    this.systemElement.appendChild(header);
-
-    // Add instructions
-    const instructions = document.createElement("div");
-    instructions.className = "mb-4 text-sm text-gray-300";
-    instructions.innerHTML = `
-      <p class="text-yellow-400">WARNING: Security system breach detected! Multiple override attempts in progress.</p>
-      <p class="mt-2">Execute command sequences in all terminals to gain control of the mainframe.</p>
-      <p class="mt-1 text-gray-400">Watch for security countermeasures. Respond quickly to system alarms.</p>
-    `;
-
-    this.systemElement.appendChild(instructions);
-
-    // Add progress bar
-    this.progressElement = document.createElement("div");
-    this.progressElement.className =
-      "w-full bg-gray-800 rounded-full h-2.5 mb-4";
-
-    const progressBar = document.createElement("div");
-    progressBar.className =
-      "bg-red-600 h-2.5 rounded-full w-0 transition-all duration-300";
-    progressBar.style.width = "0%";
-
-    this.progressElement.appendChild(progressBar);
-    this.systemElement.appendChild(this.progressElement);
-
-    // Create terminals container
-    this.terminalsContainer = document.createElement("div");
-    this.terminalsContainer.className = "grid grid-cols-1 md:grid-cols-2 gap-4";
-
-    // Add terminals
-    this.terminals.forEach((terminal) => {
-      const terminalElement = this._createTerminalElement(terminal);
-      this.terminalsContainer.appendChild(terminalElement);
-    });
-
-    this.systemElement.appendChild(this.terminalsContainer);
-
-    // Add alarm indicators container
-    const alarmContainer = document.createElement("div");
-    alarmContainer.className = "absolute top-4 right-4 flex space-x-2";
-    alarmContainer.id = "alarm-indicators";
-    this.systemElement.appendChild(alarmContainer);
-
-    // Append to container
-    this.containerElement.appendChild(this.systemElement);
-  }
-
-  /**
-   * Create a terminal element
-   * @param {Object} terminal - Terminal data
-   * @returns {HTMLElement} - Terminal element
-   */
-  _createTerminalElement(terminal) {
-    const element = document.createElement("div");
-    element.className = "bg-gray-800 rounded-lg p-3 terminal-element";
-    element.dataset.terminal = terminal.id;
-
-    // Add header
-    const header = document.createElement("div");
-    header.className = "flex justify-between items-center mb-2";
-
-    const name = document.createElement("div");
-    name.className = "text-blue-400 font-mono font-bold";
-    name.textContent = terminal.name;
-
-    const status = document.createElement("div");
-    status.className = "text-xs px-2 py-1 rounded bg-red-900 text-red-300";
-    status.textContent = "LOCKED";
-    status.dataset.status = terminal.id;
-
-    header.appendChild(name);
-    header.appendChild(status);
-
-    element.appendChild(header);
-
-    // Add terminal window
-    const terminalWindow = document.createElement("div");
-    terminalWindow.className =
-      "bg-black rounded p-2 font-mono text-xs h-36 overflow-y-auto terminal-window";
-    terminalWindow.dataset.window = terminal.id;
-
-    // Initial text
-    terminalWindow.innerHTML = `
-      <div class="text-gray-400">Terminal ${terminal.name} initialized.</div>
-      <div class="text-gray-400">Security level: ${terminal.id + 1}/5</div>
-      <div class="text-yellow-400">Execute command sequence to override...</div>
-    `;
-
-    element.appendChild(terminalWindow);
-
-    // Add command input area
-    const inputArea = document.createElement("div");
-    inputArea.className = "mt-2";
-
-    const inputGroup = document.createElement("div");
-    inputGroup.className = "flex";
-
-    const prompt = document.createElement("div");
-    prompt.className =
-      "bg-gray-900 px-2 py-1 text-green-400 font-mono text-sm flex items-center";
-    prompt.textContent = ">";
-
-    const input = document.createElement("input");
-    input.className =
-      "bg-gray-900 px-2 py-1 text-green-400 font-mono text-sm flex-grow focus:outline-none focus:ring-1 focus:ring-blue-500";
-    input.type = "text";
-    input.placeholder = "Enter command...";
-    input.dataset.input = terminal.id;
-
-    // Add command input event listener
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        const command = input.value.trim();
-        if (command) {
-          this._processCommand(terminal.id, command);
-          input.value = "";
-        }
-      }
-    });
-
-    inputGroup.appendChild(prompt);
-    inputGroup.appendChild(input);
-
-    inputArea.appendChild(inputGroup);
-
-    // Add hint for current command
-    const hintArea = document.createElement("div");
-    hintArea.className = "mt-1 text-xs text-gray-500 font-mono";
-    hintArea.dataset.hint = terminal.id;
-
-    if (terminal.commandSequence.length > 0) {
-      hintArea.textContent = `Next command: ${this._obscureCommand(
-        terminal.commandSequence[0]
-      )}`;
-    }
-
-    inputArea.appendChild(hintArea);
-
-    element.appendChild(inputArea);
-
-    return element;
-  }
-
-  /**
-   * Process a command entered by the user
-   * @param {number} terminalId - Terminal ID
-   * @param {string} command - Command entered
-   */
-  _processCommand(terminalId, command) {
-    const terminal = this.terminals[terminalId];
-    if (!terminal) return;
-
-    // Get terminal elements
-    const terminalWindow = this.terminalsContainer.querySelector(
-      `[data-window="${terminalId}"]`
-    );
-    const hintArea = this.terminalsContainer.querySelector(
-      `[data-hint="${terminalId}"]`
-    );
-
-    // Add command to terminal window
-    if (terminalWindow) {
-      terminalWindow.innerHTML += `<div><span class="text-blue-400">> </span><span class="text-green-400">${command}</span></div>`;
-      terminalWindow.scrollTop = terminalWindow.scrollHeight;
-    }
-
-    // Check if command matches expected command
-    const expectedCommand = terminal.commandSequence[terminal.currentCommand];
-
-    if (command.toLowerCase() === expectedCommand.toLowerCase()) {
-      // Correct command
-      terminal.currentCommand++;
-
-      if (terminalWindow) {
-        terminalWindow.innerHTML += `<div class="text-green-400">Command accepted. Security level ${terminal.currentCommand}/${terminal.commandSequence.length} bypassed.</div>`;
-        terminalWindow.scrollTop = terminalWindow.scrollHeight;
-      }
-
-      // Check if all commands for this terminal are completed
-      if (terminal.currentCommand >= terminal.commandSequence.length) {
-        this._terminalCompleted(terminalId);
-      } else {
-        // Update hint for next command
-        if (hintArea) {
-          hintArea.textContent = `Next command: ${this._obscureCommand(
-            terminal.commandSequence[terminal.currentCommand]
-          )}`;
-        }
-      }
-    } else {
-      // Incorrect command
-      if (terminalWindow) {
-        terminalWindow.innerHTML += `<div class="text-red-400">Command rejected. Security violation logged.</div>`;
-        terminalWindow.scrollTop = terminalWindow.scrollHeight;
-      }
-
-      // Trigger an alarm as penalty
-      this._triggerRandomAlarm();
-    }
-  }
-
-  /**
-   * Handle completion of a terminal
-   * @param {number} terminalId - Terminal ID
-   */
-  _terminalCompleted(terminalId) {
-    const terminal = this.terminals[terminalId];
-    if (!terminal) return;
-
-    // Update terminal status
-    terminal.status = "unlocked";
-
-    // Update terminal UI
-    const statusElement = this.terminalsContainer.querySelector(
-      `[data-status="${terminalId}"]`
-    );
-    const terminalWindow = this.terminalsContainer.querySelector(
-      `[data-window="${terminalId}"]`
-    );
-    const hintArea = this.terminalsContainer.querySelector(
-      `[data-hint="${terminalId}"]`
-    );
-    const inputElement = this.terminalsContainer.querySelector(
-      `[data-input="${terminalId}"]`
-    );
-
-    if (statusElement) {
-      statusElement.className =
-        "text-xs px-2 py-1 rounded bg-green-900 text-green-300";
-      statusElement.textContent = "UNLOCKED";
-    }
-
-    if (terminalWindow) {
-      terminalWindow.innerHTML += `<div class="text-green-400 font-bold">Terminal override complete! System access granted.</div>`;
-      terminalWindow.scrollTop = terminalWindow.scrollHeight;
-    }
-
-    if (hintArea) {
-      hintArea.textContent = "Terminal security bypassed successfully.";
-    }
-
-    if (inputElement) {
-      inputElement.disabled = true;
-      inputElement.placeholder = "Terminal unlocked";
-    }
-
-    // Increment completed count
-    this.sequencesCompleted++;
-
-    // Update progress bar
-    const progressPercentage =
-      (this.sequencesCompleted / this.numTerminals) * 100;
-    const progressBar = this.progressElement.querySelector("div");
-    if (progressBar) {
-      progressBar.style.width = `${progressPercentage}%`;
-
-      // Change color when progress is good
-      if (progressPercentage > 60) {
-        progressBar.className =
-          "bg-green-600 h-2.5 rounded-full transition-all duration-300";
-      } else if (progressPercentage > 30) {
-        progressBar.className =
-          "bg-yellow-600 h-2.5 rounded-full transition-all duration-300";
-      }
-    }
-
-    // Check if all terminals are completed
-    if (this.sequencesCompleted >= this.numTerminals) {
-      this._puzzleComplete();
-    }
-  }
-
-  /**
-   * Generate a sequence of commands for a terminal
-   * @param {number} length - Number of commands to generate
-   * @returns {Array} - Array of command strings
-   */
-  _generateCommands(length) {
-    const commandOptions = [
-      "access mainframe",
-      "bypass firewall",
-      "crack encryption",
-      "decrypt files",
-      "disable security",
-      "enable override",
-      "execute protocol",
-      "force entry",
-      "grant access",
-      "hack system",
-      "inject code",
-      "kill process",
-      "locate files",
-      "modify security",
-      "navigate directory",
-      "override protocol",
-      "ping server",
-      "query database",
-      "reset system",
-      "scan network",
-      "terminate connection",
-      "upload virus",
-      "verify access",
-      "wipe logs",
-      "extract data",
+    this.callbacks = callbacks;
+
+    // Puzzle difficulty settings
+    this.difficulty = puzzleData.difficulty || 5;
+
+    // Puzzle state
+    this.currentStage = 0;
+    this.maxStages = 3;
+    this.stageCompleted = Array(this.maxStages).fill(false);
+    this.isComplete = false;
+
+    // Security layers - change based on difficulty
+    this.securityLayers = [
+      { name: "Firewall", code: this._generateSecurityCode() },
+      { name: "Authentication", code: this._generateSecurityCode() },
+      { name: "Kernel Access", code: this._generateSecurityCode() },
     ];
 
-    // Use seed from puzzle data if available for consistent generation
-    const seed = (this.puzzleData.data.seed || 42) + length;
-    const rand = this._seededRandom(seed);
+    // DOM elements
+    this.consoleOutput = null;
+    this.consoleInput = null;
+    this.systemStatus = null;
+    this.progressBars = [];
 
-    const commands = [];
-    const usedIndices = new Set();
+    // For current stage logic
+    this.commandHistory = [];
+    this.currentCommandIndex = -1;
+    this.validCommands = [
+      "help",
+      "scan",
+      "status",
+      "bypass",
+      "crack",
+      "exit",
+      "clear",
+      "override",
+    ];
 
-    for (let i = 0; i < length; i++) {
-      let index;
-      // Ensure no repeat commands
-      do {
-        index = Math.floor(rand() * commandOptions.length);
-      } while (usedIndices.has(index));
-
-      usedIndices.add(index);
-      commands.push(commandOptions[index]);
-    }
-
-    return commands;
+    // For code matrix
+    this.codeMatrix = [];
+    this.matrixSize = Math.min(4 + Math.floor(this.difficulty / 2), 8);
+    this.selectedCells = [];
   }
 
-  /**
-   * Obscure a command for the hint (show only some characters)
-   * @param {string} command - Command to obscure
-   * @returns {string} - Obscured command
-   */
-  _obscureCommand(command) {
-    if (!command) return "";
+  initialize() {
+    this._createGameArea();
+    this._attachEventListeners();
+    this._showWelcomeMessage();
+    this._generateCodeMatrix();
+  }
 
-    // Show the first character, some middle characters as underscores, and the last character
-    let obscured = command[0];
+  _createGameArea() {
+    // Create main container
+    const gameContainer = document.createElement("div");
+    gameContainer.className = "bg-gray-900 p-4 rounded-lg";
 
-    for (let i = 1; i < command.length - 1; i++) {
-      if (command[i] === " ") {
-        obscured += " ";
-      } else {
-        // Show about 30% of characters
-        obscured += Math.random() < 0.3 ? command[i] : "_";
+    // Header with status
+    const header = document.createElement("div");
+    header.className = "flex justify-between items-center mb-4";
+
+    const title = document.createElement("div");
+    title.className = "text-red-500 text-lg font-mono";
+    title.textContent = "SYSTEM OVERRIDE TERMINAL";
+    header.appendChild(title);
+
+    this.systemStatus = document.createElement("div");
+    this.systemStatus.className =
+      "bg-gray-800 text-red-400 px-3 py-1 rounded font-mono text-sm flex items-center";
+    const statusDot = document.createElement("span");
+    statusDot.className =
+      "inline-block w-2 h-2 bg-red-500 rounded-full mr-2 animate-pulse";
+    this.systemStatus.appendChild(statusDot);
+    this.systemStatus.appendChild(document.createTextNode("LOCKED"));
+    header.appendChild(this.systemStatus);
+
+    gameContainer.appendChild(header);
+
+    // Progress bars for security layers
+    const progressContainer = document.createElement("div");
+    progressContainer.className = "mb-4 grid grid-cols-3 gap-2";
+
+    this.securityLayers.forEach((layer, index) => {
+      const layerContainer = document.createElement("div");
+      layerContainer.className = "flex flex-col";
+
+      const layerLabel = document.createElement("div");
+      layerLabel.className = "text-xs text-gray-400 mb-1 font-mono";
+      layerLabel.textContent = layer.name;
+      layerContainer.appendChild(layerLabel);
+
+      const progressBar = document.createElement("div");
+      progressBar.className = "h-2 bg-gray-700 rounded overflow-hidden";
+      layerContainer.appendChild(progressBar);
+
+      const progressFill = document.createElement("div");
+      progressFill.className =
+        "h-full bg-red-600 w-0 transition-all duration-500";
+      progressBar.appendChild(progressFill);
+
+      progressContainer.appendChild(layerContainer);
+      this.progressBars.push(progressFill);
+    });
+
+    gameContainer.appendChild(progressContainer);
+
+    // Console output
+    this.consoleOutput = document.createElement("div");
+    this.consoleOutput.className =
+      "bg-black p-3 rounded h-64 mb-4 text-green-300 font-mono text-sm overflow-y-auto whitespace-pre-line";
+    gameContainer.appendChild(this.consoleOutput);
+
+    // Console input
+    const inputContainer = document.createElement("div");
+    inputContainer.className = "flex items-center bg-gray-800 p-2 rounded";
+
+    const inputPrefix = document.createElement("span");
+    inputPrefix.className = "text-green-400 mr-2 font-mono";
+    inputPrefix.textContent = ">";
+    inputContainer.appendChild(inputPrefix);
+
+    this.consoleInput = document.createElement("input");
+    this.consoleInput.type = "text";
+    this.consoleInput.className =
+      "bg-gray-800 text-green-300 flex-grow px-2 py-1 outline-none font-mono";
+    this.consoleInput.placeholder = "Type commands here...";
+    inputContainer.appendChild(this.consoleInput);
+
+    gameContainer.appendChild(inputContainer);
+
+    this.containerElement.appendChild(gameContainer);
+  }
+
+  _attachEventListeners() {
+    // Command input handling
+    this.consoleInput.addEventListener("keyup", (e) => {
+      if (e.key === "Enter") {
+        this._processCommand();
+      } else if (e.key === "ArrowUp") {
+        this._navigateCommandHistory(-1);
+      } else if (e.key === "ArrowDown") {
+        this._navigateCommandHistory(1);
       }
-    }
-
-    obscured += command[command.length - 1];
-
-    return obscured;
+    });
   }
 
-  /**
-   * Start the timer
-   */
-  _startTimer() {
-    this.timer = setInterval(() => {
-      if (!this.isActive) return;
+  _showWelcomeMessage() {
+    this._appendToConsole("=== SYSTEM OVERRIDE TERMINAL v2.3 ===", "system");
+    this._appendToConsole("UNAUTHORIZED ACCESS DETECTED", "error");
+    this._appendToConsole(
+      "Security protocols active. Proceed with caution.",
+      "system"
+    );
+    this._appendToConsole("Type 'help' for available commands.", "system");
+    this._appendToConsole("");
+  }
 
-      this.timeElapsed++;
-      this._updateTimer();
+  _processCommand() {
+    const command = this.consoleInput.value.trim().toLowerCase();
+
+    // Skip empty commands
+    if (!command) return;
+
+    // Add to history
+    this._appendToConsole(`> ${command}`, "input");
+    this.commandHistory.unshift(command);
+    this.currentCommandIndex = -1;
+
+    // Limit history size
+    if (this.commandHistory.length > 10) {
+      this.commandHistory.pop();
+    }
+
+    // Process command
+    if (this.validCommands.includes(command.split(" ")[0])) {
+      this._executeCommand(command);
+    } else {
+      this._appendToConsole(
+        "Unknown command. Type 'help' for available commands.",
+        "error"
+      );
+    }
+
+    // Clear input
+    this.consoleInput.value = "";
+  }
+
+  _executeCommand(command) {
+    const cmd = command.split(" ")[0];
+    const args = command.split(" ").slice(1);
+
+    switch (cmd) {
+      case "help":
+        this._showHelp();
+        break;
+      case "scan":
+        this._scanSystem();
+        break;
+      case "status":
+        this._showStatus();
+        break;
+      case "bypass":
+        this._bypassSecurity(args);
+        break;
+      case "crack":
+        this._crackPassword(args);
+        break;
+      case "override":
+        this._overrideSystem();
+        break;
+      case "exit":
+        this._appendToConsole(
+          "Cannot exit system. Override required.",
+          "error"
+        );
+        break;
+      case "clear":
+        this._clearConsole();
+        break;
+      default:
+        this._appendToConsole("Command not implemented.", "error");
+    }
+  }
+
+  _showHelp() {
+    this._appendToConsole("AVAILABLE COMMANDS:", "help");
+    this._appendToConsole("  help     - Display this help message", "help");
+    this._appendToConsole(
+      "  scan     - Scan for security vulnerabilities",
+      "help"
+    );
+    this._appendToConsole("  status   - Show current system status", "help");
+    this._appendToConsole(
+      "  bypass   - Attempt to bypass a security layer (bypass [code])",
+      "help"
+    );
+    this._appendToConsole("  crack    - Run password cracker", "help");
+    this._appendToConsole("  override - Execute system override", "help");
+    this._appendToConsole("  clear    - Clear terminal output", "help");
+    this._appendToConsole("  exit     - Exit terminal (disabled)", "help");
+  }
+
+  _scanSystem() {
+    this._appendToConsole("Scanning system for vulnerabilities...", "system");
+
+    // Simulate scanning delay
+    setTimeout(() => {
+      this._appendToConsole(
+        "Scan complete. Security layers detected:",
+        "success"
+      );
+
+      this.securityLayers.forEach((layer, index) => {
+        const status = this.stageCompleted[index] ? "BYPASSED" : "ACTIVE";
+        const statusClass = this.stageCompleted[index] ? "success" : "error";
+
+        if (!this.stageCompleted[index]) {
+          this._appendToConsole(
+            `  [${index + 1}] ${layer.name}: ${status}`,
+            statusClass
+          );
+
+          if (index === this.currentStage) {
+            // Give a hint for the current stage
+            if (index === 0) {
+              // Firewall stage - show matrix
+              this._showCodeMatrix();
+            } else if (index === 1) {
+              // Authentication stage
+              this._appendToConsole(
+                `  Authentication requires security code.`,
+                "system"
+              );
+              this._appendToConsole(
+                `  Hint: Code format is ${layer.code.length} characters`,
+                "hint"
+              );
+            } else if (index === 2) {
+              // Kernel stage
+              this._appendToConsole(
+                `  Kernel security uses binary pattern.`,
+                "system"
+              );
+              this._showBinaryPattern();
+            }
+          }
+        } else {
+          this._appendToConsole(
+            `  [${index + 1}] ${layer.name}: ${status}`,
+            statusClass
+          );
+        }
+      });
+
+      this._appendToConsole(
+        `Current target: ${this.securityLayers[this.currentStage].name}`,
+        "system"
+      );
     }, 1000);
   }
 
-  /**
-   * Update the timer display
-   */
-  _updateTimer() {
-    const minutes = Math.floor(this.timeElapsed / 60)
-      .toString()
-      .padStart(2, "0");
-    const seconds = (this.timeElapsed % 60).toString().padStart(2, "0");
+  _showStatus() {
+    this._appendToConsole("SYSTEM STATUS:", "system");
+    this._appendToConsole(
+      `  Override Progress: ${this._calculateOverallProgress()}%`,
+      "system"
+    );
 
-    if (this.timerElement) {
-      this.timerElement.textContent = `${minutes}:${seconds}`;
+    for (let i = 0; i < this.maxStages; i++) {
+      const layer = this.securityLayers[i];
+      const status = this.stageCompleted[i] ? "BYPASSED" : "LOCKED";
+      const statusClass = this.stageCompleted[i] ? "success" : "error";
+
+      this._appendToConsole(`  ${layer.name}: ${status}`, statusClass);
+    }
+
+    if (this.isComplete) {
+      this._appendToConsole(
+        "System override successful. Full access granted.",
+        "success"
+      );
+    } else {
+      this._appendToConsole(
+        `Next target: ${this.securityLayers[this.currentStage].name}`,
+        "system"
+      );
     }
   }
 
-  /**
-   * Start the alarm system
-   */
-  _startAlarmSystem() {
-    // Trigger random alarms periodically
-    const alarmInterval = setInterval(() => {
-      if (!this.isActive) {
-        clearInterval(alarmInterval);
-        return;
-      }
-
-      // Don't trigger too many alarms
-      if (this.activeAlarms.length < 3 && Math.random() < 0.3) {
-        this._triggerRandomAlarm();
-      }
-    }, 8000); // Trigger chance every 8 seconds
-  }
-
-  /**
-   * Trigger a random alarm
-   */
-  _triggerRandomAlarm() {
-    const alarmTypes = [
-      { id: "firewall", name: "FIREWALL BREACH", color: "red", duration: 12 },
-      {
-        id: "intrusion",
-        name: "INTRUSION DETECTED",
-        color: "yellow",
-        duration: 10,
-      },
-      {
-        id: "encryption",
-        name: "ENCRYPTION ALERT",
-        color: "purple",
-        duration: 8,
-      },
-    ];
-
-    // Select random alarm type
-    const alarmType = alarmTypes[Math.floor(Math.random() * alarmTypes.length)];
-
-    // Check if this alarm is already active
-    if (this.activeAlarms.some((alarm) => alarm.id === alarmType.id)) {
+  _bypassSecurity(args) {
+    if (this.isComplete) {
+      this._appendToConsole(
+        "System already overridden. No need for bypass.",
+        "error"
+      );
       return;
     }
 
-    // Add alarm to active alarms
-    const alarmId = `${alarmType.id}-${Date.now()}`;
-    this.activeAlarms.push({
-      id: alarmId,
-      type: alarmType.id,
-      timeLeft: alarmType.duration,
+    const currentLayer = this.securityLayers[this.currentStage];
+
+    if (!args.length) {
+      this._appendToConsole(
+        `Attempting to bypass ${currentLayer.name}...`,
+        "system"
+      );
+      this._appendToConsole(
+        "Security code required. Use 'bypass [code]'",
+        "error"
+      );
+      return;
+    }
+
+    const code = args[0];
+
+    this._appendToConsole(
+      `Attempting to bypass ${currentLayer.name} with code: ${code}...`,
+      "system"
+    );
+
+    // Simulate processing delay
+    setTimeout(() => {
+      if (code === currentLayer.code) {
+        // Correct code
+        this._appendToConsole(
+          `Bypass successful! ${currentLayer.name} security disabled.`,
+          "success"
+        );
+        this._playSound("success");
+
+        // Update progress
+        this.stageCompleted[this.currentStage] = true;
+        this._updateProgressBar(this.currentStage, 100);
+
+        // Move to next stage
+        this.currentStage++;
+
+        if (this.currentStage >= this.maxStages) {
+          // All stages complete
+          this._completeOverride();
+        } else {
+          // Advance to next stage
+          this._appendToConsole(
+            `Proceeding to ${
+              this.securityLayers[this.currentStage].name
+            } layer...`,
+            "system"
+          );
+        }
+      } else {
+        // Wrong code
+        this._appendToConsole(
+          "Bypass failed. Incorrect security code.",
+          "error"
+        );
+        this._playSound("error");
+
+        // Reduce timer as penalty
+        if (this.callbacks && this.callbacks.reduceTime) {
+          this.callbacks.reduceTime(5);
+        }
+
+        // Give a hint based on similarity
+        const similarity = this._calculateSimilarity(code, currentLayer.code);
+        if (similarity > 0.5) {
+          this._appendToConsole(
+            "Code partially correct. Security leak detected.",
+            "hint"
+          );
+        }
+      }
+    }, 1500);
+  }
+
+  _crackPassword() {
+    if (this.isComplete) {
+      this._appendToConsole(
+        "System already overridden. No need for password cracking.",
+        "error"
+      );
+      return;
+    }
+
+    const currentLayer = this.securityLayers[this.currentStage];
+
+    this._appendToConsole(
+      `Attempting to crack ${currentLayer.name} security...`,
+      "system"
+    );
+
+    // Give a hint based on the current stage
+    if (this.currentStage === 0) {
+      // Firewall stage - show the code matrix
+      this._appendToConsole(
+        "Security pattern detected in code matrix:",
+        "hint"
+      );
+      this._showCodeMatrix();
+    } else if (this.currentStage === 1) {
+      // Authentication stage - provide a partial code
+      const partialCode = currentLayer.code.substring(0, 2) + "****";
+      this._appendToConsole(`Partial code recovered: ${partialCode}`, "hint");
+    } else if (this.currentStage === 2) {
+      // Kernel stage - show binary pattern
+      this._appendToConsole("Binary pattern identified:", "hint");
+      this._showBinaryPattern();
+    }
+
+    // Reduce timer for using crack (easier path)
+    if (this.callbacks && this.callbacks.reduceTime) {
+      this.callbacks.reduceTime(3);
+    }
+  }
+
+  _overrideSystem() {
+    if (this.isComplete) {
+      this._appendToConsole("System already overridden.", "success");
+      return;
+    }
+
+    // Check if all security layers are bypassed
+    const allBypassed = this.stageCompleted.every((stage) => stage);
+
+    if (allBypassed) {
+      this._appendToConsole("Initiating full system override...", "system");
+
+      // Simulate processing delay
+      setTimeout(() => {
+        this._completeOverride();
+      }, 2000);
+    } else {
+      this._appendToConsole(
+        "Cannot override. Security layers still active.",
+        "error"
+      );
+      this._appendToConsole(
+        `Bypass all ${this.maxStages} security layers first.`,
+        "error"
+      );
+
+      // Show current progress
+      const completedCount = this.stageCompleted.filter(
+        (stage) => stage
+      ).length;
+      this._appendToConsole(
+        `Progress: ${completedCount}/${this.maxStages} layers bypassed.`,
+        "system"
+      );
+    }
+  }
+
+  _completeOverride() {
+    this.isComplete = true;
+
+    // Update UI
+    this._appendToConsole("SYSTEM OVERRIDE SUCCESSFUL", "success");
+    this._appendToConsole("All security layers neutralized.", "success");
+    this._appendToConsole(
+      "Full system access granted to unauthorized user.",
+      "success"
+    );
+
+    // Update status indicator
+    if (this.systemStatus) {
+      this.systemStatus.className =
+        "bg-green-800 text-green-400 px-3 py-1 rounded font-mono text-sm flex items-center";
+      const statusDot = this.systemStatus.querySelector("span");
+      if (statusDot) {
+        statusDot.className =
+          "inline-block w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse";
+      }
+      this.systemStatus.lastChild.textContent = "OVERRIDDEN";
+    }
+
+    // Update all progress bars
+    this.progressBars.forEach((bar) => {
+      bar.className = "h-full bg-green-600 w-full transition-all duration-500";
     });
 
-    // Create alarm indicator
-    const alarmContainer = document.getElementById("alarm-indicators");
-    if (alarmContainer) {
-      const alarmElement = document.createElement("div");
-      alarmElement.className = `px-2 py-1 rounded text-xs font-bold animate-pulse bg-${alarmType.color}-900 text-${alarmType.color}-300`;
-      alarmElement.textContent = alarmType.name;
-      alarmElement.dataset.alarm = alarmId;
-
-      alarmContainer.appendChild(alarmElement);
+    // Trigger success callback
+    if (this.callbacks && this.callbacks.showSuccess) {
+      this.callbacks.showSuccess();
     }
 
-    // Apply alarm effect to terminals
-    this._applyAlarmEffect(alarmType.id);
+    // Play success sound
+    this._playSound("success");
+  }
 
-    // Start countdown
-    const countdownInterval = setInterval(() => {
-      if (!this.isActive) {
-        clearInterval(countdownInterval);
-        return;
+  _clearConsole() {
+    if (this.consoleOutput) {
+      this.consoleOutput.innerHTML = "";
+      this._showWelcomeMessage();
+    }
+  }
+
+  _navigateCommandHistory(direction) {
+    if (!this.commandHistory.length) return;
+
+    this.currentCommandIndex += direction;
+
+    if (this.currentCommandIndex < 0) {
+      this.currentCommandIndex = 0;
+    } else if (this.currentCommandIndex >= this.commandHistory.length) {
+      this.currentCommandIndex = this.commandHistory.length - 1;
+    }
+
+    this.consoleInput.value = this.commandHistory[this.currentCommandIndex];
+  }
+
+  _appendToConsole(text, type = "normal") {
+    if (!this.consoleOutput) return;
+
+    const entry = document.createElement("div");
+    entry.className = "mb-1";
+
+    // Apply styling based on type
+    switch (type) {
+      case "error":
+        entry.className += " text-red-400";
+        break;
+      case "success":
+        entry.className += " text-green-500";
+        break;
+      case "system":
+        entry.className += " text-cyan-400";
+        break;
+      case "input":
+        entry.className += " text-white";
+        break;
+      case "help":
+        entry.className += " text-yellow-300";
+        break;
+      case "hint":
+        entry.className += " text-purple-400";
+        break;
+      default:
+        // Normal text
+        break;
+    }
+
+    entry.textContent = text;
+    this.consoleOutput.appendChild(entry);
+
+    // Auto-scroll to bottom
+    this.consoleOutput.scrollTop = this.consoleOutput.scrollHeight;
+  }
+
+  _updateProgressBar(index, percent) {
+    if (index >= 0 && index < this.progressBars.length) {
+      this.progressBars[index].style.width = `${percent}%`;
+
+      // Change color based on completion
+      if (percent >= 100) {
+        this.progressBars[index].className =
+          "h-full bg-green-600 w-full transition-all duration-500";
+      } else if (percent > 0) {
+        this.progressBars[index].className =
+          "h-full bg-yellow-600 transition-all duration-500";
+        this.progressBars[index].style.width = `${percent}%`;
+      }
+    }
+  }
+
+  _calculateOverallProgress() {
+    const completedStages = this.stageCompleted.filter((stage) => stage).length;
+    return Math.round((completedStages / this.maxStages) * 100);
+  }
+
+  _calculateSimilarity(a, b) {
+    let matches = 0;
+    const minLength = Math.min(a.length, b.length);
+
+    for (let i = 0; i < minLength; i++) {
+      if (a[i] === b[i]) matches++;
+    }
+
+    return matches / minLength;
+  }
+
+  _generateSecurityCode() {
+    const codeTypes = [
+      // Hex code
+      () => {
+        let code = "";
+        for (let i = 0; i < 4; i++) {
+          code += Math.floor(Math.random() * 16)
+            .toString(16)
+            .toUpperCase();
+        }
+        return code;
+      },
+      // Alphanumeric
+      () => {
+        const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        let code = "";
+        for (let i = 0; i < 6; i++) {
+          code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return code;
+      },
+      // Binary pattern
+      () => {
+        let code = "";
+        for (let i = 0; i < 8; i++) {
+          code += Math.floor(Math.random() * 2);
+        }
+        return code;
+      },
+    ];
+
+    // Use different code types for different stages
+    const typeIndex = this.difficulty % codeTypes.length;
+    return codeTypes[typeIndex]();
+  }
+
+  _generateCodeMatrix() {
+    this.codeMatrix = [];
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+    // Generate random matrix
+    for (let i = 0; i < this.matrixSize; i++) {
+      const row = [];
+      for (let j = 0; j < this.matrixSize; j++) {
+        row.push(chars.charAt(Math.floor(Math.random() * chars.length)));
+      }
+      this.codeMatrix.push(row);
+    }
+
+    // Choose a pattern type for the security code
+    // For simplicity, insert the code in the first row
+    const code = this.securityLayers[0].code;
+
+    // Place code in the matrix
+    for (let i = 0; i < code.length; i++) {
+      this.codeMatrix[0][i] = code[i];
+    }
+  }
+
+  _showCodeMatrix() {
+    // Show a small portion of the matrix as a hint
+    const matrixSize = Math.min(4, this.matrixSize);
+
+    this._appendToConsole("CODE MATRIX SEGMENT:", "hint");
+
+    let matrixText = "";
+    for (let i = 0; i < matrixSize; i++) {
+      let rowText = "  ";
+      for (let j = 0; j < matrixSize; j++) {
+        rowText += this.codeMatrix[i][j] + " ";
+      }
+      matrixText += rowText + "\n";
+    }
+
+    this._appendToConsole(matrixText, "hint");
+    this._appendToConsole("First row contains the security code.", "hint");
+  }
+
+  _showBinaryPattern() {
+    const code = this.securityLayers[2].code;
+    let patternHint = "";
+
+    // Show a pattern representation
+    for (let i = 0; i < code.length; i++) {
+      if (code[i] === "1") {
+        patternHint += "■ ";
+      } else {
+        patternHint += "□ ";
+      }
+    }
+
+    this._appendToConsole(`Pattern: ${patternHint}`, "hint");
+    this._appendToConsole(
+      "Convert to 1s and 0s for the security code.",
+      "hint"
+    );
+  }
+
+  _playSound(type) {
+    try {
+      let sound;
+      switch (type) {
+        case "success":
+          sound = new Audio("../static/sounds/system-unlock.mp3");
+          sound.volume = 0.3;
+          break;
+        case "error":
+          sound = new Audio("../static/sounds/system-error.mp3");
+          sound.volume = 0.2;
+          break;
+        case "typing":
+          sound = new Audio("../static/sounds/typing.mp3");
+          sound.volume = 0.1;
+          break;
+        default:
+          return;
       }
 
-      // Find alarm in active alarms
-      const alarmIndex = this.activeAlarms.findIndex(
-        (alarm) => alarm.id === alarmId
-      );
-      if (alarmIndex === -1) {
-        clearInterval(countdownInterval);
-        return;
-      }
-
-      // Decrease time left
-      this.activeAlarms[alarmIndex].timeLeft--;
-
-      // Check if alarm is expired
-      if (this.activeAlarms[alarmIndex].timeLeft <= 0) {
-        // Remove alarm
-        this.activeAlarms.splice(alarmIndex, 1);
-
-        // Remove alarm indicator
-        const alarmElement = document.querySelector(
-          `[data-alarm="${alarmId}"]`
-        );
-        if (alarmElement && alarmElement.parentNode) {
-          alarmElement.parentNode.removeChild(alarmElement);
-        }
-
-        // Remove alarm effect
-        this._removeAlarmEffect(alarmType.id);
-
-        clearInterval(countdownInterval);
-      }
-    }, 1000);
-  }
-
-  /**
-   * Apply alarm effect to terminals
-   * @param {string} alarmType - Type of alarm
-   */
-  _applyAlarmEffect(alarmType) {
-    // Different effects based on alarm type
-    switch (alarmType) {
-      case "firewall":
-        // Make one random terminal temporarily unavailable
-        const randomTerminal = Math.floor(Math.random() * this.numTerminals);
-        const terminalElement = this.terminalsContainer.querySelector(
-          `[data-terminal="${randomTerminal}"]`
-        );
-
-        if (terminalElement) {
-          terminalElement.classList.add("opacity-50");
-          const inputElement = terminalElement.querySelector("input");
-          if (inputElement) {
-            inputElement.disabled = true;
-            inputElement.dataset.previousPlaceholder = inputElement.placeholder;
-            inputElement.placeholder = "TERMINAL LOCKED - FIREWALL BREACH";
-          }
-
-          // Store info about affected terminal
-          this.terminals[randomTerminal].isUnderAttack = true;
-        }
-        break;
-
-      case "intrusion":
-        // Scramble hints
-        const hintElements =
-          this.terminalsContainer.querySelectorAll("[data-hint]");
-        hintElements.forEach((element) => {
-          element.dataset.previousText = element.textContent;
-
-          // Only scramble if it contains a command hint
-          if (element.textContent.includes("Next command:")) {
-            element.textContent = "Next command: [SCRAMBLED BY INTRUSION]";
-            element.className = "mt-1 text-xs text-red-500 font-mono";
-          }
-        });
-        break;
-
-      case "encryption":
-        // Add noise to terminal windows
-        const terminalWindows =
-          this.terminalsContainer.querySelectorAll(".terminal-window");
-        terminalWindows.forEach((window) => {
-          // Add encryption noise
-          window.innerHTML += `<div class="text-purple-400">*** ENCRYPTION ALERT: Terminal communication intercepted ***</div>`;
-          window.scrollTop = window.scrollHeight;
-        });
-        break;
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play sound:", e);
     }
   }
 
-  /**
-   * Remove alarm effect from terminals
-   * @param {string} alarmType - Type of alarm
-   */
-  _removeAlarmEffect(alarmType) {
-    switch (alarmType) {
-      case "firewall":
-        // Re-enable affected terminals
-        for (let i = 0; i < this.numTerminals; i++) {
-          if (this.terminals[i].isUnderAttack) {
-            const terminalElement = this.terminalsContainer.querySelector(
-              `[data-terminal="${i}"]`
-            );
-
-            if (terminalElement) {
-              terminalElement.classList.remove("opacity-50");
-              const inputElement = terminalElement.querySelector("input");
-
-              if (inputElement) {
-                inputElement.disabled = false;
-                inputElement.placeholder =
-                  inputElement.dataset.previousPlaceholder ||
-                  "Enter command...";
-              }
-            }
-
-            this.terminals[i].isUnderAttack = false;
-          }
-        }
-        break;
-
-      case "intrusion":
-        // Restore hints
-        const hintElements =
-          this.terminalsContainer.querySelectorAll("[data-hint]");
-        hintElements.forEach((element) => {
-          if (element.dataset.previousText) {
-            element.textContent = element.dataset.previousText;
-            element.className = "mt-1 text-xs text-gray-500 font-mono";
-            delete element.dataset.previousText;
-          }
-        });
-        break;
-
-      case "encryption":
-        // No direct cleanup needed for encryption alert
-        break;
-    }
-  }
-
-  /**
-   * Handle puzzle completion
-   */
-  _puzzleComplete() {
-    // Stop timer
-    clearInterval(this.timer);
-    this.isActive = false;
-
-    // Show completion message
-    const completionMessage = document.createElement("div");
-    completionMessage.className =
-      "fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-80 p-8 rounded-lg text-center z-50 border-2 border-green-500";
-
-    completionMessage.innerHTML = `
-      <div class="text-green-400 font-bold text-2xl mb-4">SYSTEM OVERRIDE COMPLETE</div>
-      <div class="text-white mb-4">All security terminals bypassed successfully.</div>
-      <div class="text-gray-400">Completion time: ${this._formatTime(
-        this.timeElapsed
-      )}</div>
-    `;
-
-    this.systemElement.appendChild(completionMessage);
-
-    // Update progress bar to full
-    const progressBar = this.progressElement.querySelector("div");
-    if (progressBar) {
-      progressBar.style.width = "100%";
-      progressBar.className =
-        "bg-green-600 h-2.5 rounded-full transition-all duration-300";
-    }
-  }
-
-  /**
-   * Format time in seconds to MM:SS
-   * @param {number} seconds - Time in seconds
-   * @returns {string} - Formatted time
-   */
-  _formatTime(seconds) {
-    const minutes = Math.floor(seconds / 60)
-      .toString()
-      .padStart(2, "0");
-    const secs = (seconds % 60).toString().padStart(2, "0");
-    return `${minutes}:${secs}`;
-  }
-
-  /**
-   * Create a seeded random number generator
-   * @param {number} seed - Random seed
-   * @returns {Function} - Seeded random function
-   */
-  _seededRandom(seed) {
-    return function () {
-      seed = (seed * 9301 + 49297) % 233280;
-      return seed / 233280;
-    };
-  }
-
-  /**
-   * Get current solution
-   * @returns {Object} - Object with completed terminals
-   */
+  // Methods required by UniversalPuzzleController
   getSolution() {
     return {
-      completedTerminals: this.sequencesCompleted,
-      totalTerminals: this.numTerminals,
-      timeElapsed: this.timeElapsed,
+      securityCodes: this.securityLayers.map((layer) => layer.code),
+      completed: this.isComplete,
+      progress: this._calculateOverallProgress(),
     };
   }
 
-  /**
-   * Validate solution
-   * @returns {boolean} - Whether all terminals are completed
-   */
   validateSolution() {
-    return this.sequencesCompleted >= this.numTerminals;
+    return this.isComplete;
   }
 
-  /**
-   * Get error message
-   * @returns {string} - Error message
-   */
   getErrorMessage() {
-    const remaining = this.numTerminals - this.sequencesCompleted;
-    return `You still need to override ${remaining} more terminal${
-      remaining === 1 ? "" : "s"
-    }.`;
-  }
-
-  /**
-   * Disable puzzle
-   */
-  disable() {
-    this.isActive = false;
-    if (this.systemElement) {
-      this.systemElement.classList.add("opacity-50", "pointer-events-none");
+    const completedCount = this.stageCompleted.filter((stage) => stage).length;
+    if (completedCount === 0) {
+      return "No security layers bypassed yet. Use 'scan' to identify vulnerabilities.";
+    } else {
+      return `${completedCount}/${this.maxStages} security layers bypassed. Continue hacking!`;
     }
   }
 
-  /**
-   * Enable puzzle
-   */
-  enable() {
-    this.isActive = true;
-    if (this.systemElement) {
-      this.systemElement.classList.remove("opacity-50", "pointer-events-none");
-    }
+  showSuccess() {
+    // Success visuals already handled in _completeOverride
+
+    // Add some extra visual flair
+    this._appendToConsole("\n=== ACCESS GRANTED ===", "success");
+    this._appendToConsole("All security protocols disabled", "success");
+    this._appendToConsole("System override complete", "success");
   }
 
-  /**
-   * Cleanup resources
-   */
   cleanup() {
-    // Stop timer
-    clearInterval(this.timer);
-    this.isActive = false;
+    // Remove event listeners
+    if (this.consoleInput) {
+      this.consoleInput.removeEventListener("keyup", this._processCommand);
+    }
+  }
+
+  handleRandomEvent(eventType, duration) {
+    if (eventType === "security_patrol") {
+      this._appendToConsole("\n[!] SECURITY COUNTERMEASURES DETECTED", "error");
+      this._appendToConsole("[!] Terminal functionality limited", "error");
+
+      // Temporarily disable input
+      if (this.consoleInput) {
+        this.consoleInput.disabled = true;
+
+        // Re-enable after duration
+        setTimeout(() => {
+          this.consoleInput.disabled = false;
+          this._appendToConsole(
+            "[!] Security scan complete. Terminal restored.",
+            "system"
+          );
+        }, duration * 1000);
+      }
+    }
   }
 }
 

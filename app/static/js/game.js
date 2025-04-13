@@ -9,7 +9,7 @@ import {
   NotificationSystem,
   ChatManager,
   puzzleLoader,
-} from "./main.bundle.js";
+} from "/static/js/main.bundle.js";
 
 class GameController {
   constructor() {

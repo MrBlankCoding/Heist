@@ -1,800 +1,771 @@
-// MultiLockPuzzle.js - Stage 4 Multi-Lock puzzle for Safe Cracker role
+// multiLockPuzzle.js - Multiple lock mechanisms puzzle for safe cracker
+// Difficulty: 3/5 - Player must solve multiple lock types simultaneously
 
-import BasePuzzle from "./BasePuzzle.js";
+class MultiLockPuzzle {
+  constructor(gameAreaElement, puzzleData, callbacks) {
+    this.gameArea = gameAreaElement;
+    this.puzzleData = puzzleData;
+    this.callbacks = callbacks;
 
-class MultiLockPuzzle extends BasePuzzle {
-  constructor(containerElement, puzzleData, submitSolutionCallback) {
-    super(containerElement, puzzleData, submitSolutionCallback);
+    // Puzzle properties
+    this.difficultyLevel = puzzleData.difficulty || 3;
+    this.locks = []; // Array of lock objects
+    this.lockCount = 3; // Default number of locks
+    this.solvedLocks = 0;
 
-    // Multi-lock specific properties
-    this.lockCount = 3; // Three different locks to solve
-    this.currentLock = 0;
-    this.lockSolutions = [];
-    this.playerSolutions = [null, null, null];
-    this.locks = [];
-
-    // Lock-specific elements
-    this.lockContainers = [];
-    this.lockDisplay = null;
-    this.clueElement = null;
-
-    // Lock 1: Directional arrows
-    this.directionalSequence = [];
-    this.playerDirections = [];
-
-    // Lock 2: Symbol matching
-    this.symbolPairs = [];
-    this.selectedSymbols = [];
-
-    // Lock 3: Numeric keypad
-    this.keypadCode = "";
-    this.playerCode = "";
+    // Sound effects
+    this.lockClickSound = null;
+    this.successSound = null;
+    this.errorSound = null;
   }
 
-  /**
-   * Initialize the puzzle
-   */
   initialize() {
-    super.initialize();
+    // Setup difficulty
+    this.setupDifficulty();
 
-    // Get game area
-    const gameArea = this.containerElement.querySelector(
-      "div.flex.justify-center"
-    );
+    // Create the user interface
+    this.createUI();
 
-    // Generate or load puzzle data
-    if (!this.puzzleData.data || !this.puzzleData.data.lockSolutions) {
-      this._generateLockSolutions();
-    } else {
-      this.lockSolutions = this.puzzleData.data.lockSolutions;
-    }
+    // Create locks
+    this.generateLocks();
 
-    // Set up the multi lock display
-    this._setupMultiLockPuzzle(gameArea);
+    // Initialize sounds
+    this.initializeSounds();
 
-    // Initially hide "Submit" button, we'll use "Next Lock" instead
-    this.submitButton.style.display = "none";
+    // Display initial instructions
+    this.callbacks.showMessage("Solve all locks to open the safe", "info");
   }
 
-  /**
-   * Generate random solutions for each lock
-   */
-  _generateLockSolutions() {
-    // Lock 1: Directional sequence (up, down, left, right)
-    const directions = ["up", "down", "left", "right"];
-    const dirSequence = [];
-    for (let i = 0; i < 5; i++) {
-      dirSequence.push(
-        directions[Math.floor(Math.random() * directions.length)]
-      );
-    }
-
-    // Lock 2: Symbol matching (6 pairs among 12 symbols)
-    const symbols = [
-      "♠",
-      "♥",
-      "♦",
-      "♣",
-      "★",
-      "☼",
-      "☀",
-      "☂",
-      "☯",
-      "♫",
-      "♪",
-      "☮",
-    ];
-    const shuffledSymbols = [...symbols].sort(() => Math.random() - 0.5);
-    const symbolPairs = [];
-    for (let i = 0; i < 6; i++) {
-      symbolPairs.push([shuffledSymbols[i * 2], shuffledSymbols[i * 2 + 1]]);
-    }
-
-    // Lock 3: Numeric keypad (4-digit code)
-    let code = "";
-    for (let i = 0; i < 4; i++) {
-      code += Math.floor(Math.random() * 10).toString();
-    }
-
-    this.lockSolutions = [dirSequence, symbolPairs, code];
-  }
-
-  /**
-   * Set up the multi-lock puzzle interface
-   * @param {HTMLElement} container - Container element
-   */
-  _setupMultiLockPuzzle(container) {
-    container.innerHTML = "";
-    container.className = "flex flex-col items-center w-full max-w-2xl";
-
-    // Create lock navigation display
-    this.lockDisplay = document.createElement("div");
-    this.lockDisplay.className = "flex justify-center mb-6 w-full";
-
-    for (let i = 0; i < this.lockCount; i++) {
-      const lockIndicator = document.createElement("div");
-      lockIndicator.className = "flex flex-col items-center mx-4";
-
-      const lockIcon = document.createElement("div");
-      lockIcon.className =
-        "w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center mb-2 cursor-pointer transition-all";
-      if (i === this.currentLock) {
-        lockIcon.classList.add("border-2", "border-yellow-400", "bg-gray-600");
-      }
-
-      // Add lock number
-      const lockNum = document.createElement("span");
-      lockNum.className = "text-white font-bold";
-      lockNum.textContent = (i + 1).toString();
-      lockIcon.appendChild(lockNum);
-
-      // Add lock status
-      const lockStatus = document.createElement("div");
-      lockStatus.className = "text-gray-400 text-sm";
-      lockStatus.textContent =
-        i === this.currentLock
-          ? "Current"
-          : i < this.currentLock
-          ? "Unlocked"
-          : "Locked";
-
-      // Disable clicking on future locks, but allow going back to previous ones
-      if (i <= this.currentLock) {
-        lockIcon.addEventListener("click", () => this._switchToLock(i));
-      } else {
-        lockIcon.classList.add("opacity-50");
-      }
-
-      lockIndicator.appendChild(lockIcon);
-      lockIndicator.appendChild(lockStatus);
-
-      this.lockDisplay.appendChild(lockIndicator);
-    }
-
-    // Create clue element
-    this.clueElement = document.createElement("div");
-    this.clueElement.className =
-      "bg-gray-800 border border-yellow-600 p-3 rounded-md text-gray-300 text-sm mb-4 w-full text-center";
-    this.clueElement.textContent =
-      "First, crack the directional lock using the correct sequence...";
-
-    // Create lock containers (one for each lock, only one visible at a time)
-    for (let i = 0; i < this.lockCount; i++) {
-      const lockContainer = document.createElement("div");
-      lockContainer.className = "w-full";
-      lockContainer.style.display = i === this.currentLock ? "block" : "none";
-
-      this.lockContainers.push(lockContainer);
-    }
-
-    // Set up each specific lock
-    this._setupDirectionalLock(this.lockContainers[0]);
-    this._setupSymbolLock(this.lockContainers[1]);
-    this._setupKeypadLock(this.lockContainers[2]);
-
-    // Create next/solve button
-    const nextButton = document.createElement("button");
-    nextButton.className = "heist-button mx-auto block mt-4";
-    nextButton.textContent = "Solve This Lock";
-    nextButton.addEventListener("click", () => this._handleNextLock());
-
-    // Assemble all elements
-    container.appendChild(this.lockDisplay);
-    container.appendChild(this.clueElement);
-
-    for (let lockContainer of this.lockContainers) {
-      container.appendChild(lockContainer);
-    }
-
-    container.appendChild(nextButton);
-  }
-
-  /**
-   * Set up the directional lock (Lock 1)
-   * @param {HTMLElement} container - Container element
-   */
-  _setupDirectionalLock(container) {
-    // Create sequence display
-    const sequenceDisplay = document.createElement("div");
-    sequenceDisplay.className = "flex justify-center mb-6";
-
-    // Show empty slots for the directional sequence
-    for (let i = 0; i < 5; i++) {
-      const slot = document.createElement("div");
-      slot.className =
-        "w-12 h-12 bg-gray-700 border border-gray-600 rounded-md mx-1 flex items-center justify-center";
-      slot.dataset.index = i;
-      sequenceDisplay.appendChild(slot);
-    }
-
-    // Create directional pad
-    const dirPad = document.createElement("div");
-    dirPad.className = "grid grid-cols-3 gap-2 w-40 h-40 mx-auto";
-
-    // Create 4 directional buttons (up, right, down, left)
-    const directions = [
-      { dir: "up", symbol: "↑", gridArea: "1 / 2 / span 1 / span 1" },
-      { dir: "right", symbol: "→", gridArea: "2 / 3 / span 1 / span 1" },
-      { dir: "down", symbol: "↓", gridArea: "3 / 2 / span 1 / span 1" },
-      { dir: "left", symbol: "←", gridArea: "2 / 1 / span 1 / span 1" },
-    ];
-
-    // Create button for each direction
-    for (const direction of directions) {
-      const btn = document.createElement("button");
-      btn.className =
-        "bg-gray-700 hover:bg-gray-600 text-white text-2xl rounded-md flex items-center justify-center transition-all";
-      btn.style.gridArea = direction.gridArea;
-      btn.textContent = direction.symbol;
-
-      btn.addEventListener("click", () =>
-        this._addDirectionToSequence(direction.dir)
-      );
-
-      dirPad.appendChild(btn);
-    }
-
-    // Create center button (to clear)
-    const clearBtn = document.createElement("button");
-    clearBtn.className =
-      "bg-red-700 hover:bg-red-600 text-white rounded-md flex items-center justify-center text-sm transition-all";
-    clearBtn.style.gridArea = "2 / 2 / span 1 / span 1";
-    clearBtn.textContent = "CLEAR";
-    clearBtn.addEventListener("click", () => this._clearDirectionSequence());
-    dirPad.appendChild(clearBtn);
-
-    // Add elements to container
-    container.appendChild(sequenceDisplay);
-    container.appendChild(dirPad);
-
-    // Store reference to sequence display
-    this.dirSequenceDisplay = sequenceDisplay;
-  }
-
-  /**
-   * Add a direction to the sequence
-   * @param {string} direction - Direction to add (up, down, left, right)
-   */
-  _addDirectionToSequence(direction) {
-    if (this.playerDirections.length >= 5) return;
-
-    // Add to player sequence
-    this.playerDirections.push(direction);
-
-    // Update display
-    const slots = this.dirSequenceDisplay.querySelectorAll("div");
-    const currentSlot = slots[this.playerDirections.length - 1];
-
-    // Show the direction
-    let arrowSymbol = "?";
-    switch (direction) {
-      case "up":
-        arrowSymbol = "↑";
-        break;
-      case "down":
-        arrowSymbol = "↓";
-        break;
-      case "left":
-        arrowSymbol = "←";
-        break;
-      case "right":
-        arrowSymbol = "→";
-        break;
-    }
-
-    currentSlot.textContent = arrowSymbol;
-    currentSlot.className =
-      "w-12 h-12 bg-gray-700 border border-yellow-400 rounded-md mx-1 flex items-center justify-center text-2xl text-yellow-400";
-  }
-
-  /**
-   * Clear the directional sequence
-   */
-  _clearDirectionSequence() {
-    this.playerDirections = [];
-
-    // Reset display
-    const slots = this.dirSequenceDisplay.querySelectorAll("div");
-    slots.forEach((slot) => {
-      slot.textContent = "";
-      slot.className =
-        "w-12 h-12 bg-gray-700 border border-gray-600 rounded-md mx-1 flex items-center justify-center";
-    });
-  }
-
-  /**
-   * Set up the symbol matching lock (Lock 2)
-   * @param {HTMLElement} container - Container element
-   */
-  _setupSymbolLock(container) {
-    // Instructions
-    const instructions = document.createElement("p");
-    instructions.className = "text-gray-300 text-center mb-4";
-    instructions.textContent =
-      "Match the symbols that belong together. Select two symbols to connect them.";
-    container.appendChild(instructions);
-
-    // Create symbols grid
-    const symbolsGrid = document.createElement("div");
-    symbolsGrid.className = "grid grid-cols-4 gap-2 mx-auto mb-4";
-    symbolsGrid.style.maxWidth = "320px";
-
-    // Get all symbols (12 total from 6 pairs)
-    const allSymbols = this.lockSolutions[1].flat();
-
-    // Shuffle the symbols
-    const shuffledSymbols = [...allSymbols].sort(() => Math.random() - 0.5);
-
-    // Create a button for each symbol
-    shuffledSymbols.forEach((symbol, index) => {
-      const btn = document.createElement("div");
-      btn.className =
-        "w-16 h-16 bg-gray-700 rounded-md flex items-center justify-center text-2xl text-white cursor-pointer transition-all";
-      btn.textContent = symbol;
-      btn.dataset.symbol = symbol;
-      btn.dataset.index = index;
-
-      btn.addEventListener("click", () => this._handleSymbolClick(btn));
-
-      symbolsGrid.appendChild(btn);
-    });
-
-    // Create matched pairs display
-    const pairsDisplay = document.createElement("div");
-    pairsDisplay.className = "flex flex-wrap justify-center gap-2 mt-4";
-
-    // Add elements to container
-    container.appendChild(symbolsGrid);
-    container.appendChild(pairsDisplay);
-
-    // Store references
-    this.symbolsGrid = symbolsGrid;
-    this.pairsDisplay = pairsDisplay;
-  }
-
-  /**
-   * Handle symbol click in the symbol matching puzzle
-   * @param {HTMLElement} symbolElement - Clicked symbol element
-   */
-  _handleSymbolClick(symbolElement) {
-    // Ignore if already matched
-    if (symbolElement.classList.contains("bg-green-600")) return;
-
-    // If already selected, deselect it
-    if (symbolElement.classList.contains("bg-yellow-600")) {
-      symbolElement.classList.remove("bg-yellow-600");
-      this.selectedSymbols = this.selectedSymbols.filter(
-        (s) => s.element !== symbolElement
-      );
-      return;
-    }
-
-    // Select this symbol
-    symbolElement.classList.add("bg-yellow-600");
-    this.selectedSymbols.push({
-      element: symbolElement,
-      symbol: symbolElement.dataset.symbol,
-    });
-
-    // If we have two selected, check if they form a pair
-    if (this.selectedSymbols.length === 2) {
-      const [first, second] = this.selectedSymbols;
-
-      // Check if they form a valid pair
-      const isPair = this.lockSolutions[1].some(
-        (pair) =>
-          (pair[0] === first.symbol && pair[1] === second.symbol) ||
-          (pair[0] === second.symbol && pair[1] === first.symbol)
-      );
-
-      if (isPair) {
-        // Mark as matched
-        first.element.classList.remove("bg-yellow-600");
-        second.element.classList.remove("bg-yellow-600");
-        first.element.classList.add("bg-green-600");
-        second.element.classList.add("bg-green-600");
-
-        // Add to pairs display
-        const pairElement = document.createElement("div");
-        pairElement.className = "bg-green-800 rounded-md px-3 py-1 text-white";
-        pairElement.textContent = `${first.symbol} + ${second.symbol}`;
-        this.pairsDisplay.appendChild(pairElement);
-
-        // Add to player solution
-        if (!this.playerSolutions[1]) {
-          this.playerSolutions[1] = [];
-        }
-        this.playerSolutions[1].push([first.symbol, second.symbol]);
-
-        // Check if all pairs are matched
-        if (this.playerSolutions[1].length === 6) {
-          this.messageElement.textContent =
-            "All pairs matched! Ready to proceed.";
-          this.messageElement.className = "mb-4 text-green-400 text-center";
-        }
-      } else {
-        // Wrong pair - flash red
-        first.element.classList.remove("bg-yellow-600");
-        second.element.classList.add("bg-red-600");
-
-        setTimeout(() => {
-          second.element.classList.remove("bg-red-600");
-        }, 500);
-      }
-
-      // Clear selected
-      this.selectedSymbols = [];
-    }
-  }
-
-  /**
-   * Set up the keypad lock (Lock 3)
-   * @param {HTMLElement} container - Container element
-   */
-  _setupKeypadLock(container) {
-    // Create keypad container
-    const keypadContainer = document.createElement("div");
-    keypadContainer.className = "flex flex-col items-center";
-
-    // Create code display
-    const codeDisplay = document.createElement("div");
-    codeDisplay.className =
-      "bg-black w-full max-w-xs h-12 mb-4 rounded-md border border-gray-700 flex items-center justify-end px-3";
-
-    const codeText = document.createElement("div");
-    codeText.className = "font-mono text-2xl text-green-500 tracking-wider";
-    codeText.textContent = "____";
-    codeDisplay.appendChild(codeText);
-
-    // Create keypad
-    const keypad = document.createElement("div");
-    keypad.className = "grid grid-cols-3 gap-2 max-w-xs";
-
-    // Add number buttons 1-9
-    for (let i = 1; i <= 9; i++) {
-      const btn = document.createElement("button");
-      btn.className =
-        "bg-gray-700 hover:bg-gray-600 text-white text-xl w-16 h-16 rounded-md transition-all";
-      btn.textContent = i.toString();
-      btn.addEventListener("click", () =>
-        this._handleKeypadInput(i.toString())
-      );
-      keypad.appendChild(btn);
-    }
-
-    // Add special buttons (clear, 0, backspace)
-    const clearBtn = document.createElement("button");
-    clearBtn.className =
-      "bg-red-700 hover:bg-red-600 text-white text-sm w-16 h-16 rounded-md transition-all";
-    clearBtn.textContent = "CLEAR";
-    clearBtn.addEventListener("click", () => this._handleKeypadClear());
-
-    const zeroBtn = document.createElement("button");
-    zeroBtn.className =
-      "bg-gray-700 hover:bg-gray-600 text-white text-xl w-16 h-16 rounded-md transition-all";
-    zeroBtn.textContent = "0";
-    zeroBtn.addEventListener("click", () => this._handleKeypadInput("0"));
-
-    const backBtn = document.createElement("button");
-    backBtn.className =
-      "bg-yellow-700 hover:bg-yellow-600 text-white text-xl w-16 h-16 rounded-md transition-all";
-    backBtn.innerHTML = "⌫";
-    backBtn.addEventListener("click", () => this._handleKeypadBackspace());
-
-    keypad.appendChild(clearBtn);
-    keypad.appendChild(zeroBtn);
-    keypad.appendChild(backBtn);
-
-    // Add elements to container
-    keypadContainer.appendChild(codeDisplay);
-    keypadContainer.appendChild(keypad);
-    container.appendChild(keypadContainer);
-
-    // Store references
-    this.codeText = codeText;
-  }
-
-  /**
-   * Handle keypad number input
-   * @param {string} num - Number pressed (0-9)
-   */
-  _handleKeypadInput(num) {
-    if (this.playerCode.length >= 4) return;
-
-    this.playerCode += num;
-    this._updateKeypadDisplay();
-  }
-
-  /**
-   * Handle keypad clear
-   */
-  _handleKeypadClear() {
-    this.playerCode = "";
-    this._updateKeypadDisplay();
-  }
-
-  /**
-   * Handle keypad backspace
-   */
-  _handleKeypadBackspace() {
-    if (this.playerCode.length > 0) {
-      this.playerCode = this.playerCode.slice(0, -1);
-      this._updateKeypadDisplay();
-    }
-  }
-
-  /**
-   * Update the keypad display
-   */
-  _updateKeypadDisplay() {
-    let displayText = this.playerCode.padEnd(4, "_");
-    this.codeText.textContent = displayText;
-  }
-
-  /**
-   * Switch to a specific lock
-   * @param {number} lockIndex - Index of the lock to switch to
-   */
-  _switchToLock(lockIndex) {
-    if (lockIndex > this.currentLock) return; // Can't skip ahead
-
-    // Hide all lock containers
-    this.lockContainers.forEach((container) => {
-      container.style.display = "none";
-    });
-
-    // Show the selected lock
-    this.lockContainers[lockIndex].style.display = "block";
-    this.currentLock = lockIndex;
-
-    // Update lock indicators
-    const lockIcons = this.lockDisplay.querySelectorAll(".rounded-full");
-    lockIcons.forEach((icon, i) => {
-      if (i === lockIndex) {
-        icon.classList.add("border-2", "border-yellow-400", "bg-gray-600");
-      } else {
-        icon.classList.remove("border-2", "border-yellow-400", "bg-gray-600");
-      }
-    });
-
-    // Update lock statuses
-    const lockStatuses = this.lockDisplay.querySelectorAll(".text-sm");
-    lockStatuses.forEach((status, i) => {
-      if (i === lockIndex) {
-        status.textContent = "Current";
-        status.className = "text-yellow-400 text-sm";
-      } else if (i < lockIndex) {
-        status.textContent = "Unlocked";
-        status.className = "text-green-400 text-sm";
-      } else {
-        status.textContent = "Locked";
-        status.className = "text-gray-400 text-sm";
-      }
-    });
-
-    // Update clue text
-    switch (lockIndex) {
-      case 0:
-        this.clueElement.textContent =
-          "First, crack the directional lock using the correct sequence...";
-        break;
+  setupDifficulty() {
+    // Adjust puzzle parameters based on difficulty
+    switch (this.difficultyLevel) {
       case 1:
-        this.clueElement.textContent =
-          "Now, match the symbols that belong together...";
+        this.lockCount = 2;
         break;
       case 2:
-        this.clueElement.textContent =
-          "Finally, enter the correct 4-digit combination to open the vault...";
+        this.lockCount = 3;
         break;
+      case 3:
+        this.lockCount = 3;
+        break;
+      case 4:
+        this.lockCount = 4;
+        break;
+      case 5:
+        this.lockCount = 5;
+        break;
+      default:
+        this.lockCount = 3;
     }
   }
 
-  /**
-   * Handle solve/next button click
-   */
-  _handleNextLock() {
-    // Different behavior based on current lock
-    switch (this.currentLock) {
-      case 0: // Directional lock
-        if (this.playerDirections.length !== 5) {
-          this.messageElement.textContent =
-            "You must enter exactly 5 directions!";
-          this.messageElement.className = "mb-4 text-red-400 text-center";
-          return;
-        }
-        this.playerSolutions[0] = [...this.playerDirections];
-        if (this._validateDirectionalLock()) {
-          this._advanceToNextLock();
-        } else {
-          this._showLockError();
-        }
-        break;
+  createUI() {
+    this.gameArea.innerHTML = "";
 
-      case 1: // Symbol lock
-        if (!this.playerSolutions[1] || this.playerSolutions[1].length !== 6) {
-          this.messageElement.textContent = "You must match all 6 pairs!";
-          this.messageElement.className = "mb-4 text-red-400 text-center";
-          return;
-        }
-        if (this._validateSymbolLock()) {
-          this._advanceToNextLock();
-        } else {
-          this._showLockError();
-        }
-        break;
+    // Main container
+    const container = document.createElement("div");
+    container.className =
+      "flex flex-col items-center justify-center h-full p-4 bg-gray-900 rounded-lg";
 
-      case 2: // Keypad lock
-        if (this.playerCode.length !== 4) {
-          this.messageElement.textContent = "You must enter a 4-digit code!";
-          this.messageElement.className = "mb-4 text-red-400 text-center";
-          return;
-        }
-        this.playerSolutions[2] = this.playerCode;
-        if (this._validateKeypadLock()) {
-          this._finalizeMultiLock();
-        } else {
-          this._showLockError();
-        }
-        break;
+    // Title
+    const title = document.createElement("h3");
+    title.className = "text-xl font-bold text-white mb-4";
+    title.textContent = "Multi-Lock Security System";
+    container.appendChild(title);
+
+    // Instructions
+    const instruction = document.createElement("p");
+    instruction.className = "text-gray-300 mb-6 text-center";
+    instruction.textContent = `Solve all ${this.lockCount} locks to open the safe. Each lock has a different mechanism.`;
+    container.appendChild(instruction);
+
+    // Progress indicator
+    const progressContainer = document.createElement("div");
+    progressContainer.className =
+      "w-full max-w-md h-4 bg-gray-700 rounded-full mb-6 overflow-hidden";
+
+    const progressBar = document.createElement("div");
+    progressBar.className = "h-full bg-blue-600 transition-all duration-300";
+    progressBar.style.width = "0%";
+    progressBar.id = "lock-progress";
+
+    progressContainer.appendChild(progressBar);
+    container.appendChild(progressContainer);
+
+    // Locks container
+    const locksContainer = document.createElement("div");
+    locksContainer.className =
+      "grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl";
+    locksContainer.id = "locks-container";
+    container.appendChild(locksContainer);
+
+    this.gameArea.appendChild(container);
+  }
+
+  generateLocks() {
+    const locksContainer = document.getElementById("locks-container");
+    if (!locksContainer) return;
+
+    // Clear any existing locks
+    this.locks = [];
+    locksContainer.innerHTML = "";
+
+    // Determine which lock types to use based on difficulty
+    const lockTypes = this.getLockTypes();
+
+    // Create each lock
+    for (let i = 0; i < this.lockCount; i++) {
+      // Get a random lock type that hasn't been used yet
+      const lockType = lockTypes[i % lockTypes.length];
+
+      // Create lock container
+      const lockContainer = document.createElement("div");
+      lockContainer.className =
+        "bg-gray-800 p-4 rounded-lg border-2 border-gray-700 flex flex-col items-center";
+      lockContainer.id = `lock-${i}`;
+
+      // Lock title
+      const lockTitle = document.createElement("h4");
+      lockTitle.className = "text-lg font-bold text-white mb-2";
+      lockTitle.textContent = lockType.name;
+      lockContainer.appendChild(lockTitle);
+
+      // Lock status indicator
+      const lockStatus = document.createElement("div");
+      lockStatus.className =
+        "flex items-center justify-center w-full text-sm text-yellow-500 mb-2";
+      lockStatus.id = `lock-status-${i}`;
+      lockStatus.innerHTML = '<span class="mr-1">●</span> Locked';
+      lockContainer.appendChild(lockStatus);
+
+      // Lock UI area
+      const lockUI = document.createElement("div");
+      lockUI.className = "w-full mt-2";
+      lockUI.id = `lock-ui-${i}`;
+      lockContainer.appendChild(lockUI);
+
+      // Add to container
+      locksContainer.appendChild(lockContainer);
+
+      // Create lock object and initialize it
+      const lock = {
+        id: i,
+        type: lockType.type,
+        name: lockType.name,
+        isSolved: false,
+        solution: null,
+        initialize: () => lockType.initialize(lockUI, i, this),
+      };
+
+      this.locks.push(lock);
+      lock.initialize();
     }
   }
 
-  /**
-   * Validate the directional lock solution
-   * @returns {boolean} Whether the solution is correct
-   */
-  _validateDirectionalLock() {
-    const solution = this.lockSolutions[0];
-    const playerSolution = this.playerSolutions[0];
-
-    return playerSolution.join(",") === solution.join(",");
+  getLockTypes() {
+    // Define different lock types with their initialization functions
+    return [
+      {
+        type: "rotary",
+        name: "Rotary Dial Lock",
+        initialize: (container, id, puzzle) =>
+          this.createRotaryLock(container, id, puzzle),
+      },
+      {
+        type: "slider",
+        name: "Slider Alignment Lock",
+        initialize: (container, id, puzzle) =>
+          this.createSliderLock(container, id, puzzle),
+      },
+      {
+        type: "keypad",
+        name: "Digital Keypad Lock",
+        initialize: (container, id, puzzle) =>
+          this.createKeypadLock(container, id, puzzle),
+      },
+      {
+        type: "color",
+        name: "Color Sequence Lock",
+        initialize: (container, id, puzzle) =>
+          this.createColorLock(container, id, puzzle),
+      },
+      {
+        type: "dial",
+        name: "Precision Dial Lock",
+        initialize: (container, id, puzzle) =>
+          this.createPrecisionDialLock(container, id, puzzle),
+      },
+    ];
   }
 
-  /**
-   * Validate the symbol lock solution
-   * @returns {boolean} Whether the solution is correct
-   */
-  _validateSymbolLock() {
-    const solution = this.lockSolutions[1];
-    const playerSolution = this.playerSolutions[1];
+  createRotaryLock(container, id, puzzle) {
+    // Target value to reach
+    const targetValue = Math.floor(Math.random() * 36) * 10; // 0, 10, 20, ..., 350
 
-    // Check if all required pairs are present (order doesn't matter)
-    return solution.every((pair) => {
-      return playerSolution.some((playerPair) => {
-        // Check both ways (a,b) and (b,a)
-        return (
-          (playerPair[0] === pair[0] && playerPair[1] === pair[1]) ||
-          (playerPair[0] === pair[1] && playerPair[1] === pair[0])
-        );
+    // Create UI
+    container.innerHTML = `
+            <div class="flex flex-col items-center">
+                <div class="relative w-32 h-32 mb-4">
+                    <div id="rotary-dial-${id}" class="absolute inset-0 rounded-full bg-gray-700 border-2 border-gray-600">
+                        <div class="absolute top-0 left-1/2 w-2 h-6 bg-red-500 transform -translate-x-1/2"></div>
+                    </div>
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <div class="text-lg font-bold text-white">${targetValue}°</div>
+                    </div>
+                </div>
+                <div class="flex space-x-4">
+                    <button id="rotary-left-${id}" class="px-3 py-1 bg-blue-600 rounded text-white">⟲</button>
+                    <button id="rotary-right-${id}" class="px-3 py-1 bg-blue-600 rounded text-white">⟳</button>
+                </div>
+            </div>
+        `;
+
+    // Initialize state
+    let currentRotation = 0;
+    const dial = document.getElementById(`rotary-dial-${id}`);
+
+    // Add event listeners
+    document
+      .getElementById(`rotary-left-${id}`)
+      .addEventListener("click", () => {
+        currentRotation = (currentRotation - 10 + 360) % 360;
+        dial.style.transform = `rotate(${currentRotation}deg)`;
+        this.playLockClickSound();
+        checkSolution();
       });
+
+    document
+      .getElementById(`rotary-right-${id}`)
+      .addEventListener("click", () => {
+        currentRotation = (currentRotation + 10) % 360;
+        dial.style.transform = `rotate(${currentRotation}deg)`;
+        this.playLockClickSound();
+        checkSolution();
+      });
+
+    // Check if solution is correct
+    const checkSolution = () => {
+      if (currentRotation === targetValue) {
+        this.solveLock(id);
+      }
+    };
+
+    // Set the solution
+    this.locks[id].solution = targetValue;
+  }
+
+  createSliderLock(container, id, puzzle) {
+    // Generate target positions (random values between 20 and 80)
+    const targetPositions = [];
+    const sliderCount = 3 + (puzzle.difficultyLevel >= 4 ? 1 : 0);
+
+    for (let i = 0; i < sliderCount; i++) {
+      targetPositions.push(20 + Math.floor(Math.random() * 61)); // 20-80
+    }
+
+    // Create UI
+    let slidersHTML = "";
+    for (let i = 0; i < sliderCount; i++) {
+      slidersHTML += `
+                <div class="mb-3">
+                    <input type="range" id="slider-${id}-${i}" class="w-full" min="0" max="100" value="50">
+                    <div class="w-full flex justify-between text-xs text-gray-400 mt-1">
+                        <span>0</span>
+                        <span id="slider-value-${id}-${i}">50</span>
+                        <span>100</span>
+                    </div>
+                </div>
+            `;
+    }
+
+    container.innerHTML = `
+            <div class="w-full px-2">
+                <div class="mb-3 text-center text-sm text-gray-300">Align all sliders to the correct positions</div>
+                ${slidersHTML}
+                <div class="mt-2 text-center text-xs text-gray-400">Slider positions must be within ±3 of their targets</div>
+            </div>
+        `;
+
+    // Initialize state and event listeners
+    const sliders = [];
+    const valueDisplays = [];
+
+    for (let i = 0; i < sliderCount; i++) {
+      const slider = document.getElementById(`slider-${id}-${i}`);
+      const valueDisplay = document.getElementById(`slider-value-${id}-${i}`);
+
+      sliders.push(slider);
+      valueDisplays.push(valueDisplay);
+
+      slider.addEventListener("input", () => {
+        valueDisplay.textContent = slider.value;
+        this.playLockClickSound();
+        checkSolution();
+      });
+    }
+
+    // Check if solution is correct
+    const checkSolution = () => {
+      let allCorrect = true;
+
+      for (let i = 0; i < sliderCount; i++) {
+        const value = parseInt(sliders[i].value);
+        const target = targetPositions[i];
+
+        // Check if within tolerance
+        if (Math.abs(value - target) > 3) {
+          allCorrect = false;
+          break;
+        }
+      }
+
+      if (allCorrect) {
+        this.solveLock(id);
+      }
+    };
+
+    // Set the solution
+    this.locks[id].solution = targetPositions;
+  }
+
+  createKeypadLock(container, id, puzzle) {
+    // Generate a 4-digit code
+    const code = [];
+    for (let i = 0; i < 4; i++) {
+      code.push(Math.floor(Math.random() * 10));
+    }
+
+    // Create UI
+    container.innerHTML = `
+            <div class="flex flex-col items-center">
+                <div id="keypad-display-${id}" class="w-full mb-3 p-2 bg-gray-900 font-mono text-center text-xl text-green-500 border border-gray-700">____</div>
+                <div class="grid grid-cols-3 gap-2">
+                    ${[1, 2, 3, 4, 5, 6, 7, 8, 9, "", 0, "C"]
+                      .map(
+                        (key) => `
+                        <button id="keypad-${id}-${key}" class="w-10 h-10 flex items-center justify-center bg-gray-700 rounded-lg text-white hover:bg-gray-600 ${
+                          key === "" ? "opacity-0 cursor-default" : ""
+                        }">
+                            ${key === "C" ? "⌫" : key}
+                        </button>
+                    `
+                      )
+                      .join("")}
+                </div>
+            </div>
+        `;
+
+    // Initialize state
+    let currentCode = "";
+    const display = document.getElementById(`keypad-display-${id}`);
+
+    // Add event listeners for keypad buttons
+    for (let key of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      const button = document.getElementById(`keypad-${id}-${key}`);
+      if (button) {
+        button.addEventListener("click", () => {
+          if (currentCode.length < 4) {
+            currentCode += key;
+            updateDisplay();
+            this.playLockClickSound();
+
+            // Check solution when code is complete
+            if (currentCode.length === 4) {
+              checkSolution();
+            }
+          }
+        });
+      }
+    }
+
+    // Clear button
+    const clearButton = document.getElementById(`keypad-${id}-C`);
+    if (clearButton) {
+      clearButton.addEventListener("click", () => {
+        currentCode = currentCode.slice(0, -1);
+        updateDisplay();
+        this.playLockClickSound();
+      });
+    }
+
+    // Update display function
+    const updateDisplay = () => {
+      display.textContent = currentCode.padEnd(4, "_");
+    };
+
+    // Check if solution is correct
+    const checkSolution = () => {
+      const enteredCode = currentCode.split("").map(Number);
+      let isCorrect = true;
+
+      for (let i = 0; i < 4; i++) {
+        if (enteredCode[i] !== code[i]) {
+          isCorrect = false;
+          break;
+        }
+      }
+
+      if (isCorrect) {
+        this.solveLock(id);
+      } else {
+        // Show error and reset after delay
+        display.textContent = "ERROR";
+        display.classList.add("text-red-500");
+        display.classList.remove("text-green-500");
+
+        setTimeout(() => {
+          currentCode = "";
+          display.classList.remove("text-red-500");
+          display.classList.add("text-green-500");
+          updateDisplay();
+        }, 1000);
+      }
+    };
+
+    // Set the solution
+    this.locks[id].solution = code.join("");
+  }
+
+  createColorLock(container, id, puzzle) {
+    // Define available colors
+    const colors = [
+      { name: "Red", bg: "bg-red-600", value: 0 },
+      { name: "Green", bg: "bg-green-600", value: 1 },
+      { name: "Blue", bg: "bg-blue-600", value: 2 },
+      { name: "Yellow", bg: "bg-yellow-500", value: 3 },
+      { name: "Purple", bg: "bg-purple-600", value: 4 },
+    ];
+
+    // Generate sequence length based on difficulty
+    const sequenceLength = Math.min(
+      colors.length,
+      3 + Math.floor(puzzle.difficultyLevel / 2)
+    );
+
+    // Generate target sequence
+    const targetSequence = [];
+    for (let i = 0; i < sequenceLength; i++) {
+      targetSequence.push(Math.floor(Math.random() * colors.length));
+    }
+
+    // Create UI
+    let buttonHTML = "";
+    for (let i = 0; i < colors.length; i++) {
+      buttonHTML += `
+                <button id="color-btn-${id}-${i}" class="w-10 h-10 rounded-full ${colors[i].bg}"></button>
+            `;
+    }
+
+    container.innerHTML = `
+            <div class="flex flex-col items-center">
+                <div class="mb-3 text-sm text-gray-300">Enter the color sequence</div>
+                <div class="flex items-center justify-center space-x-2 mb-4" id="color-sequence-${id}">
+                    ${Array(sequenceLength)
+                      .fill(
+                        `
+                        <div class="w-8 h-8 rounded-full bg-gray-700 border border-gray-600"></div>
+                    `
+                      )
+                      .join("")}
+                </div>
+                <div class="flex items-center justify-center space-x-2 mt-2">
+                    ${buttonHTML}
+                </div>
+                <button id="color-reset-${id}" class="mt-3 px-3 py-1 text-sm bg-gray-700 rounded text-white">Reset</button>
+            </div>
+        `;
+
+    // Initialize state
+    let currentSequence = [];
+    const sequenceDisplay = document.getElementById(`color-sequence-${id}`);
+    const sequenceSlots = sequenceDisplay.querySelectorAll("div");
+
+    // Add event listeners for color buttons
+    for (let i = 0; i < colors.length; i++) {
+      const button = document.getElementById(`color-btn-${id}-${i}`);
+      if (button) {
+        button.addEventListener("click", () => {
+          if (currentSequence.length < sequenceLength) {
+            currentSequence.push(i);
+            updateDisplay();
+            this.playLockClickSound();
+
+            // Check solution when sequence is complete
+            if (currentSequence.length === sequenceLength) {
+              checkSolution();
+            }
+          }
+        });
+      }
+    }
+
+    // Reset button
+    const resetButton = document.getElementById(`color-reset-${id}`);
+    if (resetButton) {
+      resetButton.addEventListener("click", () => {
+        currentSequence = [];
+        updateDisplay();
+        this.playLockClickSound();
+      });
+    }
+
+    // Update display function
+    const updateDisplay = () => {
+      for (let i = 0; i < sequenceSlots.length; i++) {
+        if (i < currentSequence.length) {
+          const colorIndex = currentSequence[i];
+          sequenceSlots[
+            i
+          ].className = `w-8 h-8 rounded-full ${colors[colorIndex].bg}`;
+        } else {
+          sequenceSlots[i].className =
+            "w-8 h-8 rounded-full bg-gray-700 border border-gray-600";
+        }
+      }
+    };
+
+    // Check if solution is correct
+    const checkSolution = () => {
+      let isCorrect = true;
+
+      for (let i = 0; i < sequenceLength; i++) {
+        if (currentSequence[i] !== targetSequence[i]) {
+          isCorrect = false;
+          break;
+        }
+      }
+
+      if (isCorrect) {
+        this.solveLock(id);
+      } else {
+        // Show error and reset after delay
+        sequenceSlots.forEach((slot) => {
+          slot.classList.add("animate-pulse");
+          slot.classList.add("bg-red-700");
+          slot.classList.remove("bg-gray-700");
+        });
+
+        setTimeout(() => {
+          currentSequence = [];
+          updateDisplay();
+          sequenceSlots.forEach((slot) => {
+            slot.classList.remove("animate-pulse");
+          });
+        }, 1000);
+      }
+    };
+
+    // Set the solution
+    this.locks[id].solution = targetSequence
+      .map((index) => colors[index].name)
+      .join("-");
+  }
+
+  createPrecisionDialLock(container, id, puzzle) {
+    // Generate target angle (a value between 0 and 359)
+    const targetAngle = Math.floor(Math.random() * 360);
+
+    // Create UI
+    container.innerHTML = `
+            <div class="flex flex-col items-center">
+                <div class="relative w-36 h-36 mb-4">
+                    <div class="absolute inset-0 rounded-full bg-gray-800 border-2 border-gray-700">
+                        <!-- Dial markings -->
+                        ${Array(12)
+                          .fill(0)
+                          .map((_, i) => {
+                            const deg = i * 30;
+                            return `<div class="absolute w-0.5 h-4 bg-gray-400" style="top: 0; left: 50%; transform: translateX(-50%) rotate(${deg}deg); transform-origin: bottom center;"></div>`;
+                          })
+                          .join("")}
+                    </div>
+                    <div id="precision-dial-pointer-${id}" class="absolute top-0 left-1/2 w-0.5 h-18 bg-red-500 transform -translate-x-1/2" style="transform-origin: bottom center;"></div>
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <div id="precision-dial-angle-${id}" class="text-lg font-bold text-white">0°</div>
+                    </div>
+                </div>
+                <div class="flex justify-center items-center w-full">
+                    <input type="range" id="precision-dial-slider-${id}" class="w-full" min="0" max="359" value="0">
+                </div>
+                <div class="mt-2 text-center text-xs text-gray-400">Target: ${targetAngle}° (±2° tolerance)</div>
+            </div>
+        `;
+
+    // Initialize state
+    let currentAngle = 0;
+    const pointer = document.getElementById(`precision-dial-pointer-${id}`);
+    const angleDisplay = document.getElementById(`precision-dial-angle-${id}`);
+    const slider = document.getElementById(`precision-dial-slider-${id}`);
+
+    // Update dial position
+    const updateDial = (angle) => {
+      pointer.style.transform = `translateX(-50%) rotate(${angle}deg)`;
+      angleDisplay.textContent = `${angle}°`;
+    };
+
+    // Add event listener for slider
+    slider.addEventListener("input", () => {
+      currentAngle = parseInt(slider.value);
+      updateDial(currentAngle);
+      this.playLockClickSound();
+      checkSolution();
     });
+
+    // Check if solution is correct
+    const checkSolution = () => {
+      // Calculate minimum angle difference (accounting for 0-359 wrap around)
+      let diff = Math.abs(currentAngle - targetAngle);
+      diff = Math.min(diff, 360 - diff);
+
+      if (diff <= 2) {
+        // 2-degree tolerance
+        this.solveLock(id);
+      }
+    };
+
+    // Set the solution
+    this.locks[id].solution = targetAngle;
   }
 
-  /**
-   * Validate the keypad lock solution
-   * @returns {boolean} Whether the solution is correct
-   */
-  _validateKeypadLock() {
-    return this.playerSolutions[2] === this.lockSolutions[2];
-  }
+  solveLock(id) {
+    // Check if already solved
+    if (this.locks[id].isSolved) return;
 
-  /**
-   * Advance to the next lock
-   */
-  _advanceToNextLock() {
-    this.messageElement.textContent = "Lock successfully opened!";
-    this.messageElement.className = "mb-4 text-green-400 text-center";
+    // Mark lock as solved
+    this.locks[id].isSolved = true;
+    this.solvedLocks++;
 
-    // Update the current lock status
-    const lockStatuses = this.lockDisplay.querySelectorAll(".text-sm");
-    lockStatuses[this.currentLock].textContent = "Unlocked";
-    lockStatuses[this.currentLock].className = "text-green-400 text-sm";
-
-    // Move to next lock after a delay
-    setTimeout(() => {
-      this.messageElement.className = "mb-4 text-yellow-400 text-center hidden";
-      this._switchToLock(this.currentLock + 1);
-    }, 1000);
-  }
-
-  /**
-   * Show error for incorrect lock solution
-   */
-  _showLockError() {
-    this.messageElement.textContent = "Incorrect solution. Try again!";
-    this.messageElement.className = "mb-4 text-red-400 text-center";
-
-    // Clear input based on current lock
-    if (this.currentLock === 0) {
-      this._clearDirectionSequence();
-    } else if (this.currentLock === 2) {
-      this._handleKeypadClear();
+    // Update lock UI
+    const lockStatus = document.getElementById(`lock-status-${id}`);
+    if (lockStatus) {
+      lockStatus.innerHTML =
+        '<span class="mr-1 text-green-500">●</span> <span class="text-green-500">Unlocked</span>';
     }
-  }
 
-  /**
-   * Finalize the multi-lock solution
-   */
-  _finalizeMultiLock() {
-    // Show success feedback
-    this.messageElement.textContent = "All locks successfully opened!";
-    this.messageElement.className = "mb-4 text-green-400 text-center";
+    const lockContainer = document.getElementById(`lock-${id}`);
+    if (lockContainer) {
+      lockContainer.classList.remove("border-gray-700");
+      lockContainer.classList.add("border-green-600");
 
-    // Update lock status
-    const lockStatuses = this.lockDisplay.querySelectorAll(".text-sm");
-    lockStatuses[this.currentLock].textContent = "Unlocked";
-    lockStatuses[this.currentLock].className = "text-green-400 text-sm";
+      // Add success animation
+      lockContainer.style.animation = "pulseSuccess 1s";
+    }
 
-    // Submit the complete solution
-    this.submitSolution(this.playerSolutions)
-      .then((success) => {
-        if (success) {
-          this.showSuccess();
-        } else {
-          this.messageElement.textContent =
-            "Error verifying solution. Try again!";
-          this.messageElement.className = "mb-4 text-red-400 text-center";
-        }
-      })
-      .catch((error) => {
-        console.error("Error submitting solution:", error);
-        this.messageElement.textContent =
-          "Error submitting solution. Try again!";
-        this.messageElement.className = "mb-4 text-red-400 text-center";
-      });
-  }
+    // Update progress bar
+    this.updateProgress();
 
-  /**
-   * Disable or enable puzzle interaction
-   * @param {boolean} disabled - Whether to disable interaction
-   */
-  disableInteraction(disabled) {
-    super.disableInteraction(disabled);
+    // Play success sound
+    this.playSuccessSound();
 
-    // Apply to all interactive elements in all locks
-    if (disabled) {
-      this.containerElement
-        .querySelectorAll("button, .cursor-pointer")
-        .forEach((el) => {
-          el.classList.add("opacity-50", "pointer-events-none");
-        });
+    // Check if all locks are solved
+    if (this.solvedLocks === this.lockCount) {
+      this.onAllLocksSolved();
     } else {
-      this.containerElement
-        .querySelectorAll("button, .cursor-pointer")
-        .forEach((el) => {
-          el.classList.remove("opacity-50", "pointer-events-none");
-        });
+      this.callbacks.showMessage(
+        `Lock ${id + 1} opened! ${
+          this.lockCount - this.solvedLocks
+        } more to go.`,
+        "info"
+      );
     }
   }
 
-  /**
-   * Clean up event listeners
-   */
+  updateProgress() {
+    const progressBar = document.getElementById("lock-progress");
+    if (progressBar) {
+      const percentage = (this.solvedLocks / this.lockCount) * 100;
+      progressBar.style.width = `${percentage}%`;
+    }
+  }
+
+  onAllLocksSolved() {
+    // Display success message
+    this.callbacks.showMessage(
+      "All locks opened! Safe access granted.",
+      "success"
+    );
+
+    // Add success animation to the game area
+    const container = this.gameArea.querySelector(".flex.flex-col");
+    if (container) {
+      const successOverlay = document.createElement("div");
+      successOverlay.className =
+        "mt-6 p-4 bg-green-800 bg-opacity-30 rounded-lg text-center animate-pulse";
+      successOverlay.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                </svg>
+                <p class="text-green-300 font-bold text-xl mt-2">SAFE UNLOCKED!</p>
+            `;
+
+      container.appendChild(successOverlay);
+    }
+  }
+
+  initializeSounds() {
+    // Create audio elements
+    this.lockClickSound = new Audio("../static/sounds/lock-click.mp3");
+    this.lockClickSound.volume = 0.2;
+
+    this.successSound = new Audio("../static/sounds/lock-success.mp3");
+    this.successSound.volume = 0.3;
+
+    this.errorSound = new Audio("../static/sounds/lock-error.mp3");
+    this.errorSound.volume = 0.3;
+  }
+
+  playLockClickSound() {
+    try {
+      // Clone the sound to allow rapid clicks
+      const clickSound = this.lockClickSound.cloneNode();
+      clickSound.volume = 0.1;
+      clickSound
+        .play()
+        .catch((e) => console.warn("Could not play click sound:", e));
+    } catch (e) {
+      console.warn("Could not play click sound:", e);
+    }
+  }
+
+  playSuccessSound() {
+    try {
+      this.successSound
+        .play()
+        .catch((e) => console.warn("Could not play success sound:", e));
+    } catch (e) {
+      console.warn("Could not play success sound:", e);
+    }
+  }
+
+  getSolution() {
+    // Collect the solutions for all locks
+    const solutions = this.locks.map((lock) => ({
+      id: lock.id,
+      type: lock.type,
+      solution: lock.solution,
+      solved: lock.isSolved,
+    }));
+
+    return { locks: solutions };
+  }
+
+  validateSolution(solution) {
+    // Check if all locks are solved
+    return this.solvedLocks === this.lockCount;
+  }
+
+  getErrorMessage() {
+    return `Not all locks have been opened. ${this.solvedLocks} of ${this.lockCount} solved.`;
+  }
+
   cleanup() {
-    super.cleanup();
+    // Stop any playing audio
+    if (this.lockClickSound) this.lockClickSound.pause();
+    if (this.successSound) this.successSound.pause();
+    if (this.errorSound) this.errorSound.pause();
 
-    // Clean up all event listeners
-    this.containerElement
-      .querySelectorAll("button, .cursor-pointer")
-      .forEach((el) => {
-        el.removeEventListener("click", null);
-      });
-  }
-
-  /**
-   * Get puzzle title
-   * @returns {string} Puzzle title
-   */
-  _getPuzzleTitle() {
-    return "Multi-Lock System";
-  }
-
-  /**
-   * Get puzzle instructions
-   * @returns {string} Puzzle instructions
-   */
-  _getInstructions() {
-    return "Crack multiple locks in the correct order to access the inner vault. Each lock requires a different approach.";
+    // Clear game area
+    this.gameArea.innerHTML = "";
   }
 }
 

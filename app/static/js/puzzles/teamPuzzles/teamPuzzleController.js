@@ -1,10 +1,4 @@
-// teamPuzzleController.js - Controls collaborative team puzzles
-
-import PowerGridPuzzle from "../teamPuzzles/powerGridPuzzle.js";
-import CodeRelayPuzzle from "../teamPuzzles/codeRelayPuzzle.js";
-import PressurePlateMaze from "../teamPuzzles/pressurePlateMaze.js";
-import SignalFrequencyPuzzle from "../teamPuzzles/signalFrequencyPuzzle.js";
-import DataChainPuzzle from "../teamPuzzles/dataChainPuzzle.js";
+// teamPuzzleController.js - Controller for team-based puzzles
 
 class TeamPuzzleController {
   constructor(
@@ -18,186 +12,420 @@ class TeamPuzzleController {
     this.submitSolution = submitSolutionCallback;
     this.websocketManager = websocketManager;
     this.isCompleted = false;
-    this.currentStage = puzzleData.difficulty || 3; // Team puzzles start at stage 3
+    this.currentStage = puzzleData.difficulty || 1;
+    this.playerRole = puzzleData.playerRole || "Unknown";
+    this.roomCode = puzzleData.room_code;
 
-    // Team puzzle specific properties
-    this.playerRole = puzzleData.playerRole || null;
-    this.requiredRoles = puzzleData.requiredRoles || [];
-    this.activePuzzle = null; // Will hold the active puzzle instance
+    // Common properties
+    this.timer = null;
+    this.countdownValue = 120; // Default 120 seconds for team puzzles
+    this.activePuzzle = null;
 
     // DOM elements will be created during initialization
-    this.teamPuzzleContainer = null;
+    this.countdownElement = null;
     this.messageElement = null;
+    this.submitButton = null;
+    this.gameArea = null;
+
+    // Puzzle type mapping
+    this.puzzleTypeMap = {
+      // Team puzzles
+      team_puzzle_1: () =>
+        import("./AlarmBypassPuzzle.js").then((module) => module.default),
+      team_puzzle_2: () =>
+        import("./SecurityGridPuzzle.js").then((module) => module.default),
+      team_puzzle_3: () =>
+        import("./VaultLockPuzzle.js").then((module) => module.default),
+      team_puzzle_4: () =>
+        import("./DataDecryptionPuzzle.js").then((module) => module.default),
+      team_puzzle_5: () =>
+        import("./EscapeSequencePuzzle.js").then((module) => module.default),
+    };
   }
 
   /**
    * Initialize the puzzle
    */
   initialize() {
-    // Clear container
+    this._createUIElements();
+    this._initializePuzzle();
+
+    // Attach submit button event
+    if (this.submitButton) {
+      this.submitButton.addEventListener("click", () => this._handleSubmit());
+    }
+  }
+
+  /**
+   * Create the UI elements for the puzzle
+   */
+  _createUIElements() {
+    // Clean any existing content
     this.containerElement.innerHTML = "";
 
-    // Create header
-    const header = document.createElement("h3");
-    header.className = "text-xl font-bold text-blue-400 mb-4";
-    header.textContent = `Team Mission: ${this._getPuzzleTitle()}`;
-    this.containerElement.appendChild(header);
+    // Create container
+    const puzzleContainer = document.createElement("div");
+    puzzleContainer.className =
+      "w-full max-w-4xl mx-auto bg-gray-800 rounded-lg overflow-hidden shadow-lg";
 
-    // Create instruction
-    const instruction = document.createElement("p");
-    instruction.className = "mb-4 text-gray-300";
-    instruction.textContent = this._getInstructions();
-    this.containerElement.appendChild(instruction);
+    // Header with puzzle title and timer
+    const header = document.createElement("div");
+    header.className = "p-4 bg-gray-700 flex items-center justify-between";
 
-    // Create message area
+    const title = document.createElement("h2");
+    title.className = "text-xl font-bold text-white";
+    title.textContent = this._getPuzzleTitle();
+    header.appendChild(title);
+
+    // Role indicator
+    const roleIndicator = document.createElement("div");
+    roleIndicator.className = "px-3 py-1 rounded-md font-semibold";
+
+    // Set color based on role
+    switch (this.playerRole) {
+      case "Hacker":
+        roleIndicator.classList.add("bg-cyan-700", "text-cyan-100");
+        break;
+      case "Safe Cracker":
+        roleIndicator.classList.add("bg-yellow-700", "text-yellow-100");
+        break;
+      case "Demolitions":
+        roleIndicator.classList.add("bg-red-700", "text-red-100");
+        break;
+      case "Lookout":
+        roleIndicator.classList.add("bg-green-700", "text-green-100");
+        break;
+      default:
+        roleIndicator.classList.add("bg-gray-600", "text-white");
+    }
+
+    roleIndicator.textContent = this.playerRole;
+    header.appendChild(roleIndicator);
+
+    // Timer display
+    this.countdownElement = document.createElement("div");
+    this.countdownElement.className =
+      "bg-gray-900 text-white px-3 py-1 rounded-md font-mono";
+    this.countdownElement.textContent = `${this.countdownValue}s`;
+    header.appendChild(this.countdownElement);
+
+    puzzleContainer.appendChild(header);
+
+    // Game area
+    this.gameArea = document.createElement("div");
+    this.gameArea.className = "p-6 bg-gray-800 min-h-[400px]";
+    puzzleContainer.appendChild(this.gameArea);
+
+    // Message area
     this.messageElement = document.createElement("div");
-    this.messageElement.className = "mb-4 text-yellow-400 text-center hidden";
-    this.containerElement.appendChild(this.messageElement);
+    this.messageElement.className = "p-4 bg-gray-700 text-center text-white";
+    this.messageElement.textContent =
+      "This puzzle requires teamwork! Coordinate with your team.";
+    puzzleContainer.appendChild(this.messageElement);
 
-    // Create game area
-    const gameArea = document.createElement("div");
-    gameArea.className = "flex flex-col items-center mb-6";
-    this.containerElement.appendChild(gameArea);
+    // Submit button
+    const actionArea = document.createElement("div");
+    actionArea.className = "p-4 bg-gray-700 flex justify-center";
 
-    // Determine which puzzle to render based on stage/type
+    this.submitButton = document.createElement("button");
+    this.submitButton.className =
+      "px-6 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors";
+    this.submitButton.textContent = "Submit Solution";
+    actionArea.appendChild(this.submitButton);
+
+    puzzleContainer.appendChild(actionArea);
+
+    // Add to container
+    this.containerElement.appendChild(puzzleContainer);
+
+    // Start countdown
+    this._startCountdown();
+  }
+
+  /**
+   * Initialize the puzzle based on its type
+   */
+  async _initializePuzzle() {
     const puzzleType = this.puzzleData.type;
 
-    // Initialize the appropriate puzzle based on type or stage
-    if (puzzleType === "team_puzzle_power_grid" || this._isPowerGridStage()) {
-      this._initializePowerGridPuzzle(gameArea);
-    } else if (
-      puzzleType === "team_puzzle_code_relay" ||
-      this._isCodeRelayStage()
-    ) {
-      this._initializeCodeRelayPuzzle(gameArea);
-    } else if (
-      puzzleType === "team_puzzle_pressure_plate" ||
-      this._isPressurePlateStage()
-    ) {
-      this._initializePressurePlatePuzzle(gameArea);
-    } else if (
-      puzzleType === "team_puzzle_signal_frequency" ||
-      this._isSignalFrequencyStage()
-    ) {
-      this._initializeSignalFrequencyPuzzle(gameArea);
-    } else if (
-      puzzleType === "team_puzzle_data_chain" ||
-      this._isDataChainStage()
-    ) {
-      this._initializeDataChainPuzzle(gameArea);
-    } else {
-      // Fallback to a specific puzzle based on stage
-      this._initializeFallbackPuzzle(gameArea);
-    }
-  }
+    // Configure countdown time based on difficulty
+    this.countdownValue = this._getCountdownTime();
+    this.updateCountdownDisplay();
 
-  /**
-   * Private: Initialize Power Grid Puzzle
-   * @param {HTMLElement} container - Container element
-   */
-  _initializePowerGridPuzzle(container) {
-    this.activePuzzle = new PowerGridPuzzle(
-      container,
-      this.playerRole,
-      this.requiredRoles,
-      (success) => this._handlePuzzleCompletion(success),
-      (updateData) => this.broadcastUpdate(updateData)
-    );
-    this.activePuzzle.initialize();
-  }
+    // Prepare callbacks for the puzzle modules
+    const callbacks = {
+      showMessage: (message, type) => this._showMessage(message, type),
+      showSuccess: () => this.showSuccess(),
+      disableSubmit: () => this._disableSubmit(),
+      getCountdownElement: () => this.countdownElement,
+      startCountdown: (timeUpCallback) => this._startCountdown(timeUpCallback),
+      reduceTime: (seconds) => this._reduceTime(seconds),
+      submitSolution: this.submitSolution,
+      sendTeamUpdate: (data) => this._sendTeamUpdate(data),
+    };
 
-  /**
-   * Private: Initialize Code Relay Puzzle
-   * @param {HTMLElement} container - Container element
-   */
-  _initializeCodeRelayPuzzle(container) {
-    this.activePuzzle = new CodeRelayPuzzle(
-      container,
-      this.playerRole,
-      this.requiredRoles,
-      (success) => this._handlePuzzleCompletion(success),
-      (updateData) => this.broadcastUpdate(updateData)
-    );
-    this.activePuzzle.initialize();
-  }
+    // Get puzzle class loader function from map
+    const getPuzzleClass = this.puzzleTypeMap[puzzleType];
 
-  /**
-   * Private: Initialize Pressure Plate Maze Puzzle
-   * @param {HTMLElement} container - Container element
-   */
-  _initializePressurePlatePuzzle(container) {
-    this.activePuzzle = new PressurePlateMaze(
-      container,
-      this.playerRole,
-      this.requiredRoles,
-      (success) => this._handlePuzzleCompletion(success),
-      (updateData) => this.broadcastUpdate(updateData)
-    );
-    this.activePuzzle.initialize();
-  }
+    if (getPuzzleClass) {
+      try {
+        // Load the puzzle module dynamically
+        const PuzzleClass = await getPuzzleClass();
 
-  /**
-   * Private: Initialize Signal Frequency Puzzle
-   * @param {HTMLElement} container - Container element
-   */
-  _initializeSignalFrequencyPuzzle(container) {
-    this.activePuzzle = new SignalFrequencyPuzzle(
-      container,
-      this.playerRole,
-      this.requiredRoles,
-      (success) => this._handlePuzzleCompletion(success),
-      (updateData) => this.broadcastUpdate(updateData)
-    );
-    this.activePuzzle.initialize();
-  }
+        // Initialize the puzzle with proper parameters
+        this.activePuzzle = new PuzzleClass(
+          this.gameArea,
+          this.puzzleData,
+          callbacks,
+          this.playerRole
+        );
 
-  /**
-   * Private: Initialize Data Chain Puzzle
-   * @param {HTMLElement} container - Container element
-   */
-  _initializeDataChainPuzzle(container) {
-    this.activePuzzle = new DataChainPuzzle(
-      container,
-      this.playerRole,
-      this.requiredRoles,
-      (success) => this._handlePuzzleCompletion(success),
-      (updateData) => this.broadcastUpdate(updateData)
-    );
-    this.activePuzzle.initialize();
-  }
-
-  /**
-   * Private: Initialize a fallback puzzle based on stage
-   * @param {HTMLElement} container - Container element
-   */
-  _initializeFallbackPuzzle(container) {
-    // Pick a puzzle based on the stage
-    if (this.currentStage === 3) {
-      this._initializePowerGridPuzzle(container);
-    } else if (this.currentStage === 4) {
-      this._initializeCodeRelayPuzzle(container);
-    } else if (this.currentStage === 5) {
-      this._initializePressurePlatePuzzle(container);
-    } else {
-      // Default to power grid puzzle
-      this._initializePowerGridPuzzle(container);
-    }
-  }
-
-  /**
-   * Private: Handle puzzle completion
-   * @param {boolean} success - Whether the puzzle was completed successfully
-   */
-  _handlePuzzleCompletion(success) {
-    if (success) {
-      this.showSuccess();
-
-      // Call submit solution with success
-      if (this.submitSolution) {
-        // Check if this puzzle completes the stage (special team puzzle)
-        const completesStage = this.puzzleData.completes_stage || false;
-        this.submitSolution({ success: true, completesStage: completesStage });
+        // Initialize the puzzle
+        this.activePuzzle.initialize();
+      } catch (error) {
+        console.error(
+          `Error initializing team puzzle of type ${puzzleType}:`,
+          error
+        );
+        this._showMessage(
+          `Error initializing puzzle: ${error.message}`,
+          "error"
+        );
       }
+    } else {
+      console.error(`Unknown team puzzle type: ${puzzleType}`);
+      this._showMessage(`Unknown team puzzle type: ${puzzleType}`, "error");
+    }
+  }
+
+  /**
+   * Handle puzzle submission
+   */
+  _handleSubmit() {
+    if (!this.activePuzzle) return;
+
+    try {
+      // Get solution from active puzzle
+      const solution = this.activePuzzle.getSolution();
+
+      // Validate solution
+      if (this.activePuzzle.validateSolution(solution)) {
+        // Successful solution
+        this.isCompleted = true;
+        this._clearCountdown();
+        this._disableSubmit();
+
+        // Show success message
+        this.showSuccess();
+
+        // Send solution to game manager
+        if (this.submitSolution) {
+          this.submitSolution({
+            success: true,
+            solution: solution,
+            time_remaining: this.countdownValue,
+          });
+        }
+      } else {
+        // Failed solution
+        const errorMessage = this.activePuzzle.getErrorMessage();
+        this._showMessage(errorMessage, "error");
+
+        // Reduce time as penalty
+        this._reduceTime(10);
+      }
+    } catch (error) {
+      console.error("Error submitting solution:", error);
+      this._showMessage(`Error: ${error.message}`, "error");
+    }
+  }
+
+  /**
+   * Send update to other team members
+   * @param {Object} data - Update data to send
+   */
+  _sendTeamUpdate(data) {
+    if (!this.websocketManager) return;
+
+    const updateData = {
+      puzzle_type: this.puzzleData.type,
+      update_data: data,
+    };
+
+    // Send through websocket manager
+    try {
+      this.websocketManager.send({
+        type: "team_puzzle_update",
+        ...updateData,
+      });
+    } catch (error) {
+      console.error("Error sending team update:", error);
+    }
+  }
+
+  /**
+   * Handle updates from other team members
+   * @param {Object} updateData - Update data from other players
+   * @param {string} playerId - Player ID who sent the update
+   */
+  handleUpdate(updateData, playerId) {
+    if (!this.activePuzzle || !this.activePuzzle.handleTeamUpdate) return;
+
+    try {
+      this.activePuzzle.handleTeamUpdate(updateData, playerId);
+    } catch (error) {
+      console.error("Error handling team update:", error);
+    }
+  }
+
+  /**
+   * Start countdown timer
+   * @param {Function} timeUpCallback - Callback to execute when time is up
+   */
+  _startCountdown(timeUpCallback) {
+    this._clearCountdown();
+
+    this.timer = setInterval(() => {
+      this.countdownValue--;
+      this.updateCountdownDisplay();
+
+      if (this.countdownValue <= 0) {
+        this._clearCountdown();
+
+        if (timeUpCallback) {
+          timeUpCallback();
+        } else {
+          this._showMessage("Time's up! Puzzle failed.", "error");
+          this._disableSubmit();
+
+          // Notify game manager of failure
+          if (this.submitSolution) {
+            this.submitSolution({
+              success: false,
+              reason: "time_expired",
+            });
+          }
+        }
+      }
+    }, 1000);
+  }
+
+  /**
+   * Clear the countdown timer
+   */
+  _clearCountdown() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /**
+   * Update the countdown display
+   */
+  updateCountdownDisplay() {
+    if (this.countdownElement) {
+      this.countdownElement.textContent = `${Math.max(
+        0,
+        this.countdownValue
+      )}s`;
+
+      // Add visual styling based on time remaining
+      this.countdownElement.classList.remove(
+        "bg-green-600",
+        "bg-yellow-600",
+        "bg-red-600",
+        "bg-gray-900"
+      );
+
+      if (this.countdownValue > 60) {
+        this.countdownElement.classList.add("bg-green-600");
+      } else if (this.countdownValue > 20) {
+        this.countdownElement.classList.add("bg-yellow-600");
+      } else {
+        this.countdownElement.classList.add("bg-red-600");
+      }
+    }
+  }
+
+  /**
+   * Reduce countdown time
+   * @param {number} seconds - Seconds to reduce
+   */
+  _reduceTime(seconds) {
+    this.countdownValue = Math.max(1, this.countdownValue - seconds);
+    this.updateCountdownDisplay();
+  }
+
+  /**
+   * Get countdown time based on puzzle difficulty
+   * @returns {number} - Countdown time in seconds
+   */
+  _getCountdownTime() {
+    const difficulty = this.currentStage || 1;
+
+    // Base time for team puzzles - longer than individual puzzles
+    const baseTime = Math.max(60, 180 - (difficulty - 1) * 15);
+
+    return baseTime;
+  }
+
+  /**
+   * Show message in the message area
+   * @param {string} message - Message to display
+   * @param {string} type - Message type (info, success, error, warning)
+   */
+  _showMessage(message, type = "info") {
+    if (!this.messageElement) return;
+
+    // Reset classes
+    this.messageElement.className = "p-4 text-center";
+
+    // Apply type-specific styling
+    switch (type) {
+      case "success":
+        this.messageElement.classList.add("bg-green-700", "text-white");
+        break;
+      case "error":
+        this.messageElement.classList.add("bg-red-700", "text-white");
+        break;
+      case "warning":
+        this.messageElement.classList.add("bg-yellow-700", "text-white");
+        break;
+      default:
+        this.messageElement.classList.add("bg-gray-700", "text-white");
+    }
+
+    this.messageElement.textContent = message;
+
+    // For errors, make the message stand out with animation
+    if (type === "error") {
+      this.messageElement.classList.add("animate-pulse");
+      setTimeout(() => {
+        this.messageElement.classList.remove("animate-pulse");
+      }, 2000);
+    }
+  }
+
+  /**
+   * Disable the submit button
+   */
+  _disableSubmit() {
+    if (this.submitButton) {
+      this.submitButton.disabled = true;
+      this.submitButton.classList.add("opacity-50", "cursor-not-allowed");
+      this.submitButton.classList.remove("hover:bg-blue-700");
+    }
+  }
+
+  /**
+   * Enable the submit button
+   */
+  _enableSubmit() {
+    if (this.submitButton) {
+      this.submitButton.disabled = false;
+      this.submitButton.classList.remove("opacity-50", "cursor-not-allowed");
+      this.submitButton.classList.add("hover:bg-blue-700");
     }
   }
 
@@ -205,44 +433,103 @@ class TeamPuzzleController {
    * Display success message and visuals
    */
   showSuccess() {
-    this.isCompleted = true;
+    this._clearCountdown();
+    this._disableSubmit();
+    this._showMessage(
+      "Puzzle completed successfully! Great teamwork!",
+      "success"
+    );
 
-    // Update UI to show success
-    this.messageElement.textContent = "Team mission accomplished successfully!";
-    this.messageElement.className = "mb-4 text-green-400 text-center";
+    // Call active puzzle's success method if it exists
+    if (
+      this.activePuzzle &&
+      typeof this.activePuzzle.showSuccess === "function"
+    ) {
+      this.activePuzzle.showSuccess();
+    } else {
+      // Default success animation
+      this._showDefaultSuccessAnimation();
+    }
   }
 
   /**
-   * Handle random events
-   * @param {string} eventType - Type of random event
-   * @param {number} duration - Duration in seconds
+   * Show default success animation
    */
-  handleRandomEvent(eventType, duration) {
-    if (this.isCompleted) return;
+  _showDefaultSuccessAnimation() {
+    // Create success overlay
+    const successOverlay = document.createElement("div");
+    successOverlay.className =
+      "absolute inset-0 bg-green-500 bg-opacity-30 flex items-center justify-center z-10";
 
-    // Show message about the random event
-    this.messageElement.textContent = this._getRandomEventMessage(eventType);
-    this.messageElement.className = "mb-4 text-red-400 text-center";
+    const successIcon = document.createElement("div");
+    successIcon.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-24 w-24 text-green-500 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+      </svg>
+    `;
 
-    // Pass the event to the active puzzle
-    if (
-      this.activePuzzle &&
-      typeof this.activePuzzle.handleRandomEvent === "function"
-    ) {
-      this.activePuzzle.handleRandomEvent(eventType);
+    successOverlay.appendChild(successIcon);
+
+    // Add to game area if it exists
+    if (this.gameArea) {
+      // Make game area position relative for absolute positioning
+      if (getComputedStyle(this.gameArea).position === "static") {
+        this.gameArea.style.position = "relative";
+      }
+
+      this.gameArea.appendChild(successOverlay);
+
+      // Play success sound
+      this._playSuccessSound();
+
+      // Remove overlay after animation
+      setTimeout(() => {
+        successOverlay.remove();
+      }, 3000);
     }
+  }
 
-    // Hide message after duration
-    setTimeout(() => {
-      if (this.isCompleted) return;
-      this.messageElement.className = "mb-4 text-yellow-400 text-center hidden";
-    }, duration * 1000);
+  /**
+   * Play success sound
+   */
+  _playSuccessSound() {
+    try {
+      const successSound = new Audio("../static/sounds/puzzle-complete.mp3");
+      successSound.volume = 0.3;
+      successSound
+        .play()
+        .catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play success sound:", e);
+    }
+  }
+
+  /**
+   * Get puzzle title based on type
+   * @returns {string} - Puzzle title
+   */
+  _getPuzzleTitle() {
+    const puzzleType = this.puzzleData.type;
+
+    // Title mapping
+    const puzzleTitles = {
+      team_puzzle_1: "Alarm System Bypass",
+      team_puzzle_2: "Security Grid Hack",
+      team_puzzle_3: "Vault Lock Mechanism",
+      team_puzzle_4: "Data Decryption Challenge",
+      team_puzzle_5: "Final Escape Sequence",
+    };
+
+    return puzzleTitles[puzzleType] || `Team Challenge ${this.currentStage}`;
   }
 
   /**
    * Cleanup event listeners and references
    */
   cleanup() {
+    // Stop the timer
+    this._clearCountdown();
+
     // Clean up active puzzle
     if (this.activePuzzle && typeof this.activePuzzle.cleanup === "function") {
       this.activePuzzle.cleanup();
@@ -250,240 +537,15 @@ class TeamPuzzleController {
 
     // Clear references
     this.activePuzzle = null;
-    this.teamPuzzleContainer = null;
+    this.countdownElement = null;
     this.messageElement = null;
-  }
+    this.gameArea = null;
 
-  /**
-   * Private: Helper methods to determine puzzle type based on stage
-   */
-  _isPowerGridStage() {
-    return this.currentStage === 3 && !this.puzzleData.type;
-  }
-
-  _isCodeRelayStage() {
-    return this.currentStage === 4 && !this.puzzleData.type;
-  }
-
-  _isPressurePlateStage() {
-    return (
-      this.currentStage === 5 && this.puzzleData.subType === "pressure_plate"
-    );
-  }
-
-  _isSignalFrequencyStage() {
-    return (
-      this.currentStage === 5 && this.puzzleData.subType === "signal_frequency"
-    );
-  }
-
-  _isDataChainStage() {
-    return this.currentStage === 5 && this.puzzleData.subType === "data_chain";
-  }
-
-  /**
-   * Private: Get puzzle title based on stage or type
-   * @returns {string} - Puzzle title
-   */
-  _getPuzzleTitle() {
-    const puzzleType = this.puzzleData.type;
-
-    if (puzzleType === "team_puzzle_power_grid" || this._isPowerGridStage()) {
-      return "Power Grid Restoration";
-    } else if (
-      puzzleType === "team_puzzle_code_relay" ||
-      this._isCodeRelayStage()
-    ) {
-      return "Vault Code Relay";
-    } else if (
-      puzzleType === "team_puzzle_pressure_plate" ||
-      this._isPressurePlateStage()
-    ) {
-      return "Laser Grid Bypass";
-    } else if (
-      puzzleType === "team_puzzle_signal_frequency" ||
-      this._isSignalFrequencyStage()
-    ) {
-      return "Signal Frequency Calibration";
-    } else if (
-      puzzleType === "team_puzzle_data_chain" ||
-      this._isDataChainStage()
-    ) {
-      return "Data Chain Decoder";
-    } else {
-      switch (this.currentStage) {
-        case 3:
-          return "Security System Bypass";
-        case 4:
-          return "Vault Access Coordination";
-        case 5:
-          return "Final Escape";
-        default:
-          return "Team Coordination";
-      }
-    }
-  }
-
-  /**
-   * Private: Get puzzle instructions based on stage or type
-   * @returns {string} - Puzzle instructions
-   */
-  _getInstructions() {
-    const puzzleType = this.puzzleData.type;
-
-    if (puzzleType === "team_puzzle_power_grid" || this._isPowerGridStage()) {
-      return "Work together with your team to restore power to the security system. Each team member can only see part of the grid.";
-    } else if (
-      puzzleType === "team_puzzle_code_relay" ||
-      this._isCodeRelayStage()
-    ) {
-      return "Listen for your part of the security code and share it with your team to assemble the complete code.";
-    } else if (
-      puzzleType === "team_puzzle_pressure_plate" ||
-      this._isPressurePlateStage()
-    ) {
-      return "Navigate through the pressure plate maze by following the Lookout's instructions to deactivate the laser grid.";
-    } else if (
-      puzzleType === "team_puzzle_signal_frequency" ||
-      this._isSignalFrequencyStage()
-    ) {
-      return "Adjust your dial to match the target frequency. Each team member controls a different part of the signal.";
-    } else if (
-      puzzleType === "team_puzzle_data_chain" ||
-      this._isDataChainStage()
-    ) {
-      return "Decode your part of the data chain and pass the result to the next team member to unlock the final security system.";
-    } else {
-      switch (this.currentStage) {
-        case 3:
-          return "Work together with your team to bypass the security system. Each team member must select the correct action for their role.";
-        case 4:
-          return "Coordinate with your team to access the main vault. Timing and sequence are critical.";
-        case 5:
-          return "Execute the final escape plan. All team members must perform their assigned tasks to ensure a successful getaway.";
-        default:
-          return "Coordinate with your team to complete this mission.";
-      }
-    }
-  }
-
-  /**
-   * Private: Get mission objective based on stage
-   * @returns {string} - Mission objective
-   */
-  _getMissionObjective() {
-    switch (this.currentStage) {
-      case 3:
-        return "Bypass the laser security system by coordinating specialized skills from multiple team members.";
-      case 4:
-        return "Access the main vault by performing synchronized actions with precise timing.";
-      case 5:
-        return "Make your escape with the loot by executing a carefully planned extraction strategy.";
-      default:
-        return "Complete the team mission by coordinating multiple specialized skills.";
-    }
-  }
-
-  /**
-   * Private: Get random event message
-   * @param {string} eventType - Type of random event
-   * @returns {string} - Event message
-   */
-  _getRandomEventMessage(eventType) {
-    switch (eventType) {
-      case "security_patrol":
-        return "Alert: Security patrol approaching team position!";
-      case "camera_sweep":
-        return "Warning: Camera systems activating sweep mode!";
-      case "system_check":
-        return "Critical: Security system performing integrity check!";
-      case "power_surge":
-        return "Warning: Power surge detected in security systems!";
-      default:
-        return "Security alert detected!";
-    }
-  }
-
-  /**
-   * Broadcast team puzzle update to all other players
-   * @param {Object} updateData - Data to broadcast
-   */
-  broadcastUpdate(updateData) {
-    if (!this.websocketManager) return;
-
-    // Add puzzle type to update data
-    updateData.puzzle_type = this._getPuzzleType();
-
-    // Send via websocket
-    this.websocketManager
-      .send({
-        type: "team_puzzle_update",
-        room_code: this.puzzleData.room_code || "",
-        update_data: updateData,
-      })
-      .catch((error) => {
-        console.error("Error broadcasting team puzzle update:", error);
-      });
-  }
-
-  /**
-   * Handle team puzzle update from other players
-   * @param {Object} updateData - Update data received
-   * @param {string} senderId - ID of the player who sent the update
-   */
-  handleUpdate(updateData, senderId) {
-    if (this.isCompleted) return;
-
-    // Pass update to active puzzle if it exists and has a handleRemoteUpdate method
-    if (
-      this.activePuzzle &&
-      typeof this.activePuzzle.handleRemoteUpdate === "function"
-    ) {
-      this.activePuzzle.handleRemoteUpdate(updateData, senderId);
-    }
-  }
-
-  /**
-   * Get the puzzle type string for the active puzzle
-   * @returns {string} - Puzzle type
-   */
-  _getPuzzleType() {
-    const puzzleType = this.puzzleData.type;
-
-    if (puzzleType === "team_puzzle_power_grid" || this._isPowerGridStage()) {
-      return "power_grid";
-    } else if (
-      puzzleType === "team_puzzle_code_relay" ||
-      this._isCodeRelayStage()
-    ) {
-      return "code_relay";
-    } else if (
-      puzzleType === "team_puzzle_pressure_plate" ||
-      this._isPressurePlateStage()
-    ) {
-      return "pressure_plate";
-    } else if (
-      puzzleType === "team_puzzle_signal_frequency" ||
-      this._isSignalFrequencyStage()
-    ) {
-      return "signal_frequency";
-    } else if (
-      puzzleType === "team_puzzle_data_chain" ||
-      this._isDataChainStage()
-    ) {
-      return "data_chain";
-    } else {
-      // Default based on stage
-      switch (this.currentStage) {
-        case 3:
-          return "power_grid";
-        case 4:
-          return "code_relay";
-        case 5:
-          return "pressure_plate";
-        default:
-          return "power_grid";
-      }
+    // Clear event listeners by replacing with clone
+    if (this.submitButton) {
+      const newButton = this.submitButton.cloneNode(true);
+      this.submitButton.parentNode.replaceChild(newButton, this.submitButton);
+      this.submitButton = newButton;
     }
   }
 }

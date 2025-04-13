@@ -1,493 +1,429 @@
-// circuitPuzzle.js - Stage 1 Hacker puzzle - Circuit connection challenge
+// Circuit Puzzle - Level 1
+// A simple node connection game where players need to connect nodes to complete a circuit
 
 class CircuitPuzzle {
-  constructor(containerElement, puzzleData) {
+  constructor(containerElement, puzzleData, callbacks) {
     this.containerElement = containerElement;
     this.puzzleData = puzzleData;
-    this.gridSize = 5; // Default
-    this.grid = [];
-    this.currentPath = [];
-    this.isDragging = false;
+    this.callbacks = callbacks;
 
-    // DOM elements
-    this.gridElement = null;
+    // Puzzle state
+    this.nodes = [];
+    this.connections = [];
+    this.selectedNode = null;
+    this.isComplete = false;
+
+    // Difficulty variables
+    this.nodeCount = 5 + Math.min(3, puzzleData.difficulty || 1);
+    this.targetConnections = Math.floor(this.nodeCount * 0.8);
+
+    // Canvas context
+    this.canvas = null;
+    this.ctx = null;
   }
 
-  /**
-   * Initialize the puzzle
-   */
   initialize() {
-    // Get puzzle data
-    const { grid_size, start_point, end_point, barriers, switches } =
-      this.puzzleData.data || {};
+    this._createGameArea();
+    this._generateNodes();
+    this._attachEventListeners();
 
-    // Set default values for missing data
-    this.gridSize = grid_size || 5;
+    // Initial render
+    this._render();
 
-    // Default values if data is missing
-    const defaultStartPoint = [0, 0];
-    const defaultEndPoint = [this.gridSize - 1, this.gridSize - 1];
-    const safeStartPoint = Array.isArray(start_point)
-      ? start_point
-      : defaultStartPoint;
-    const safeEndPoint = Array.isArray(end_point) ? end_point : defaultEndPoint;
-    const safeBarriers = Array.isArray(barriers) ? barriers : [];
-    const safeSwitches = Array.isArray(switches) ? switches : [];
-
-    // Create grid
-    this.grid = Array(this.gridSize)
-      .fill()
-      .map(() => Array(this.gridSize).fill(0));
-
-    // Set start and end points
-    this.grid[safeStartPoint[0]][safeStartPoint[1]] = 2; // Start
-    this.grid[safeEndPoint[0]][safeEndPoint[1]] = 3; // End
-
-    // Set barriers
-    safeBarriers.forEach(([x, y]) => {
-      if (x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize) {
-        this.grid[x][y] = 4; // Barrier
-      }
-    });
-
-    // Set switches
-    safeSwitches.forEach(([x, y]) => {
-      if (x >= 0 && x < this.gridSize && y >= 0 && y < this.gridSize) {
-        this.grid[x][y] = 5; // Switch
-      }
-    });
-
-    // Create the grid element
-    this._createGridElement();
-  }
-
-  /**
-   * Create the grid element with cells
-   */
-  _createGridElement() {
-    this.gridElement = document.createElement("div");
-    this.gridElement.className =
-      "grid gap-1 bg-gray-900 p-4 rounded-lg select-none";
-    this.gridElement.style.gridTemplateColumns = `repeat(${this.gridSize}, minmax(0, 1fr))`;
-    this.gridElement.style.width = `${this.gridSize * 60}px`;
-
-    // Create cells
-    for (let y = 0; y < this.gridSize; y++) {
-      for (let x = 0; x < this.gridSize; x++) {
-        const cell = document.createElement("div");
-        cell.className =
-          "grid-cell w-12 h-12 rounded-md flex items-center justify-center";
-        cell.dataset.x = x;
-        cell.dataset.y = y;
-
-        // Set cell appearance based on grid value
-        this._updateCellAppearance(cell, this.grid[x][y]);
-
-        // Add event listeners for circuit drawing
-        cell.addEventListener("mousedown", (e) =>
-          this._handleCellMouseDown(e, x, y)
-        );
-        cell.addEventListener("mouseenter", (e) =>
-          this._handleCellMouseEnter(e, x, y)
-        );
-        cell.addEventListener("touchstart", (e) => {
-          e.preventDefault();
-          this._handleCellMouseDown(e, x, y);
-        });
-        cell.addEventListener("touchmove", (e) => {
-          e.preventDefault();
-          const touch = e.touches[0];
-          const elementsAtTouch = document.elementsFromPoint(
-            touch.clientX,
-            touch.clientY
-          );
-          const touchedCell = elementsAtTouch.find((el) =>
-            el.classList.contains("grid-cell")
-          );
-
-          if (touchedCell) {
-            const touchX = parseInt(touchedCell.dataset.x);
-            const touchY = parseInt(touchedCell.dataset.y);
-            this._handleCellMouseEnter(e, touchX, touchY);
-          }
-        });
-
-        this.gridElement.appendChild(cell);
-      }
-    }
-
-    // Add mouseup/touchend event to document to end dragging
-    document.addEventListener("mouseup", () => {
-      this.isDragging = false;
-    });
-
-    document.addEventListener("touchend", () => {
-      this.isDragging = false;
-    });
-
-    // Add visual feedback for circuit energy
-    this._addCircuitEnergyEffects();
-
-    this.containerElement.appendChild(this.gridElement);
-  }
-
-  /**
-   * Add visual effects for circuit energy
-   */
-  _addCircuitEnergyEffects() {
-    // Add a pulsing effect container
-    const energyEffectContainer = document.createElement("div");
-    energyEffectContainer.className = "relative w-full h-full";
-    energyEffectContainer.style.position = "absolute";
-    energyEffectContainer.style.top = "0";
-    energyEffectContainer.style.left = "0";
-    energyEffectContainer.style.pointerEvents = "none";
-
-    // Add a circuit diagram background (cosmetic)
-    const circuitBg = document.createElement("div");
-    circuitBg.className = "absolute inset-0 opacity-10";
-    circuitBg.style.backgroundImage =
-      "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiB2aWV3Qm94PSIwIDAgMTAwIDEwMCI+PHBhdGggZD0iTTAgMCBMIDEwMCAxMDAgTSA1MCAwIEwgNTAgMTAwIE0gMCA1MCBMIDM1IDUwIE0gNjUgNTAgTCAxMDAgNTAgTSAxMCAxMCBMIDM1IDM1IE0gNjUgNjUgTCA5MCA5MCBNIDM1IDY1IEwgNjUgMzUiIHN0cm9rZT0iIzAwZmZmZiIgc3Ryb2tlLXdpZHRoPSIyIiBmaWxsPSJub25lIi8+PC9zdmc+')";
-    energyEffectContainer.appendChild(circuitBg);
-
-    // Add container before the grid
-    this.containerElement.appendChild(energyEffectContainer);
-  }
-
-  /**
-   * Update cell appearance based on its type
-   * @param {HTMLElement} cell - Cell element
-   * @param {number} type - Cell type (0: empty, 1: path, 2: start, 3: end, 4: barrier, 5: switch)
-   */
-  _updateCellAppearance(cell, type) {
-    // Reset classes
-    cell.className =
-      "grid-cell w-12 h-12 rounded-md flex items-center justify-center";
-    cell.innerHTML = "";
-
-    switch (type) {
-      case 0: // Empty
-        cell.classList.add(
-          "bg-gray-700",
-          "hover:bg-gray-600",
-          "cursor-pointer",
-          "transition-all",
-          "duration-200"
-        );
-        break;
-      case 1: // Path
-        cell.classList.add(
-          "bg-blue-500",
-          "cursor-pointer",
-          "pulse-effect",
-          "transition-all",
-          "duration-200"
-        );
-        // Add circuit line effect
-        const pathInner = document.createElement("div");
-        pathInner.className = "w-8 h-8 rounded-sm bg-blue-300 opacity-30";
-        cell.appendChild(pathInner);
-        break;
-      case 2: // Start
-        cell.classList.add(
-          "bg-green-600",
-          "cursor-not-allowed",
-          "transition-all",
-          "duration-200"
-        );
-        cell.innerHTML =
-          '<div class="w-6 h-6 rounded-full bg-green-400 flex items-center justify-center text-xs font-bold pulse-strong">IN</div>';
-        break;
-      case 3: // End
-        cell.classList.add(
-          "bg-red-600",
-          "cursor-not-allowed",
-          "transition-all",
-          "duration-200"
-        );
-        cell.innerHTML =
-          '<div class="w-6 h-6 rounded-full bg-red-400 flex items-center justify-center text-xs font-bold">OUT</div>';
-        break;
-      case 4: // Barrier
-        cell.classList.add(
-          "bg-gray-900",
-          "cursor-not-allowed",
-          "transition-all",
-          "duration-200"
-        );
-        const barrierInner = document.createElement("div");
-        barrierInner.className =
-          "w-full h-full border-2 border-gray-600 rounded-md flex items-center justify-center";
-        barrierInner.innerHTML =
-          '<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>';
-        cell.appendChild(barrierInner);
-        break;
-      case 5: // Switch
-        cell.classList.add(
-          "bg-yellow-600",
-          "cursor-pointer",
-          "transition-all",
-          "duration-200"
-        );
-        cell.innerHTML =
-          '<div class="w-6 h-6 rounded-full bg-yellow-400 flex items-center justify-center text-xs font-bold">S</div>';
-        break;
-    }
-  }
-
-  /**
-   * Handle mouse down on a cell
-   * @param {Event} e - Mouse event
-   * @param {number} x - Cell x coordinate
-   * @param {number} y - Cell y coordinate
-   */
-  _handleCellMouseDown(e, x, y) {
-    // Can only start drawing from start, end, switch, or existing path cells
-    const cellType = this.grid[x][y];
-    if (cellType === 4) return; // Can't start from barriers
-
-    // Clear previous path
-    this._clearPath();
-
-    // Start new path
-    this.isDragging = true;
-
-    // Add first cell to path
-    this._addToPath(x, y);
-  }
-
-  /**
-   * Handle mouse enter on a cell (for dragging)
-   * @param {Event} e - Mouse event
-   * @param {number} x - Cell x coordinate
-   * @param {number} y - Cell y coordinate
-   */
-  _handleCellMouseEnter(e, x, y) {
-    if (!this.isDragging) return;
-
-    // Check if cell is valid to add to path
-    const cellType = this.grid[x][y];
-    if (cellType === 4) return; // Can't go through barriers
-
-    // Check if cell is adjacent to the last cell in the path
-    const lastCell = this.currentPath[this.currentPath.length - 1];
-    const dx = Math.abs(x - lastCell.x);
-    const dy = Math.abs(y - lastCell.y);
-
-    if ((dx === 1 && dy === 0) || (dx === 0 && dy === 1)) {
-      // Add to path
-      this._addToPath(x, y);
-    }
-  }
-
-  /**
-   * Add a cell to the current path
-   * @param {number} x - Cell x coordinate
-   * @param {number} y - Cell y coordinate
-   */
-  _addToPath(x, y) {
-    // Skip if cell is already in path
-    if (this.currentPath.some((cell) => cell.x === x && cell.y === y)) {
-      return;
-    }
-
-    // Add to path
-    this.currentPath.push({ x, y });
-
-    // Don't modify start/end/barrier/switch cells' values
-    const cellType = this.grid[x][y];
-    if (cellType === 0) {
-      // Update grid
-      this.grid[x][y] = 1; // Mark as path
-
-      // Update cell appearance
-      const cell = this.gridElement.querySelector(
-        `[data-x="${x}"][data-y="${y}"]`
+    // Show instructions
+    if (this.callbacks && this.callbacks.showMessage) {
+      this.callbacks.showMessage(
+        "Connect the circuit nodes to create a complete path. Click nodes to connect them.",
+        "info"
       );
-      this._updateCellAppearance(cell, 1);
-    }
-
-    // Add a subtle sound effect to enhance user experience
-    this._playConnectionSound();
-  }
-
-  /**
-   * Play a connection sound effect
-   */
-  _playConnectionSound() {
-    try {
-      // Check if AudioContext is available
-      if (window.AudioContext || window.webkitAudioContext) {
-        const AudioContextClass =
-          window.AudioContext || window.webkitAudioContext;
-        const audioCtx = new AudioContextClass();
-
-        // Create an oscillator
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-
-        // Connect the oscillator to the gain node and the gain node to the destination
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-
-        // Set the oscillator type and frequency
-        oscillator.type = "sine";
-        oscillator.frequency.value = 880 + Math.random() * 220; // Random high-pitched tone
-
-        // Set the gain value to a very low level
-        gainNode.gain.value = 0.03; // Very quiet
-
-        // Start and stop the oscillator
-        oscillator.start();
-        setTimeout(() => {
-          oscillator.stop();
-        }, 50);
-      }
-    } catch (e) {
-      // Ignore any errors with audio - it's just an enhancement
-      console.debug("Sound effect not available", e);
     }
   }
 
-  /**
-   * Clear the current path
-   */
-  _clearPath() {
-    // Reset grid
-    for (let x = 0; x < this.gridSize; x++) {
-      for (let y = 0; y < this.gridSize; y++) {
-        if (this.grid[x][y] === 1) {
-          this.grid[x][y] = 0;
+  _createGameArea() {
+    // Create canvas
+    this.canvas = document.createElement("canvas");
+    this.canvas.width = 600;
+    this.canvas.height = 400;
+    this.canvas.className =
+      "bg-gray-900 rounded-lg mx-auto block border border-blue-500";
+    this.containerElement.appendChild(this.canvas);
 
-          // Update cell appearance
-          const cell = this.gridElement.querySelector(
-            `[data-x="${x}"][data-y="${y}"]`
-          );
-          this._updateCellAppearance(cell, 0);
+    // Get context
+    this.ctx = this.canvas.getContext("2d");
+
+    // Add instructions
+    const instructions = document.createElement("div");
+    instructions.className = "text-sm text-blue-300 mt-4 text-center";
+    instructions.innerHTML =
+      "Click on a node, then click on another node to connect them. Connect all required nodes to complete the circuit.";
+    this.containerElement.appendChild(instructions);
+
+    // Add status display
+    this.statusDisplay = document.createElement("div");
+    this.statusDisplay.className =
+      "mt-4 text-center text-white font-mono bg-gray-800 p-2 rounded";
+    this.statusDisplay.innerHTML = `Circuit Completion: <span class="text-blue-400">0/${this.targetConnections}</span>`;
+    this.containerElement.appendChild(this.statusDisplay);
+  }
+
+  _generateNodes() {
+    // Create nodes
+    for (let i = 0; i < this.nodeCount; i++) {
+      this.nodes.push({
+        id: i,
+        x: 100 + Math.random() * 400,
+        y: 50 + Math.random() * 300,
+        radius: 20,
+        color: "#4B5563",
+        connected: false,
+      });
+    }
+
+    // Always make first and last nodes special (start/end)
+    this.nodes[0].color = "#3B82F6"; // Start node - blue
+    this.nodes[this.nodes.length - 1].color = "#10B981"; // End node - green
+  }
+
+  _attachEventListeners() {
+    this.canvas.addEventListener("click", (e) => {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      this._handleClick(x, y);
+    });
+  }
+
+  _handleClick(x, y) {
+    // Find if a node was clicked
+    const clickedNodeIndex = this.nodes.findIndex(
+      (node) =>
+        Math.sqrt(Math.pow(x - node.x, 2) + Math.pow(y - node.y, 2)) <
+        node.radius
+    );
+
+    if (clickedNodeIndex !== -1) {
+      // Handle node click
+      if (this.selectedNode === null) {
+        // First node selection
+        this.selectedNode = clickedNodeIndex;
+        this.nodes[clickedNodeIndex].color = "#A78BFA"; // Purple when selected
+      } else if (this.selectedNode !== clickedNodeIndex) {
+        // Second node selection - create connection if it doesn't exist
+        const alreadyConnected = this.connections.some(
+          (conn) =>
+            (conn.from === this.selectedNode && conn.to === clickedNodeIndex) ||
+            (conn.from === clickedNodeIndex && conn.to === this.selectedNode)
+        );
+
+        if (!alreadyConnected) {
+          this.connections.push({
+            from: this.selectedNode,
+            to: clickedNodeIndex,
+          });
+
+          // Mark nodes as connected
+          this.nodes[this.selectedNode].connected = true;
+          this.nodes[clickedNodeIndex].connected = true;
+
+          // Play connection sound
+          this._playSound("connection");
         }
+
+        // Reset selection
+        this.nodes[this.selectedNode].color = this.nodes[this.selectedNode]
+          .connected
+          ? "#6B7280"
+          : "#4B5563";
+        this.selectedNode = null;
+
+        // Check if puzzle is solved
+        this._checkCompletion();
+      } else {
+        // Clicked same node twice - deselect
+        this.nodes[this.selectedNode].color = this.nodes[this.selectedNode]
+          .connected
+          ? "#6B7280"
+          : "#4B5563";
+        this.selectedNode = null;
       }
+
+      // Update display
+      this._updateStatusDisplay();
+      this._render();
     }
-
-    // Clear path array
-    this.currentPath = [];
   }
 
-  /**
-   * Get the current solution
-   * @returns {Array} - The current path as a solution
-   */
-  getSolution() {
-    return this.currentPath.map((cell) => [cell.x, cell.y]);
-  }
+  _checkCompletion() {
+    // Count connected nodes
+    const connectedCount = this.nodes.filter((node) => node.connected).length;
 
-  /**
-   * Validate the current solution
-   * @param {Array} solution - The solution to validate
-   * @returns {boolean} - Whether the solution is valid
-   */
-  validateSolution(solution) {
-    // Extract puzzle data with defaults for safety
-    const data = this.puzzleData.data || {};
-    const { start_point, end_point, switches } = data;
+    // Check if start and end are connected through a path
+    const startIndex = 0;
+    const endIndex = this.nodes.length - 1;
 
-    const safeStartPoint = Array.isArray(start_point) ? start_point : [0, 0];
-    const safeEndPoint = Array.isArray(end_point)
-      ? end_point
-      : [this.gridSize - 1, this.gridSize - 1];
-    const safeSwitches = Array.isArray(switches) ? switches : [];
-
-    // Ensure solution starts at start point
-    if (!solution || solution.length < 2) {
+    // Check if both start and end nodes are connected
+    if (!this.nodes[startIndex].connected || !this.nodes[endIndex].connected) {
       return false;
     }
 
-    // Verify path contains start and end points
-    const hasStart = solution.some(
-      ([x, y]) => x === safeStartPoint[0] && y === safeStartPoint[1]
-    );
-    const hasEnd = solution.some(
-      ([x, y]) => x === safeEndPoint[0] && y === safeEndPoint[1]
-    );
+    // Check if there are enough connections
+    if (this.connections.length < this.targetConnections) {
+      return false;
+    }
 
-    // Verify path contains all switches
-    const allSwitchesIncluded = safeSwitches.every(([x, y]) =>
-      solution.some(([sX, sY]) => sX === x && sY === y)
-    );
+    // Simple path finding to ensure start and end are connected
+    const visited = new Array(this.nodes.length).fill(false);
+    this._depthFirstSearch(startIndex, visited);
 
-    return hasStart && hasEnd && allSwitchesIncluded;
+    if (visited[endIndex]) {
+      this.isComplete = true;
+
+      // Display success
+      if (this.callbacks && this.callbacks.showSuccess) {
+        this.callbacks.showSuccess();
+      }
+
+      return true;
+    }
+
+    return false;
   }
 
-  /**
-   * Get error message for invalid solution
-   * @returns {string} - Error message
-   */
+  _depthFirstSearch(nodeIndex, visited) {
+    visited[nodeIndex] = true;
+
+    // Find all connections for this node
+    for (const conn of this.connections) {
+      if (conn.from === nodeIndex && !visited[conn.to]) {
+        this._depthFirstSearch(conn.to, visited);
+      } else if (conn.to === nodeIndex && !visited[conn.from]) {
+        this._depthFirstSearch(conn.from, visited);
+      }
+    }
+  }
+
+  _render() {
+    // Clear canvas
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // Draw grid lines
+    this.ctx.strokeStyle = "#1F2937";
+    this.ctx.lineWidth = 1;
+
+    // Draw vertical grid lines
+    for (let x = 0; x < this.canvas.width; x += 50) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, 0);
+      this.ctx.lineTo(x, this.canvas.height);
+      this.ctx.stroke();
+    }
+
+    // Draw horizontal grid lines
+    for (let y = 0; y < this.canvas.height; y += 50) {
+      this.ctx.beginPath();
+      this.ctx.moveTo(0, y);
+      this.ctx.lineTo(this.canvas.width, y);
+      this.ctx.stroke();
+    }
+
+    // Draw connections
+    this.ctx.strokeStyle = "#60A5FA";
+    this.ctx.lineWidth = 3;
+
+    for (const connection of this.connections) {
+      const fromNode = this.nodes[connection.from];
+      const toNode = this.nodes[connection.to];
+
+      this.ctx.beginPath();
+      this.ctx.moveTo(fromNode.x, fromNode.y);
+      this.ctx.lineTo(toNode.x, toNode.y);
+      this.ctx.stroke();
+
+      // Add electricity animation
+      if (this.isComplete) {
+        this._drawElectricity(fromNode, toNode);
+      }
+    }
+
+    // Draw nodes
+    for (const node of this.nodes) {
+      // Draw outer circle
+      this.ctx.beginPath();
+      this.ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
+      this.ctx.fillStyle = node.color;
+      this.ctx.fill();
+
+      // Draw inner circle
+      this.ctx.beginPath();
+      this.ctx.arc(node.x, node.y, node.radius - 5, 0, Math.PI * 2);
+      this.ctx.fillStyle = "#111827";
+      this.ctx.fill();
+
+      // Draw node ID
+      this.ctx.fillStyle = "#E5E7EB";
+      this.ctx.font = "12px monospace";
+      this.ctx.textAlign = "center";
+      this.ctx.textBaseline = "middle";
+      this.ctx.fillText(node.id.toString(), node.x, node.y);
+    }
+  }
+
+  _drawElectricity(fromNode, toNode) {
+    // Create a lightning effect between nodes
+    this.ctx.save();
+    this.ctx.strokeStyle = "#FBBF24";
+    this.ctx.lineWidth = 2;
+
+    const dx = toNode.x - fromNode.x;
+    const dy = toNode.y - fromNode.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Number of segments
+    const segments = 6;
+    const segmentLength = dist / segments;
+
+    // Start position
+    let x = fromNode.x;
+    let y = fromNode.y;
+
+    // Direction
+    const angle = Math.atan2(dy, dx);
+
+    this.ctx.beginPath();
+    this.ctx.moveTo(x, y);
+
+    // Create jagged lightning path
+    for (let i = 0; i < segments - 1; i++) {
+      // Calculate next point along the line
+      const nextX = fromNode.x + Math.cos(angle) * (segmentLength * (i + 1));
+      const nextY = fromNode.y + Math.sin(angle) * (segmentLength * (i + 1));
+
+      // Add some randomness
+      const offsetAmount = 5 * Math.sin(Date.now() / 100 + i);
+      const offsetX = -Math.sin(angle) * offsetAmount;
+      const offsetY = Math.cos(angle) * offsetAmount;
+
+      // Line to the next point with offset
+      this.ctx.lineTo(nextX + offsetX, nextY + offsetY);
+    }
+
+    // Final line to target
+    this.ctx.lineTo(toNode.x, toNode.y);
+    this.ctx.stroke();
+    this.ctx.restore();
+  }
+
+  _updateStatusDisplay() {
+    if (this.statusDisplay) {
+      const connectedCount = this.connections.length;
+      this.statusDisplay.innerHTML = `Circuit Completion: <span class="text-blue-400">${connectedCount}/${this.targetConnections}</span>`;
+    }
+  }
+
+  _playSound(type) {
+    try {
+      let sound;
+      switch (type) {
+        case "connection":
+          sound = new Audio("../static/sounds/circuit-connect.mp3");
+          sound.volume = 0.2;
+          break;
+        case "success":
+          sound = new Audio("../static/sounds/circuit-complete.mp3");
+          sound.volume = 0.3;
+          break;
+        default:
+          return;
+      }
+
+      sound.play().catch((e) => console.warn("Could not play sound:", e));
+    } catch (e) {
+      console.warn("Could not play sound:", e);
+    }
+  }
+
+  // Methods required by UniversalPuzzleController
+  getSolution() {
+    return {
+      connections: this.connections.length,
+      isComplete: this.isComplete,
+    };
+  }
+
+  validateSolution() {
+    return this.isComplete;
+  }
+
   getErrorMessage() {
-    // Extract puzzle data with defaults for safety
-    const data = this.puzzleData.data || {};
-    const { start_point, end_point, switches } = data;
-
-    const safeStartPoint = Array.isArray(start_point) ? start_point : [0, 0];
-    const safeEndPoint = Array.isArray(end_point)
-      ? end_point
-      : [this.gridSize - 1, this.gridSize - 1];
-    const safeSwitches = Array.isArray(switches) ? switches : [];
-
-    // Check each condition separately
-    const hasStart = this.currentPath.some(
-      (cell) => cell.x === safeStartPoint[0] && cell.y === safeStartPoint[1]
-    );
-    const hasEnd = this.currentPath.some(
-      (cell) => cell.x === safeEndPoint[0] && cell.y === safeEndPoint[1]
-    );
-
-    // Verify path contains all switches
-    const missingSwitches = safeSwitches.filter(
-      ([x, y]) => !this.currentPath.some((cell) => cell.x === x && cell.y === y)
-    );
-
-    if (!hasStart || !hasEnd) {
-      return "Error: Circuit must connect input to output!";
+    if (this.connections.length < this.targetConnections) {
+      return `Need more connections! (${this.connections.length}/${this.targetConnections})`;
     }
-
-    if (missingSwitches.length > 0) {
-      return `Error: ${missingSwitches.length} switch${
-        missingSwitches.length > 1 ? "es" : ""
-      } not connected!`;
-    }
-
-    return "Invalid circuit path. Please try again.";
+    return "The circuit is not complete. Ensure start and end nodes are connected.";
   }
 
-  /**
-   * Disable puzzle (used during random events or when completed)
-   */
-  disable() {
-    if (this.gridElement) {
-      this.gridElement.classList.add("opacity-50", "pointer-events-none");
+  showSuccess() {
+    // Mark all nodes with success color
+    for (const node of this.nodes) {
+      node.color = "#10B981";
     }
+
+    // Play success sound
+    this._playSound("success");
+
+    // Show animation
+    const animateSuccess = () => {
+      this._render();
+      if (this.isComplete) {
+        requestAnimationFrame(animateSuccess);
+      }
+    };
+
+    animateSuccess();
   }
 
-  /**
-   * Enable puzzle after being disabled
-   */
-  enable() {
-    if (this.gridElement) {
-      this.gridElement.classList.remove("opacity-50", "pointer-events-none");
-    }
-  }
-
-  /**
-   * Cleanup resources
-   */
   cleanup() {
-    // Remove mouseup/touchend listeners
-    document.removeEventListener("mouseup", () => {
-      this.isDragging = false;
-    });
+    if (this.canvas) {
+      // Remove event listeners
+      this.canvas.removeEventListener("click", this._handleClick);
 
-    document.removeEventListener("touchend", () => {
-      this.isDragging = false;
-    });
+      // Clear animation frames
+      this.isComplete = false;
+    }
+  }
+
+  handleRandomEvent(eventType, duration) {
+    if (eventType === "security_patrol") {
+      // Temporarily disable some random nodes
+      const nodesToDisable = Math.min(2, Math.floor(this.nodeCount / 3));
+
+      const disabledNodeIndexes = [];
+      for (let i = 0; i < nodesToDisable; i++) {
+        // Don't disable start or end node
+        let randomIndex;
+        do {
+          randomIndex = Math.floor(Math.random() * this.nodes.length);
+        } while (
+          randomIndex === 0 ||
+          randomIndex === this.nodes.length - 1 ||
+          disabledNodeIndexes.includes(randomIndex)
+        );
+
+        disabledNodeIndexes.push(randomIndex);
+        const originalColor = this.nodes[randomIndex].color;
+        this.nodes[randomIndex].color = "#DC2626"; // Red
+
+        // Reset after duration
+        setTimeout(() => {
+          if (this.nodes[randomIndex]) {
+            this.nodes[randomIndex].color = originalColor;
+            this._render();
+          }
+        }, duration * 1000);
+      }
+
+      this._render();
+    }
   }
 }
 
