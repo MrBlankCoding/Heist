@@ -574,6 +574,61 @@ class PlayerStateManager {
         updateData: data.update_data,
       });
     });
+
+    websocketManager.registerMessageHandler("game_state_sync", (data) => {
+      console.log("Received game_state_sync:", data);
+      if (!data.game_state) return;
+
+      const gameState = data.game_state;
+      this.gameState.stage = gameState.stage;
+      this.gameState.status = gameState.status;
+      this.gameState.timer = gameState.timer;
+      this.gameState.alertLevel = gameState.alert_level;
+
+      // Process players and update our state
+      const updatedPlayers = {};
+      Object.entries(gameState.players).forEach(([playerId, playerData]) => {
+        updatedPlayers[playerId] = {
+          id: playerId,
+          name: playerData.name || `Player ${playerId.slice(0, 4)}`,
+          role: playerData.role,
+          connected: playerData.connected,
+          is_host: playerData.is_host,
+        };
+
+        // If this is our player, update our role
+        if (playerId === this.gameState.playerId && playerData.role) {
+          console.log(
+            `Setting player role to ${playerData.role} on reconnection`
+          );
+          this.gameState.playerRole = playerData.role;
+          this.trigger("roleChanged", playerData.role);
+        }
+      });
+      this.gameState.players = updatedPlayers;
+
+      if (gameState.status === "in_progress" && !this.localTimerInterval) {
+        this._startLocalTimer();
+      }
+
+      this.trigger("gameStateUpdated", gameState);
+
+      // Trigger player connected events for UI update
+      Object.entries(updatedPlayers).forEach(([playerId, player]) => {
+        this.trigger("playerConnected", {
+          id: playerId,
+          name: player.name,
+          role: player.role,
+          connected: player.connected,
+          is_host: player.is_host,
+        });
+      });
+
+      // If game is in progress and we have a role, ensure puzzles are loaded
+      if (gameState.status === "in_progress" && this.gameState.playerRole) {
+        this.fetchPuzzlesForRole();
+      }
+    });
   }
 
   _startLocalTimer() {

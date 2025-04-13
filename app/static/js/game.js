@@ -156,6 +156,12 @@ class GameController {
         this.eventHandler.handleAlertLevelChanged(level)
       );
 
+      // Player role events
+      playerStateManager.on("roleChanged", (role) => {
+        console.log("Player role changed:", role);
+        this._updateRoleInstructions();
+      });
+
       // Puzzle events
       playerStateManager.on("puzzleReceived", (puzzle) =>
         this.eventHandler.handlePuzzleReceived(puzzle)
@@ -229,6 +235,14 @@ class GameController {
 
   _updateRoleInstructions() {
     const playerRole = playerStateManager.gameState.playerRole;
+
+    // Update the player-role element in the UI
+    const playerRoleElement = document.getElementById("player-role");
+    if (playerRoleElement && playerRole) {
+      playerRoleElement.textContent = playerRole.toUpperCase();
+    }
+
+    // Update the role instruction element
     if (playerRole && this.uiManager.elements.roleInstruction) {
       const roleInfo = playerStateManager.getRoleInfo(playerRole);
       if (roleInfo) {
@@ -238,6 +252,21 @@ class GameController {
           "italic"
         );
       }
+    }
+
+    // If we're reconnecting to a game in progress, make sure we show the game area
+    if (
+      playerStateManager.gameState.status ===
+        playerStateManager.GAME_STATUS.IN_PROGRESS &&
+      playerRole
+    ) {
+      gameStartScreen.hideLobby();
+      if (this.uiManager.elements.gameArea) {
+        this.uiManager.elements.gameArea.classList.remove("hidden");
+      }
+
+      // Make sure puzzles are loaded
+      playerStateManager.fetchPuzzlesForRole();
     }
   }
 
@@ -285,6 +314,13 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(() => websocketManager.connect(roomCode, playerId))
     .then(() => {
       console.log("Connected to game server");
+
+      // After successful connection, fetch player role
+      // This ensures we have the role data even after page reload
+      websocketManager.send({ type: "sync_game_state" }).catch((error) => {
+        console.error("Error syncing game state:", error);
+      });
+
       gameStartScreen.showLobby();
     })
     .catch((error) => {

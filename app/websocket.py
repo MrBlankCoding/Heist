@@ -1232,13 +1232,38 @@ async def handle_sync_game_state(
     # Add player data
     for pid, player in room.players.items():
         if isinstance(player, dict):
-            game_state["players"][pid] = player
+            game_state["players"][pid] = {
+                "id": pid,
+                "name": player.get("name", f"Player {pid[:4]}"),
+                "role": player.get("role", ""),
+                "connected": player.get("connected", False),
+                "is_host": player.get("is_host", False),
+            }
         else:
-            game_state["players"][pid] = player.dict()
+            game_state["players"][pid] = {
+                "id": pid,
+                "name": player.name,
+                "role": player.role,
+                "connected": player.connected,
+                "is_host": player.is_host,
+            }
 
     # Add stage completion data if available
     if hasattr(room, "stage_completion"):
         game_state["stage_completion"] = room.stage_completion
+
+    # Log detailed information about the player's role for debugging
+    player_role = get_player_role(room, player_id)
+    print(f"Syncing game state for player {player_id}, role: {player_role}")
+
+    # Double-check that the player's role is included in the response
+    if player_id in game_state["players"]:
+        player_data = game_state["players"][player_id]
+        if not player_data.get("role") and player_role:
+            player_data["role"] = player_role
+            print(
+                f"Fixed missing role for player {player_id} during sync: {player_role}"
+            )
 
     # Send synchronized state
     await connected_players[player_id].send_json(
